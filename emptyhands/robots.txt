@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://emptyhands.co.uk/sitemap.xml
