@@ -876,6 +876,15 @@ sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 300 });
 sun.shadow.bias = -0.0005;
 scene.add(sun); scene.add(sun.target);
+// The sun (and its shadow) follows the view, moving in whole shadow-map pixels
+// across the light's direction so shadow edges stay still instead of crawling.
+const SUN_OFF = new V3(60, 110, 40), SUN_TEXEL = 120 / 2048;
+const sunDir = SUN_OFF.clone().normalize(), sunRight = new V3(0, 1, 0).cross(sunDir).normalize(), sunUp = sunDir.clone().cross(sunRight);
+function placeSun(p) {
+  const snap = v => Math.round(v / SUN_TEXEL) * SUN_TEXEL;
+  sun.target.position.copy(sunRight).multiplyScalar(snap(p.dot(sunRight))).addScaledVector(sunUp, snap(p.dot(sunUp))).addScaledVector(sunDir, p.dot(sunDir));
+  sun.position.copy(sun.target.position).add(SUN_OFF);
+}
 const headlight = new THREE.SpotLight(0xfff1d0, 0, 90, 0.55, 0.5, 1.2);
 scene.add(headlight); scene.add(headlight.target);
 
@@ -1585,6 +1594,9 @@ class Car {
   constructor(spec, color) {
     this.pos = new V3(); this.vel = new V3(); this.q = new THREE.Quaternion(); this.w = new V3();
     this.n = UP.clone(); this.visUp = UP.clone();
+    // Where the car was before the latest physics step, and where it's drawn:
+    // between the two, so it moves evenly however the frames and steps line up.
+    this.pPos = new V3(); this.pQ = new THREE.Quaternion(); this.rPos = new V3(); this.rQ = new THREE.Quaternion();
     this.setSpec(spec, color); this.clearState(0);
   }
   setSpec(spec, color) {
@@ -1671,6 +1683,7 @@ class Car {
     this.vehicle.resetSuspension();
     for (let i = 0; i < this.wheels.length; i++) { this.vehicle.setSteeringValue(0, i); this.vehicle.applyEngineForce(0, i); this.vehicle.setBrake(0, i); this.vehicle.updateWheelTransform(i, true); }
     this.n.copy(UP); this.visUp.copy(UP); this.clearState(speed);
+    this.pPos.copy(this.pos); this.pQ.copy(this.q); // a teleport: nothing to blend from
     this.syncMesh(0);
   }
   pushTransform() {
@@ -1995,11 +2008,13 @@ class Car {
       wh.slip = Math.abs(vc.dot(ws)) + (hand && !wh.front ? Math.abs(wh.vLong) * 0.3 : 0);
     });
   }
-  syncMesh(dt) {
+  // alpha: how far the frame is between the previous physics step and the latest (0..1).
+  syncMesh(dt, alpha = 1) {
     const sp = this.spec;
-    this.visUp.set(0, 1, 0).applyQuaternion(this.q);
-    this.mesh.quaternion.copy(this.q);
-    this.mesh.position.copy(this.pos).add(new V3(0, -sp.comY, 0).applyQuaternion(this.q));
+    this.rPos.lerpVectors(this.pPos, this.pos, alpha); this.rQ.copy(this.pQ).slerp(this.q, alpha);
+    this.visUp.set(0, 1, 0).applyQuaternion(this.rQ);
+    this.mesh.quaternion.copy(this.rQ);
+    this.mesh.position.copy(this.rPos).add(new V3(0, -sp.comY, 0).applyQuaternion(this.rQ));
     for (const wh of this.wheels) {
       const len = wh.contact ? wh.len : SUSP_L + DROOP;
       wh.vis.pivot.position.y = sp.comY + wh.m.y - len;
@@ -2278,7 +2293,9 @@ function compressGhost(rec) { return rec.map(f => f.map((v, i) => i < 4 ? Math.r
 // ============================================================================
 const CAM_NAMES = ['Chase', 'Far chase', 'Bonnet'];
 function updateCamera(dt, car, cinematic) {
-  const f = car.forward(); const sp = Math.abs(car.fs);
+  // Follow the car where it's drawn (between physics steps), not where the latest step left it.
+  const pos = car.rPos, q = car.rQ, sp = Math.abs(car.fs);
+  const f = new V3(0, 0, 1).applyQuaternion(q); f.y = 0; if (f.lengthSq() < 1e-6) f.set(0, 0, 1); f.normalize();
   // The chase camera rolls with the car's "up" on the road (through loops and
   // wall rides) and settles back to level in the air.
   game.camUp.lerp(car.grounded ? car.visUp : UP, 1 - Math.exp(-(car.grounded ? 5 : 2) * dt)).normalize();
@@ -2287,34 +2304,34 @@ function updateCamera(dt, car, cinematic) {
   if (cinematic) {
     game.orbit += dt * 0.25;
     const off = new V3(Math.sin(game.orbit) * 14, 6 + Math.sin(game.orbit * 0.7) * 2, Math.cos(game.orbit) * 14);
-    want = car.pos.clone().add(off); look = car.pos.clone().add(new V3(0, 1, 0));
+    want = pos.clone().add(off); look = pos.clone().add(new V3(0, 1, 0));
   } else if (game.camMode === 2) {
-    const f3 = new V3(0, 0, 1).applyQuaternion(car.q);
-    want = car.pos.clone().addScaledVector(car.visUp, 1.55).addScaledVector(f3, 0.4);
+    const f3 = new V3(0, 0, 1).applyQuaternion(q);
+    want = pos.clone().addScaledVector(car.visUp, 1.55).addScaledVector(f3, 0.4);
     look = want.clone().addScaledVector(f3, 20).addScaledVector(car.visUp, -0.5);
     game.camPos.copy(want); game.camLook.copy(look); camera.up.copy(car.visUp);
   } else {
     const far = game.camMode === 1; const cu = game.camUp;
     const back = (far ? 12 : 7.2) + sp * 0.035;
-    const f3 = new V3(0, 0, 1).applyQuaternion(car.q); f3.addScaledVector(cu, -f3.dot(cu)).normalize();
+    const f3 = new V3(0, 0, 1).applyQuaternion(q); f3.addScaledVector(cu, -f3.dot(cu)).normalize();
     const vel = car.vel.clone(); vel.addScaledVector(cu, -vel.dot(cu));
     const dir = vel.lengthSq() > 25 ? (car.grounded ? f3.clone().lerp(vel.normalize(), 0.35).normalize() : vel.normalize()) : f3;
-    want = car.pos.clone().addScaledVector(dir, -back).addScaledVector(cu, far ? 5.5 : 3.1);
-    look = car.pos.clone().addScaledVector(dir, 5).addScaledVector(cu, 1.3);
+    want = pos.clone().addScaledVector(dir, -back).addScaledVector(cu, far ? 5.5 : 3.1);
+    look = pos.clone().addScaledVector(dir, 5).addScaledVector(cu, 1.3);
     camera.up.copy(cu);
   }
   if (game.camMode !== 2 || cinematic) {
     const k = 1 - Math.exp(-(cinematic ? 3 : 9) * dt);
     game.camPos.lerp(want, k); game.camLook.lerp(look, 1 - Math.exp(-14 * dt));
-    const cu = cinematic ? UP : game.camUp; const above = game.camPos.clone().sub(car.pos).dot(cu);
+    const cu = cinematic ? UP : game.camUp; const above = game.camPos.clone().sub(pos).dot(cu);
     if (above < 0.8) game.camPos.addScaledVector(cu, 0.8 - above);
   }
   camera.position.copy(game.camPos); camera.lookAt(game.camLook);
   const fov = 68 + clamp(sp / 70, 0, 1.5) * 20;
   camera.fov += (fov - camera.fov) * (1 - Math.exp(-5 * dt)); camera.updateProjectionMatrix();
-  sun.position.copy(car.pos).add(new V3(60, 110, 40)); sun.target.position.copy(car.pos);
-  headlight.position.copy(car.pos).addScaledVector(f, 2).add(new V3(0, 1.2, 0));
-  headlight.target.position.copy(car.pos).addScaledVector(f, 30);
+  placeSun(pos);
+  headlight.position.copy(pos).addScaledVector(f, 2).add(new V3(0, 1.2, 0));
+  headlight.target.position.copy(pos).addScaledVector(f, 30);
 }
 
 // ============================================================================
@@ -3560,7 +3577,7 @@ function editorCamera(dt) {
   camera.lookAt(editor.target);
   if (Math.abs(camera.fov - 55) > 0.1) { camera.fov = 55; camera.updateProjectionMatrix(); }
   editor.grid.position.y = editor.level * H + 0.03;
-  sun.position.copy(editor.target).add(new V3(60, 110, 40)); sun.target.position.copy(editor.target);
+  placeSun(editor.target);
 }
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2(); let mouseIn = false;
@@ -3695,6 +3712,7 @@ function loadDemo() {
 
 function physicsTick(input, racing) {
   const car = game.car;
+  car.pPos.copy(car.pos); car.pQ.copy(car.q);
   car.step(PHYS_DT, input); game.recTick++;
   if (racing) {
     game.time += PHYS_DT * 1000;
@@ -3730,11 +3748,12 @@ function placeGhost(mesh, gd, t) {
   mesh.quaternion.copy(qa.slerp(qb, k)).normalize();
   return true;
 }
-function updateGhost() {
-  const racing = game.started && game.state === 'race';
-  game.ghost.visible = racing && placeGhost(game.ghost, game.ghostData, game.time);
+function updateGhost(alpha = 1) {
+  // Ghosts are drawn at the same moment as the car: between the last two steps.
+  const racing = game.started && game.state === 'race', t = game.time - (1 - alpha) * PHYS_DT * 1000;
+  game.ghost.visible = racing && placeGhost(game.ghost, game.ghostData, t);
   for (const r of game.rivals) {
-    r.mesh.visible = r.tag.visible = racing && placeGhost(r.mesh, r.g.frames, game.time);
+    r.mesh.visible = r.tag.visible = racing && placeGhost(r.mesh, r.g.frames, t);
     if (r.mesh.visible) r.tag.position.set(r.mesh.position.x, r.mesh.position.y + 2.6, r.mesh.position.z);
   }
 }
@@ -3756,7 +3775,7 @@ function frame(now) {
       if (events.flipped) { demoIdx++; loadDemo(); break; }
     }
     events.land = false; events.wall = 0; events.driftBoost = null; events.flipped = false;
-    car.syncMesh(dt); updateCamera(dt, car, true); updateAudio(car, false, 0);
+    car.syncMesh(dt, clamp(game.acc / PHYS_DT, 0, 1)); updateCamera(dt, car, true); updateAudio(car, false, 0);
   } else if (st === 'race' || st === 'finished') {
     let input = readInput();
     if (st === 'finished') input = { steer: 0, gas: 0, brake: 0.4, drift: false };
@@ -3783,7 +3802,8 @@ function frame(now) {
     if (events.wall) { blip(80 + Math.random() * 30, 0.12, 'square', Math.min(0.22, events.wall / 60)); events.wall = 0; }
     if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); blip(620, 0.1); setTimeout(() => blip(930, 0.16), 70); }
     updateDriftHud(car);
-    car.syncMesh(dt); updateGhost(); mpTick(); updateCamera(dt, car, false); updateHud();
+    const alpha = clamp(game.acc / PHYS_DT, 0, 1);
+    car.syncMesh(dt, alpha); updateGhost(alpha); mpTick(); updateCamera(dt, car, false); updateHud();
     updateAudio(car, true, input.gas);
   } else if (st === 'paused') {
     updateAudio(car, false, 0);
@@ -3796,7 +3816,7 @@ function frame(now) {
     const look = c.clone(); look.y -= 0.3;
     if (wide) { const r = new V3(); camera.getWorldDirection(r); look.addScaledVector(new V3(-r.z, 0, r.x).normalize(), 3.4); } else look.y -= 2.4;
     camera.lookAt(look); if (Math.abs(camera.fov - 50) > 0.1) { camera.fov = 50; camera.updateProjectionMatrix(); }
-    sun.position.copy(c).add(new V3(60, 110, 40)); sun.target.position.copy(c);
+    placeSun(c);
     updateAudio(car, false, 0);
   } else if (st === 'editor') {
     editorCamera(dt); editorHover(); updateAudio(car, false, 0);
