@@ -50,6 +50,9 @@
   .logo span { color: var(--signal); }
   .flag { height: 10px; background: repeating-conic-gradient(var(--text) 0 25%, transparent 0 50%) 0 0 / 10px 10px; opacity: 0.9; }
   .brand p { margin: 0; color: var(--muted); line-height: 1.45; }
+  .brand .racing-as { font-size: 14px; overflow-wrap: anywhere; }
+  .brand .racing-as b { color: var(--text); font-weight: 600; }
+  .link { padding: 0; border: 0; background: none; color: var(--signal); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
   .menu-btns { display: flex; flex-direction: column; gap: 8px; }
   .btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-radius: 4px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; text-align: left; }
   .btn:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.32); }
@@ -303,6 +306,7 @@
       <div class="eyebrow">Low-poly time trial</div>
       <h1 class="logo">Mushtaq<span>Track</span></h1>
       <p>Set a time, chase your ghost, build your own circuits and share them with other players.</p>
+      <p class="racing-as" id="racing-as" hidden>Racing as <b id="racing-as-name"></b> · <button class="link" id="btn-name">Change</button></p>
       <div class="menu-btns">
         <button class="btn primary" id="btn-play">Quick race <kbd>Enter</kbd></button>
         <button class="btn car-line" id="btn-online" hidden><span>Race online</span><small id="online-count"></small></button>
@@ -2455,7 +2459,7 @@ async function initCommunity() {
     community.docs = snap.docs.filter(d => d.exists).map(d => { const b = d.data(); return { author: d.id, tracks: Array.isArray(b.tracks) ? b.tracks.slice(0, MAX_PUBLISHED) : [] }; });
     refreshCommunity();
   }, () => { community.db = null; refreshCommunity(); });
-  watchTimes(db);
+  watchTimes(db); watchPlayers(db);
   refreshCommunity();
 }
 function refreshCommunity() { if (game.state === 'menu') renderTrackList(); }
@@ -2496,6 +2500,56 @@ async function publishTrack(tr) {
 async function unpublishTrack(author, pid, name) {
   const d = community.docs.find(x => x.author === author); if (!d) return;
   try { await writeCommunity(author, d.tracks.filter(p => p && String(p.id) !== pid)); toast('Removed “' + name + '” from Community'); } catch (e) { communityFailed(e); }
+}
+
+// Players' names. Everyone picks a name or nickname the first time they open
+// the game, and that's what other players see: on leaderboards, community
+// tracks and ghosts through players/<their id>, and in live races through
+// their presence in the race room (which view-only players can set too).
+// Anyone who hasn't picked one shows by the name on their account.
+const NICK_MAX = 20;
+const players = { nicks: new Map(), on: false, sent: '', writing: false, failed: false };
+let profileReady = Promise.resolve();
+function watchPlayers(db) {
+  db.collection('players').onSnapshot(snap => {
+    const m = new Map();
+    for (const d of snap.docs) { const n = d.exists && cleanText((d.data() || {}).nick || '', NICK_MAX); if (n) m.set(d.id, n); }
+    players.nicks = m; players.on = true;
+    syncNick(); refreshTimes(); refreshCommunity();
+    mp.chatVer++; if (game.state === 'online') mpRender();
+  }, () => {});
+}
+function nickOf(uid) { return (uid && players.nicks.get(uid)) || ''; }
+function syncNick() {
+  const nick = settings.nick;
+  if (!players.on || !community.me || community.canWrite === false || players.failed || players.writing || !nick || nickOf(community.me) === nick || players.sent === nick) return;
+  players.writing = true;
+  community.db.doc('players/' + community.me).set({ nick, updated: Date.now() })
+    .then(() => { players.sent = nick; }, () => { players.failed = true; })
+    .finally(() => { players.writing = false; syncNick(); });
+}
+function setNick(nick) { settings.nick = nick; saveSettings(); renderRacingAs(); syncNick(); mpSend(true); mpAdvertise(); }
+function renderRacingAs() { $('racing-as').hidden = !settings.nick; $('racing-as-name').textContent = settings.nick || ''; }
+// Ask for a name: on the first visit (it can't be skipped), or to change it.
+function askName(first) {
+  openModal(`<div class="eyebrow">${first ? 'Welcome to MushtaqTrack' : 'Your name'}</div><h2>What should we call you?</h2>
+    <div class="field"><label for="m-nick">Name or nickname</label><input id="m-nick" maxlength="${NICK_MAX}" autocomplete="nickname" spellcheck="false"></div>
+    ${window.claude ? '<p class="empty-note">Other players see it on leaderboards, community tracks and in live races.</p>' : ''}
+    <p class="modal-err" id="m-nick-err" hidden>Pick a name to race with.</p>
+    <div class="row"><button class="btn primary" id="m-nick-ok">${first ? 'Let’s race' : 'Save'}</button>${first ? '' : '<button class="btn" id="m-nick-cancel">Cancel</button>'}</div>`, { locked: first });
+  const input = $('m-nick'); input.value = settings.nick || '';
+  const ok = () => {
+    const n = cleanText(input.value, NICK_MAX); if (!n) { $('m-nick-err').hidden = false; input.focus(); return; }
+    closeModal(); setNick(n); if (first) toast('Welcome, ' + n + '!');
+  };
+  $('m-nick-ok').onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape' && !first) closeModal(); };
+  if (!first) $('m-nick-cancel').onclick = closeModal;
+  // Start from the name on their account, if there is one.
+  if (first) profileReady.then(async () => {
+    if (!community.user || !community.me || input.value || !input.isConnected) return;
+    const ps = await community.user.profiles([community.me]), n = cleanText((ps[community.me] && ps[community.me].name) || '', NICK_MAX);
+    if (n && !input.value && input.isConnected) { input.value = n; input.select(); }
+  });
 }
 
 // Leaderboards, shared the same way: each player keeps one document,
@@ -2703,7 +2757,7 @@ function loadGhost(uid, key, t) {
   ghosts.cache.set(id, true);
   Promise.all([ghostRef(uid, key).get(), community.user ? community.user.profiles([uid]) : {}]).then(([snap, ps]) => {
     const g = snap.exists ? snap.data() : null, frames = unpackGhost(g); if (!frames) throw new Error('no ghost');
-    ghosts.ready.set(id, { uid, frames, car: CAR_BY_ID[g.c] ? g.c : 'street', name: (ps[uid] && ps[uid].name) || 'Player' });
+    ghosts.ready.set(id, { uid, frames, car: CAR_BY_ID[g.c] ? g.c : 'street', name: nickOf(uid) || (ps[uid] && ps[uid].name) || 'Player' });
     syncRivals();
   }).catch(() => {
     ghosts.cache.delete(id); pickedFor(key).delete(uid); toast('That ghost could not be loaded.'); refreshTimes();
@@ -2778,7 +2832,7 @@ function mpOpenRaces() {
     const a = p.presence && p.presence.race;
     if (!a || p.sameTab || typeof a.room !== 'string' || !/^race-[a-z0-9]{6}$/.test(a.room) || seen.has(a.room)) continue;
     seen.add(a.room);
-    out.push({ room: a.room, by: p.by, track: String(a.tr || '').slice(0, 60), n: clamp(a.n | 0, 1, 99), live: !!a.live });
+    out.push({ room: a.room, by: p.by, nm: cleanText(a.nm || '', NICK_MAX), track: cleanText(a.tr || '', 60), n: clamp(a.n | 0, 1, 99), live: !!a.live });
   }
   return out;
 }
@@ -2836,7 +2890,7 @@ function mpHost() {
 }
 function mpIsHost() { const h = mpHost(); return !!(h && h.sameTab); }
 function mpLive() { return mp.lastN > 0 && mp.peers.some(p => p.presence.st === 'race' && p.presence.n === mp.lastN); }
-function mpName(p) { return p.sameTab ? 'You' : (p.by && mp.names.get(p.by)) || 'Player'; }
+function mpName(p) { return p.sameTab ? 'You' : cleanText(p.presence.nm || '', NICK_MAX) || nickOf(p.by) || (p.by && mp.names.get(p.by)) || 'Player'; }
 function mpPaint(p) { const k = p.presence.k; return typeof k === 'string' && /^#[0-9a-f]{6}$/i.test(k) ? k : '#ffffff'; }
 function mpNames() {
   const ids = [...new Set(mp.peers.map(p => p.by).filter(b => b && !mp.names.has(b)))];
@@ -2844,7 +2898,7 @@ function mpNames() {
   for (const id of ids) mp.names.set(id, null);
   community.user.profiles(ids).then(ps => {
     for (const id of ids) mp.names.set(id, (ps[id] && ps[id].name) || 'Player');
-    mp.chatVer++; mpSyncCars(true); if (game.state === 'online') mpRender();
+    mp.chatVer++; mpSyncCars(); if (game.state === 'online') mpRender();
   });
 }
 
@@ -2891,7 +2945,7 @@ function mpPeersChanged() {
 function mpAdvertise() {
   if (!mp.room) return;
   let ad = null;
-  if (mp.r && mpIsHost()) { const tr = mpTrack(mp.sel); ad = { room: mp.name, tr: tr ? tr.name : '', n: mpPlayers().length, live: mpLive() }; }
+  if (mp.r && mpIsHost()) { const tr = mpTrack(mp.sel); ad = { room: mp.name, nm: settings.nick || null, tr: tr ? tr.name : '', n: mpPlayers().length, live: mpLive() }; }
   const s = JSON.stringify(ad); if (s === mp.ad) return;
   mp.ad = s; mp.room.presence({ race: ad }).catch(() => {});
 }
@@ -2901,7 +2955,7 @@ function mpSend(force) {
   const now = performance.now();
   if (!force && now - mp.sentAt < MP_SEND_MS) { if (!mp.trail) mp.trail = setTimeout(() => { mp.trail = 0; mpSend(false); }, MP_SEND_MS); return; }
   const c = game.car, racing = mp.status === 'race' && (game.state === 'race' || game.state === 'paused');
-  const pr = { v: 1, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
+  const pr = { v: 1, nm: settings.nick || null, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
     cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null,
     m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP) };
   if (racing) { const q = c.q, m = new V3(0, -c.spec.comY, 0).applyQuaternion(q).add(c.pos); pr.s = [m.x, m.y, m.z, q.x, q.y, q.z, q.w].map((v, i) => Math.round(v * (i < 3 ? 100 : 1000)) / (i < 3 ? 100 : 1000)); }
@@ -2956,12 +3010,12 @@ function mpRaceCell(r, cps) { return r.done ? fmtTime(r.f) : 'CP ' + r.cp + '/' 
 
 // The other racers' cars: see-through, with name labels, drawn a moment in
 // the past so their movement can be smoothed between updates.
-function mpSyncCars(retag) {
+function mpSyncCars() {
   const want = new Map();
   if (mp.race) for (const p of mp.peers) if (!p.sameTab && p.presence.n === mp.race.n && p.presence.st === 'race') want.set(p.peer, p);
   for (const [peer, car] of mp.cars) {
     const p = want.get(peer);
-    if (!p || car.spec !== p.presence.c || car.paint !== mpPaint(p) || (retag && car.name !== mpName(p))) {
+    if (!p || car.spec !== p.presence.c || car.paint !== mpPaint(p) || car.name !== mpName(p)) {
       scene.remove(car.mesh, car.tag); disposeTree(car.mesh); car.tag.material.map.dispose(); car.tag.material.dispose(); mp.cars.delete(peer);
     }
   }
@@ -3009,7 +3063,9 @@ function mpTick() {
 // couple of minutes, so view-only players can talk too and someone who joins
 // sees what was just said. Every page builds the log from those.
 const CHAT_KEEP = 120000, CHAT_MAX = 160;
-function cleanChat(s) { return Array.from(String(s).replace(/[\p{Co}\p{Cs}]|(?!‍)\p{Cf}/gu, '').replace(/[\s\p{Cc}]+/gu, ' ').trim()).slice(0, CHAT_MAX).join(''); }
+// Typed text for others to see, without control or invisible characters.
+function cleanText(s, max) { return Array.from(String(s).replace(/[\p{Co}\p{Cs}]|(?!\u200d)\p{Cf}/gu, '').replace(/[\s\p{Cc}]+/gu, ' ').trim()).slice(0, max).join(''); }
+function cleanChat(s) { return cleanText(s, CHAT_MAX); }
 function mpSay(text) {
   text = cleanChat(text); if (!text || !mp.r) return false;
   const now = Date.now(); if (now - mp.saidAt < 700) { toast('Slow down a little.'); return false; }
@@ -3027,7 +3083,7 @@ function mpReadChat() {
       if (!Array.isArray(m) || typeof m[1] !== 'string') continue;
       const key = p.peer + ':' + m[0]; if (mp.chatSeen.has(key)) continue;
       mp.chatSeen.add(key);
-      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, me: p.isMe, text, ts: +m[2] || 0 });
+      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, nm: cleanText(p.presence.nm || '', NICK_MAX), me: p.isMe, text, ts: +m[2] || 0 });
     }
   }
   if (!fresh.length) return;
@@ -3044,7 +3100,7 @@ function mpChatChanged(incoming, n = 0) {
 function mpRenderChat() {
   const el = $('mp-chat'); if (!el || +el.dataset.ver === mp.chatVer) return;
   const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(c.me ? 'You' : (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('')
+  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(c.me ? 'You' : c.nm || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('')
     : '<p class="empty-note">No messages yet. Say hello.</p>';
   el.dataset.ver = mp.chatVer;
   if (atEnd || !el.dataset.seen) { el.scrollTop = el.scrollHeight; el.dataset.seen = '1'; }
@@ -3087,7 +3143,7 @@ function mpRender() {
   }
   if (view === 'lobby') {
     const races = mpOpenRaces(), el = $('mp-list');
-    el.innerHTML = races.length ? races.map(r => `<div class="mp-item"><div><b>${r.by ? `<span data-uid="${escapeHtml(r.by)}"></span>’s race` : 'Open race'}</b><small>${escapeHtml(r.track)} · ${r.n} player${r.n > 1 ? 's' : ''} · ${r.live ? 'racing now' : 'waiting'}</small></div><button class="btn" data-join="${r.room}">Join</button></div>`).join('')
+    el.innerHTML = races.length ? races.map(r => `<div class="mp-item"><div><b>${r.nm ? escapeHtml(r.nm) + '’s race' : r.by ? `<span data-uid="${escapeHtml(r.by)}"></span>’s race` : 'Open race'}</b><small>${escapeHtml(r.track)} · ${r.n} player${r.n > 1 ? 's' : ''} · ${r.live ? 'racing now' : 'waiting'}</small></div><button class="btn" data-join="${r.room}">Join</button></div>`).join('')
       : '<p class="empty-note">No open races right now. Host one and anyone who opens the game can join it.</p>';
     fillNames(el); return;
   }
@@ -3178,11 +3234,11 @@ function publishButtons(tr, i) {
 // An element with data-pre reads as part of a sentence ("by you").
 async function fillNames(root) {
   const els = [...root.querySelectorAll('[data-uid]')], ids = [...new Set(els.map(el => el.dataset.uid))];
-  if (!ids.length || !community.user) return;
-  const ps = await community.user.profiles(ids);
+  if (!ids.length) return;
+  const need = ids.filter(id => !nickOf(id)), ps = need.length && community.user ? await community.user.profiles(need) : {};
   for (const el of els) if (el.isConnected) {
-    const pre = el.dataset.pre, p = ps[el.dataset.uid];
-    el.textContent = (pre || '') + (el.dataset.uid === community.me ? (pre ? 'you' : 'You') : (p && p.name) || (pre ? 'another player' : 'Player'));
+    const pre = el.dataset.pre, id = el.dataset.uid, p = ps[id];
+    el.textContent = (pre || '') + (id === community.me ? (pre ? 'you' : 'You') : nickOf(id) || (p && p.name) || (pre ? 'another player' : 'Player'));
   }
 }
 function trackFromRef(ref) {
@@ -3267,15 +3323,18 @@ function showFinish(time, prevPB, isPB, board) {
 }
 
 // Modals
-function openModal(html) { $('modal-body').innerHTML = html; $('modal').hidden = false; const f = $('modal-body').querySelector('input, textarea, button'); if (f) f.focus(); }
-function closeModal() { $('modal').hidden = true; }
-$('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
+// A locked modal (the first-visit name question) can't be dismissed with Esc or a click outside.
+let modalLocked = false;
+function openModal(html, opts = {}) { modalLocked = !!opts.locked; $('modal-body').innerHTML = html; $('modal').hidden = false; const f = $('modal-body').querySelector('input, textarea, button'); if (f) f.focus(); }
+function closeModal() { $('modal').hidden = true; modalLocked = false; }
+$('modal').addEventListener('click', e => { if (e.target === $('modal') && !modalLocked) closeModal(); });
 function confirmModal(msg, okLabel, fn) {
   openModal(`<h2>${msg}</h2><div class="row"><button class="btn primary" id="m-ok">${okLabel}</button><button class="btn" id="m-cancel">Cancel</button></div>`);
   $('m-ok').onclick = () => { closeModal(); fn(); }; $('m-cancel').onclick = closeModal;
 }
 function showSettings() {
   openModal(`<div class="eyebrow">Garage &amp; display</div><h2>Settings</h2>
+    <div class="field"><label for="m-name">Your name</label><input id="m-name" maxlength="${NICK_MAX}" autocomplete="nickname" spellcheck="false"></div>
     <div class="field"><label for="m-theme">Time of day</label><select id="m-theme"><option value="day">Midday</option><option value="sunset">Sunset</option><option value="night">Night (headlights)</option></select></div>
     <div class="field"><label for="m-touch">On-screen buttons</label><select id="m-touch"><option value="auto">Automatic (touch screens)</option><option value="on">Always show</option><option value="off">Never show</option></select></div>
     <div class="field"><label for="m-cam">Default camera</label><select id="m-cam">${CAM_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
@@ -3284,6 +3343,8 @@ function showSettings() {
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
   $('m-theme').value = settings.theme; $('m-cam').value = settings.cam; $('m-touch').value = settings.touch;
+  $('m-name').value = settings.nick || '';
+  $('m-name').onchange = e => { const n = cleanText(e.target.value, NICK_MAX); if (n) setNick(n); else e.target.value = settings.nick || ''; };
   $('m-touch').onchange = e => { settings.touch = e.target.value; saveSettings(); document.body.classList.toggle('touchui', touchUI()); };
   $('m-ghost').checked = settings.ghost; $('m-sound').checked = settings.sound; $('m-shadows').checked = settings.shadows;
   $('m-theme').onchange = e => { settings.theme = e.target.value; saveSettings(); applyTheme(); };
@@ -3563,7 +3624,7 @@ canvas.addEventListener('wheel', e => { if (game.state !== 'editor') return; e.p
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input, textarea, select')) return;
   initAudio();
-  if (!$('modal').hidden) { if (e.code === 'Escape') { closeModal(); if (game.state === 'paused') $('pause').hidden = false; } return; }
+  if (!$('modal').hidden) { if (e.code === 'Escape' && !modalLocked) { closeModal(); if (game.state === 'paused') $('pause').hidden = false; } return; }
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyM') { settings.sound = !settings.sound; saveSettings(); toast(settings.sound ? 'Sound on' : 'Sound off'); if (settings.sound) initAudio(); }
@@ -3755,8 +3816,11 @@ function start() {
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
   setState('menu'); loadDemo();
   requestAnimationFrame(t => { last = t; frame(t); });
-  initCommunity().catch(() => {}).then(initOnline);
+  profileReady = initCommunity().catch(() => {});
+  profileReady.then(initOnline);
+  renderRacingAs(); if (!settings.nick) askName(true);
 }
+$('btn-name').onclick = () => askName(false);
 // Debug/test hooks.
 window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
