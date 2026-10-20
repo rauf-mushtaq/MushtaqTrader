@@ -224,6 +224,7 @@
 </head>
 <body>
 <canvas id="c" aria-label="Race view"></canvas>
+<div id="loading" class="screen"><div class="eyebrow">Loading physics engine…</div></div>
 
 <div id="hud" hidden>
   <div class="hud-left">
@@ -356,6 +357,7 @@
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.110.0/examples/js/libs/ammo.js"></script>
 <script>
 'use strict';
 // ============================================================================
@@ -414,16 +416,32 @@ const bankedNormal = phiAt => u => {
   const a = u * Math.PI / 2, phi = phiAt(u); const inX = Math.cos(a), inZ = -Math.sin(a); // horizontal unit toward (30, -10)
   return [inX * Math.sin(phi), Math.cos(phi), inZ * Math.sin(phi)];
 };
-const BANK = bankAngle(0.62, false), WALL = bankAngle(1.1, true);
-// Loop: 20 m run-in, a 10 m radius loop that shifts one lane sideways, 20 m run-out.
-const LOOP_R = 10, LOOP_LEN = 40 + 2 * Math.PI * LOOP_R;
+const BANK = bankAngle(0.62, true), WALL = bankAngle(1.1, true);
+// Loop: a teardrop with spiral (clothoid-style) transitions. Curvature rises
+// smoothly from zero, peaks at the top, and falls back to zero, so the car
+// is eased into it. It shifts one lane sideways so the exit clears the entry.
+const LOOP_SPIRAL = 80, LOOP_IN = 2.4;
+const LOOP_TAB = (() => {
+  const n = 400, k = 4 * Math.PI / LOOP_SPIRAL, ds = LOOP_SPIRAL / n; let th = 0, y = 0, z = 0; const t = [[0, 0, 0]];
+  for (let i = 0; i < n; i++) { const s = (i + 0.5) * ds; th += k * Math.sin(Math.PI * s / LOOP_SPIRAL) ** 2 * ds; y += Math.sin(th) * ds; z += Math.cos(th) * ds; t.push([th, y, z]); }
+  return t;
+})();
+const LOOP_START = -S / 2 + LOOP_IN, LOOP_ZEND = LOOP_TAB[LOOP_TAB.length - 1][2];
+const LOOP_LEN = LOOP_IN + LOOP_SPIRAL + (S * 1.5 - (LOOP_START + LOOP_ZEND));
+function loopSample(s) {
+  const f = clamp(s / LOOP_SPIRAL, 0, 1) * (LOOP_TAB.length - 1), i = Math.min(LOOP_TAB.length - 2, Math.floor(f)), k = f - i;
+  const a = LOOP_TAB[i], b = LOOP_TAB[i + 1]; return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+}
 const loopPath = side => u => {
   const s = u * LOOP_LEN;
-  if (s <= 20) return [0, 0, -10 + s];
-  if (s >= LOOP_LEN - 20) return [20 * side, 0, 10 + s - (LOOP_LEN - 20)];
-  const th = (s - 20) / LOOP_R; return [20 * side * smooth(th / (2 * Math.PI)), LOOP_R - LOOP_R * Math.cos(th), 10 + LOOP_R * Math.sin(th)];
+  if (s <= LOOP_IN) return [0, 0, -S / 2 + s];
+  if (s >= LOOP_IN + LOOP_SPIRAL) return [20 * side, 0, LOOP_START + LOOP_ZEND + s - LOOP_IN - LOOP_SPIRAL];
+  // The sideways shift bends hardest a quarter and three quarters of the way
+  // round, where the loop presses the car into the road (not at the entry).
+  const k = (s - LOOP_IN) / LOOP_SPIRAL, [, y, z] = loopSample(s - LOOP_IN);
+  return [20 * side * (k - Math.sin(2 * Math.PI * k) / (2 * Math.PI)), y, LOOP_START + z];
 };
-const loopNormal = u => { const s = u * LOOP_LEN; if (s <= 20 || s >= LOOP_LEN - 20) return [0, 1, 0]; const th = (s - 20) / LOOP_R; return [0, Math.cos(th), -Math.sin(th)]; };
+const loopNormal = u => { const s = u * LOOP_LEN - LOOP_IN; if (s <= 0 || s >= LOOP_SPIRAL) return [0, 1, 0]; const th = loopSample(s)[0]; return [0, Math.cos(th), -Math.sin(th)]; };
 const TYPES = {
   straight:   { label: 'Road',      key: '1', fp: [[0, 0]], n: 8,  path: straightPath },
   turn:       { label: 'Turn',      key: '2', fp: [[0, 0]], n: 16, path: u => { const a = u * Math.PI / 2; return [S / 2 - S / 2 * Math.cos(a), 0, -S / 2 + S / 2 * Math.sin(a)]; } },
@@ -437,10 +455,10 @@ const TYPES = {
   longramp:   { label: 'Long slope', key: '0', fp: [[0, 0], [0, 1]], n: 24, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * 2 * S] },
   bankturn:   { label: 'Banked turn', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, levels: 1, below: 1, path: wideTurnPath, nrm: bankedNormal(BANK) },
   wallturn:   { label: 'Wall ride', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 40, levels: 2, below: 2, path: wideTurnPath, nrm: bankedNormal(WALL) },
-  loop:       { label: 'Loop', fp: [[0, 0], [0, 1], [1, 0], [1, 1]], n: 72, levels: 4, path: loopPath(1), nrm: loopNormal },
-  loopr:      { label: 'Loop (right)', fp: [[0, 0], [0, 1], [-1, 0], [-1, 1]], n: 72, levels: 4, path: loopPath(-1), nrm: loopNormal },
+  loop:       { label: 'Loop', fp: [[0, 0], [0, 1], [1, 0], [1, 1]], n: 90, levels: 4, path: loopPath(1), nrm: loopNormal },
+  loopr:      { label: 'Loop (right)', fp: [[0, 0], [0, 1], [-1, 0], [-1, 1]], n: 90, levels: 4, path: loopPath(-1), nrm: loopNormal },
   pillar:     { label: 'Pillar', fp: [[0, 0]], n: 8, path: straightPath, line: u => 4 * Math.sin(Math.PI * u), obstacles: [{ kind: 'cyl', x: 0, z: 0, r: 1.4, h: 6 }] },
-  chicane:    { label: 'Chicane', fp: [[0, 0]], n: 8, path: straightPath, line: u => -3.9 * Math.sin(2 * Math.PI * u), obstacles: [{ kind: 'box', x: 3.3, z: -4.5, hx: 3.2, hz: 1.1, h: 2.2 }, { kind: 'box', x: -3.3, z: 4.5, hx: 3.2, hz: 1.1, h: 2.2 }] },
+  chicane:    { label: 'Chicane', fp: [[0, 0]], n: 8, path: straightPath, line: u => -3.6 * Math.sin(2 * Math.PI * u), obstacles: [{ kind: 'box', x: 3.6, z: -6.2, hx: 2.9, hz: 1.0, h: 2.2 }, { kind: 'box', x: -3.6, z: 6.2, hx: 2.9, hz: 1.0, h: 2.2 }] },
   tunnel:     { label: 'Tunnel', fp: [[0, 0]], n: 8, path: straightPath, wallH: 5.2 },
 };
 const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel'];
@@ -694,7 +712,9 @@ function finishRoute(pts, nrms, segs, tiles, used) {
   }
   const length = segs.reduce((s, g) => s + g.len, 0);
   const jumps = segs.filter(g => g.type === 'gap').map(g => ({ P: g.P, Q: g.Q, idx: nearestIdx(out, g.P) }));
-  return { ok: true, pts: out, nrms: outN, curv, rawCurv, crest, jumps, step, speeds: {}, segs, length, missedCheckpoints: missed, cpTotal: cps.length };
+  const pads = tiles.filter(t => t.type === 'boost');
+  const boost = out.map(p => pads.some(t => Math.abs(p.x - t.x * S) < S / 2 && Math.abs(p.z - t.z * S) < S / 2 && Math.abs(p.y - t.l * H) < 3));
+  return { ok: true, pts: out, nrms: outN, curv, rawCurv, crest, jumps, boost, step, speeds: {}, segs, length, missedCheckpoints: missed, cpTotal: cps.length };
 }
 function nearestIdx(pts, p) { let b = Infinity, bi = 0; for (let i = 0; i < pts.length; i++) { const d = pts[i].distanceToSquared(p); if (d < b) { b = d; bi = i; } } return bi; }
 // Take-off speed that carries a car from a kicker lip P to a little past landing point Q.
@@ -731,8 +751,13 @@ function routeSpeeds(route, spec) {
     const vj = jumpSpeed(j.P, j.Q);
     for (let i = Math.max(0, j.idx - 16); i <= j.idx; i++) v[i] = Math.min(v[i], vj);
   }
+  // Braking: work back from each corner. A boost pad pushes harder than the
+  // brakes, so the car picks up speed across it whatever it does; arrive slower.
   const dec = Math.min(spec.brake, spec.grip * GRAV) * 0.7;
-  for (let i = N - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * dec * route.step));
+  for (let i = N - 2; i >= 0; i--) {
+    if (route.boost[i]) v[i] = Math.min(v[i], Math.max(12, Math.sqrt(Math.max(0, v[i + 1] ** 2 - 2 * (60 - dec / 0.7) * route.step))));
+    else v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * dec * route.step));
+  }
   route.speeds[spec.id] = v; return v;
 }
 
@@ -740,7 +765,7 @@ function routeSpeeds(route, spec) {
 function medalTimes(route) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 16.9, bigturn: 33, ramp: 32, kicker: 32, longramp: 36, boost: 70, gap: 46, bankturn: 50, wallturn: 50, loop: 43, loopr: 43, pillar: 24, chicane: 11, tunnel: 55 };
+  const pace = { turn: 16.9, bigturn: 33, ramp: 32, kicker: 32, longramp: 36, boost: 70, gap: 46, bankturn: 58, wallturn: 80, loop: 58, loopr: 58, pillar: 24, chicane: 11, tunnel: 55 };
   let t = 1.2;
   for (const g of route.segs) t += g.len / (pace[g.type] || 55);
   const author = t * 1000;
@@ -1085,6 +1110,7 @@ function loadTrack(track) {
   }
   world.group.updateMatrixWorld(true);
   world.route = computeRoute(world.tiles);
+  buildTrackPhysics(world.tiles, world.route.ok ? world.route.segs.filter(g => g.type === 'gap').map(g => g.Q) : []);
   world.medals = medalTimes(world.route);
   buildScenery(world.tiles);
   drawMinimapBase();
@@ -1389,14 +1415,127 @@ function surfaceAt(tiles, p, maxAbove, maxBelow) {
 }
 
 // ============================================================================
-// Car physics: a rigid body on four sprung wheels. Each tyre makes grip up to
-// its friction limit; past it, it slides. Drifts, wheelspin and weight
-// transfer come out of that rather than being scripted.
+// Physics engine: Ammo.js (Bullet). The road and barriers are static triangle
+// meshes, pillars and blocks are static shapes, and each car is a Bullet
+// raycast vehicle: a rigid chassis on four raycast wheels with sprung
+// suspension. The tyres (grip, engine, brakes) are a friction-circle model fed
+// by each wheel's suspension load from Bullet, and a small handling layer on
+// top adds the drift, boost, air-control and loop/wall-ride assists.
 // ============================================================================
 const WALL_IN = W / 2 - 0.5, WALL_H = 1.1;
-const SUSP_K = 70, SUSP_C = 3.6, SUSP_L = 0.35;
+const SUSP_K = 70, SUSP_L = 0.35;
+// Damping per unit mass: light in bump, close to critical in rebound so landings
+// and crests settle instead of springing the car back into the air.
+const SUSP_BUMP = 3.0, SUSP_REBOUND = 7.5;
+// Extra droop: below the static ride height a wheel can hang this much further
+// (with no spring force) so all four stay on twisting road like bank entries.
+const DROOP = 0.12;
+const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr']); // pieces whose road tilts or turns over
+const CAR_MASS = 1000;
 const INERTIA = new V3(3.0, 2.6, 1.7); // pitch, yaw, roll (per unit mass)
 const DRIFT_STAGES = [{ t: 0.6, boost: 6, name: 'Drift boost', color: 'var(--author)' }, { t: 1.4, boost: 10, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.4, boost: 15, name: 'Ultra drift boost', color: '#ff7ad9' }];
+
+let A = null; // the Ammo module, once loaded
+// Not every Ammo class exposes a destructor; free what can be freed.
+function free(...objs) { for (const o of objs) if (o) { try { A.destroy(o); } catch (e) { /* no destructor binding */ } } }
+const phys = { world: null, bodies: [], v1: null, v2: null, v3: null, tr: null, q: null };
+function initPhysics(lib) {
+  A = lib;
+  const cfg = new A.btDefaultCollisionConfiguration(), disp = new A.btCollisionDispatcher(cfg);
+  const bp = new A.btDbvtBroadphase(), solver = new A.btSequentialImpulseConstraintSolver();
+  phys.world = new A.btDiscreteDynamicsWorld(disp, bp, solver, cfg);
+  phys.world.setGravity(new A.btVector3(0, -GRAV, 0));
+  phys.v1 = new A.btVector3(); phys.v2 = new A.btVector3(); phys.v3 = new A.btVector3();
+  phys.tr = new A.btTransform(); phys.q = new A.btQuaternion(0, 0, 0, 1);
+  // A deep catch plane; the real ground is a per-track mesh (see buildTrackPhysics).
+  const plane = new A.btStaticPlaneShape(new A.btVector3(0, 1, 0), -60);
+  addStatic(plane, 0, 0, 0, 0.8, false);
+}
+// Collision groups. Barriers, pillars and blocks only collide with car bodies, so
+// the wheels' suspension rays (Bullet's default group) pass through them and a
+// car can't drive up onto a barrier's top.
+const GROUP = { car: 32, barrier: 64 };
+function addStatic(shape, x, y, z, friction, perTrack, barrier) {
+  const tr = new A.btTransform(); tr.setIdentity(); phys.v1.setValue(x, y, z); tr.setOrigin(phys.v1);
+  const ms = new A.btDefaultMotionState(tr); phys.v2.setValue(0, 0, 0);
+  const info = new A.btRigidBodyConstructionInfo(0, ms, shape, phys.v2);
+  const body = new A.btRigidBody(info); body.setFriction(friction); body.setRestitution(0);
+  if (barrier) phys.world.addRigidBody(body, GROUP.barrier, GROUP.car); else phys.world.addRigidBody(body);
+  if (perTrack) phys.bodies.push({ body, shape, ms, info, tr });
+  return body;
+}
+// Turn the current track's road and barrier meshes into Bullet collision geometry.
+function buildTrackPhysics(tiles, landings) {
+  if (!A) return;
+  for (const b of phys.bodies) { phys.world.removeRigidBody(b.body); free(b.body, b.info, b.ms, b.tr, b.shape, b.mesh); }
+  phys.bodies = [];
+  const meshes = { road: new A.btTriangleMesh(true, false), wall: new A.btTriangleMesh(true, false), ground: new A.btTriangleMesh(true, false) }; const count = { road: 0, wall: 0, ground: 0 };
+  // Ground: a quad per grid cell around the track, with holes where a banked
+  // piece's low edge dips below grade, so the road there stays drivable.
+  const holes = new Set(); let minX = 0, maxX = 0, minZ = 0, maxZ = 0;
+  for (const t of tiles) for (const [x, z] of footprint(t)) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    const dip = t.type === 'bankturn' ? Math.sin(0.62) : t.type === 'wallturn' ? Math.sin(1.1) : 0;
+    if (dip && t.l * H - (W / 2) * dip < GROUND_Y + 0.5) holes.add(x + ',' + z);
+  }
+  const quad = (x0, z0, x1, z1) => {
+    phys.v1.setValue(x0, GROUND_Y, z0); phys.v2.setValue(x1, GROUND_Y, z0); phys.v3.setValue(x1, GROUND_Y, z1); meshes.ground.addTriangle(phys.v1, phys.v2, phys.v3, false);
+    phys.v2.setValue(x0, GROUND_Y, z1); meshes.ground.addTriangle(phys.v1, phys.v3, phys.v2, false); count.ground += 2;
+  };
+  const m = 12, gx0 = (minX - m - 0.5) * S, gx1 = (maxX + m + 0.5) * S, gz0 = (minZ - m - 0.5) * S, gz1 = (maxZ + m + 0.5) * S, far = 4000;
+  for (let x = minX - m; x <= maxX + m; x++) for (let z = minZ - m; z <= maxZ + m; z++) if (!holes.has(x + ',' + z)) quad((x - 0.5) * S, (z - 0.5) * S, (x + 0.5) * S, (z + 0.5) * S);
+  quad(-far, -far, far, gz0); quad(-far, gz1, far, far); quad(-far, gz0, gx0, gz1); quad(gx1, gz0, far, gz1);
+  // Collision comes straight from each piece's centre-line frames: the drivable
+  // top surface, and the barriers' inner face, top and outer face. No end caps
+  // or undersides, so wheels never catch a seam between two pieces.
+  const tri = (kind, a, b, c) => { phys.v1.setValue(a.x, a.y, a.z); phys.v2.setValue(b.x, b.y, b.z); phys.v3.setValue(c.x, c.y, c.z); meshes[kind].addTriangle(phys.v1, phys.v2, phys.v3, false); count[kind]++; };
+  const quadK = (kind, a, b, c, d) => { tri(kind, a, b, c); tri(kind, a, c, d); };
+  const at = (cl, i, lat, up) => cl.pts[i].clone().addScaledVector(cl.side[i], lat).addScaledVector(cl.nrm[i], up);
+  for (const t of tiles) {
+    const cl = t.cl, n = cl.pts.length - 1, wallH = TYPES[t.type].wallH || WALL_H;
+    // Road that twists (banks, wall rides, loops) is cut into narrow strips across
+    // its width; one wide quad would fold into facets that tilt steeply uphill and
+    // downhill along the road and drag the car back.
+    const strips = TWISTY.has(t.type) ? 8 : 1;
+    for (let i = 0; i < n; i++) {
+      for (let k = 0; k < strips; k++) {
+        const l0 = -W / 2 + W * k / strips, l1 = -W / 2 + W * (k + 1) / strips;
+        quadK('road', at(cl, i, l0, 0), at(cl, i, l1, 0), at(cl, i + 1, l1, 0), at(cl, i + 1, l0, 0));
+      }
+      for (const sg of [-1, 1]) {
+        // The inner face stands a little taller than the barrier you see, so a car
+        // sliding into it is stopped flat instead of riding up over its top edge.
+        const inX = sg * WALL_IN, outX = sg * W / 2, faceH = TYPES[t.type].wallH ? wallH : wallH + 0.4;
+        quadK('wall', at(cl, i, inX, 0), at(cl, i, inX, faceH), at(cl, i + 1, inX, faceH), at(cl, i + 1, inX, 0));
+        quadK('wall', at(cl, i, inX, wallH), at(cl, i, outX, wallH), at(cl, i + 1, outX, wallH), at(cl, i + 1, inX, wallH));
+        quadK('wall', at(cl, i, outX, wallH), at(cl, i, outX, -TH), at(cl, i + 1, outX, -TH), at(cl, i + 1, outX, wallH));
+      }
+      if (t.type === 'tunnel') quadK('wall', at(cl, i, -W / 2, wallH + 0.01), at(cl, i, W / 2, wallH + 0.01), at(cl, i + 1, W / 2, wallH + 0.01), at(cl, i + 1, -W / 2, wallH + 0.01));
+    }
+    // The road end you land on after a gap gets a short bevel underneath, so a
+    // car that lands a little short rides up onto the road instead of stopping
+    // dead against its edge.
+    for (const [i, j] of [[0, 1], [n, n - 1]]) {
+      const end = cl.pts[i];
+      if (!landings.some(q => q.distanceTo(end) < 1)) continue;
+      const out = end.clone().sub(cl.pts[j]).normalize(), drop = cl.nrm[i].clone().multiplyScalar(-0.8).addScaledVector(out, 1.6);
+      const a = at(cl, i, -W / 2, 0), b = at(cl, i, W / 2, 0);
+      quadK('road', a, b, b.clone().add(drop), a.clone().add(drop));
+    }
+    for (const o of t.obs || []) {
+      const h = (o.y1 - o.y0) / 2;
+      phys.v3.setValue(o.kind === 'cyl' ? o.r : o.hx, h, o.kind === 'cyl' ? o.r : o.hz);
+      const shape = o.kind === 'cyl' ? new A.btCylinderShape(phys.v3) : new A.btBoxShape(phys.v3);
+      addStatic(shape, o.x, o.y0 + h, o.z, 0.1, true, true);
+    }
+  }
+  for (const kind of ['road', 'wall', 'ground']) {
+    if (!count[kind]) { free(meshes[kind]); continue; }
+    const shape = new A.btBvhTriangleMeshShape(meshes[kind], true, true);
+    addStatic(shape, 0, 0, 0, kind === 'wall' ? 0 : 0.5, true, kind === 'wall');
+    Object.assign(phys.bodies[phys.bodies.length - 1], { mesh: meshes[kind], kind });
+  }
+}
 
 class Car {
   constructor(spec, color) {
@@ -1411,26 +1550,94 @@ class Car {
     this.c0 = c0;
     this.wheels = this.mesh.userData.wheels.map(v => ({
       vis: v, front: v.front, r: v.r, m: new V3(v.x, v.r - spec.comY + SUSP_L - c0, v.z),
-      comp: c0, len: SUSP_L - c0, contact: false, cp: new V3(), wf: new V3(0, 0, 1), n: UP.clone(), slip: 0, vLong: 0, surf: 'road',
+      len: SUSP_L - c0, contact: false, cp: new V3(), wf: new V3(0, 0, 1), n: UP.clone(), slip: 0, vLong: 0, surf: 'road', type: null,
     }));
     const xs = this.wheels.map(w => Math.abs(w.m.x)), zs = this.wheels.map(w => Math.abs(w.m.z) + w.r);
     this.hw = Math.max(...xs) + 0.12; this.hl = Math.max(...zs) + 0.2;
-    const bottom = 0.3 - spec.comY, top = spec.height - spec.comY;
-    this.corners = [];
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const y of [bottom, top]) this.corners.push(new V3(sx * (this.hw - (y === top ? 0.25 : 0)), y, sz * (this.hl - (y === top ? 0.9 : 0))));
+    this.buildBody();
+  }
+  // Bullet chassis + raycast vehicle for the current car.
+  buildBody() {
+    const sp = this.spec, W3 = phys.world;
+    if (this.vehicle) { W3.removeAction(this.vehicle); W3.removeRigidBody(this.body); free(...this.ammo); }
+    // The body is a rounded hull above the wheel mounts (so the suspension rays
+    // never start inside the car) whose underside rises toward the nose and tail
+    // like a rocker, so it clears the road at the bottom of ramps and inside
+    // loops. A short belly box between the axles keeps it off barrier tops.
+    const top = sp.height - sp.comY, mountY = Math.max(...this.wheels.map(w => w.m.y)) + 0.04;
+    const innerX = Math.min(...this.wheels.map(w => Math.abs(w.m.x))) - 0.35;
+    const zF = Math.max(...this.wheels.map(w => w.m.z)), zR = Math.min(...this.wheels.map(w => w.m.z));
+    const bottom = Math.min(0.44 - sp.comY, mountY - 0.12);
+    const mg = 0.1, hx = this.hw - 0.05 - mg, yT = top - mg, yB = mountY + mg, zEnd = this.hl - 0.15 - mg;
+    const rise = Math.min(0.2, (yT - yB) * 0.5);
+    // Collision margin: the hull is grown by it on every side, which rounds its edges
+    // so it glances off barrier and road seams instead of catching on them.
+    const hull = new A.btConvexHullShape(), pt = new A.btVector3();
+    for (const sx of [-1, 1]) {
+      for (const [z, y] of [[zEnd, yB + rise], [zF, yB], [zR, yB], [-zEnd, yB + rise], [zEnd, yT], [-zEnd, yT]]) { pt.setValue(sx * hx, y, z); hull.addPoint(pt, false); }
+    }
+    hull.recalcLocalAabb(); hull.setMargin(mg);
+    const belly = new A.btBoxShape(new A.btVector3(Math.max(0.2, innerX), (mountY - bottom) / 2, 0.6 * Math.min(zF, -zR)));
+    belly.setMargin(Math.min(0.1, (mountY - bottom) * 0.4));
+    const shape = new A.btCompoundShape(); const ct = new A.btTransform(); ct.setIdentity(); shape.addChildShape(ct, hull);
+    const cb = new A.btTransform(); cb.setIdentity(); cb.setOrigin(new A.btVector3(0, (mountY + bottom) / 2, 0)); shape.addChildShape(cb, belly);
+    const tr = new A.btTransform(); tr.setIdentity(); tr.setOrigin(new A.btVector3(0, 5, 0));
+    const ms = new A.btDefaultMotionState(tr);
+    const inertia = new A.btVector3(CAR_MASS * INERTIA.x, CAR_MASS * INERTIA.y, CAR_MASS * INERTIA.z);
+    const info = new A.btRigidBodyConstructionInfo(CAR_MASS, ms, shape, inertia);
+    const body = new A.btRigidBody(info);
+    // Frictionless body: scraping the belly or a barrier slides rather than grabs.
+    body.setActivationState(4); body.setFriction(0); body.setRestitution(0); body.setDamping(0, 0.02);
+    body.setCcdMotionThreshold(0.6); body.setCcdSweptSphereRadius(0.5);
+    W3.addRigidBody(body, GROUP.car, -1);
+    const tuning = new A.btVehicleTuning(); const ray = new A.btDefaultVehicleRaycaster(W3);
+    const veh = new A.btRaycastVehicle(tuning, body, ray); veh.setCoordinateSystem(0, 1, 2);
+    const down = new A.btVector3(0, -1, 0), axle = new A.btVector3(-1, 0, 0), cp = new A.btVector3();
+    for (const wh of this.wheels) { cp.setValue(wh.m.x, wh.m.y, wh.m.z); veh.addWheel(cp, down, axle, SUSP_L + DROOP, wh.r, tuning, wh.front); }
+    // Wheel infos live in an array that reallocates as wheels are added, so
+    // only take handles to them once all four exist.
+    this.wheels.forEach((wh, i) => {
+      const wi = veh.getWheelInfo(i);
+      wi.set_m_suspensionStiffness(SUSP_K); wi.set_m_wheelsDampingCompression(SUSP_BUMP); wi.set_m_wheelsDampingRelaxation(SUSP_REBOUND);
+      wi.set_m_frictionSlip(0); wi.set_m_rollInfluence(0.15); // tyre grip is done in Car.step
+      // The force is capped (see step) so a big landing can't overshoot within a
+      // step and throw the car back up.
+      wi.set_m_maxSuspensionTravelCm((SUSP_L + DROOP) * 100);
+      wh.info = wi;
+    });
+    W3.addAction(veh);
+    this.body = body; this.vehicle = veh;
+    this.ammo = [veh, ray, tuning, body, info, ms, shape, hull, belly, ct, cb, tr, inertia, down, axle, cp, pt];
   }
   clearState(speed) {
     this.grounded = true; this.surf = 'road'; this.steer = 0; this.steerAng = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
     this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0;
-    for (const w of this.wheels || []) { w.comp = this.c0; w.len = SUSP_L - this.c0; w.contact = false; w.slip = 0; w.vLong = speed; }
+    this.nPrev = null; this.prevBeta = 0; this.holding = false; this.twisty = false;
+    for (const w of this.wheels || []) { w.len = SUSP_L - this.c0; w.contact = false; w.slip = 0; w.vLong = speed; }
   }
   setColor(c) { this.mesh.userData.paint.color.set(c); }
   reset(p, yaw, speed = 0) {
-    this.pos.copy(p); this.pos.y += this.spec.comY + 0.02;
     this.q.setFromAxisAngle(UP, yaw);
+    this.pos.copy(p); this.pos.y += this.spec.comY + 0.02;
     this.vel.set(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(speed); this.w.set(0, 0, 0);
+    const tr = phys.tr; tr.setIdentity(); phys.v1.setValue(this.pos.x, this.pos.y, this.pos.z); tr.setOrigin(phys.v1);
+    phys.q.setValue(this.q.x, this.q.y, this.q.z, this.q.w); tr.setRotation(phys.q);
+    this.body.setWorldTransform(tr); this.body.getMotionState().setWorldTransform(tr);
+    this.pushVelocities();
+    this.vehicle.resetSuspension();
+    for (let i = 0; i < this.wheels.length; i++) { this.vehicle.setSteeringValue(0, i); this.vehicle.applyEngineForce(0, i); this.vehicle.setBrake(0, i); this.vehicle.updateWheelTransform(i, true); }
     this.n.copy(UP); this.visUp.copy(UP); this.clearState(speed);
     this.syncMesh(0);
+  }
+  pushVelocities() {
+    phys.v1.setValue(this.vel.x, this.vel.y, this.vel.z); this.body.setLinearVelocity(phys.v1);
+    phys.v2.setValue(this.w.x, this.w.y, this.w.z); this.body.setAngularVelocity(phys.v2);
+  }
+  readState() {
+    const T = this.body.getWorldTransform(), o = T.getOrigin(), r = T.getRotation();
+    this.pos.set(o.x(), o.y(), o.z()); this.q.set(r.x(), r.y(), r.z(), r.w());
+    const lv = this.body.getLinearVelocity(), av = this.body.getAngularVelocity();
+    this.vel.set(lv.x(), lv.y(), lv.z()); this.w.set(av.x(), av.y(), av.z());
   }
   get yaw() { const f = this.forward(); return Math.atan2(f.x, f.z); }
   forward() { const f = new V3(0, 0, 1).applyQuaternion(this.q); f.y = 0; if (f.lengthSq() < 1e-6) f.set(0, 0, 1); return f.normalize(); }
@@ -1448,7 +1655,6 @@ class Car {
     l.set(l.x / INERTIA.x, l.y / INERTIA.y, l.z / INERTIA.z);
     return l.applyQuaternion(this.q);
   }
-  impulse(J, r) { this.vel.add(J); this.w.add(this.invI(new V3().crossVectors(r, J))); }
 
   step(dt, input) {
     const sp = this.spec, q = this.q;
@@ -1468,79 +1674,72 @@ class Car {
     if (this.landT > 0) { this.landT -= dt; drive = Math.min(drive, 0); }
     const hand = !!input.drift;
     const aero = 1 + sp.df * (speed / 50) ** 2;
+    const contacts = this.wheels.filter(w => w.contact).length;
     // Sustained drift: once the tail is out, steering into the slide keeps the
     // rear tyres loose; let go or counter-steer and grip comes back.
     const betaNow = Math.atan2(this.vel.dot(left), Math.max(1, Math.abs(fs)));
-    const holding = this.drifting && this.n.y > 0.9 && Math.abs(input.steer) > 0.25 && Math.sign(input.steer) === Math.sign(betaNow) && fs > 10;
-    // Turning in hard at speed lets the tail step out on its own (no button needed).
     const flat = this.n.y > 0.9;
+    const holding = this.drifting && flat && Math.abs(input.steer) > 0.25 && Math.sign(input.steer) === Math.sign(betaNow) && fs > 10;
+    // Turning in hard at speed lets the tail step out on its own (no button needed).
     const hardTurn = !this.drifting && flat && Math.abs(input.steer) > 0.85 && fs > 30;
     this.driftGrip += ((holding ? 0.88 : hardTurn ? 0.86 : 1) - this.driftGrip) * Math.min(1, (holding || hardTurn ? 6 : 3) * dt);
     this.holding = holding;
 
-    const F = new V3(0, -GRAV, 0), T = new V3();
-    const tiles = this.nearbyTiles();
-    let contacts = 0, grassN = 0, boostOn = false; const nSum = new V3();
-    let maxRearSlip = 0;
+    // Bullet does the suspension: a progressive spring (a bump stop) that stiffens
+    // as the wheel compresses, so big landings and loops don't bottom the car out,
+    // with damping that grows with it so the car doesn't spring off the road as the
+    // load comes off. Bullet's own tyre friction is off; the tyres are below.
     for (const wh of this.wheels) {
-      wh.contact = false;
-      const mw = wh.m.clone().applyQuaternion(q).add(this.pos);
-      const s = surfaceAt(tiles, mw, SUSP_L + wh.r + 1.2, 0.2);
-      if (!s) { wh.len = SUSP_L; continue; }
-      const n = s.n; const denom = n.dot(up);
-      if (denom < 0.3) { wh.len = SUSP_L; continue; }
-      const t = s.h / denom; const len = t - wh.r;
-      if (len >= SUSP_L) { wh.len = SUSP_L; wh.comp = 0; continue; }
-      contacts++; wh.contact = true; nSum.add(n); this.fromKicker = s.type === 'kicker' || (this.fromKicker && s.type == null);
-      if (s.surf === 'grass') grassN++; if (s.surf === 'boost') boostOn = true;
-      const comp = SUSP_L - Math.max(len, -0.25);
-      const compVel = (comp - wh.comp) / dt; wh.comp = comp; wh.len = Math.max(len, 0);
-      let load = SUSP_K * comp + SUSP_C * compVel; if (len < 0) load += 500 * -len;
-      load = Math.max(0, load);
-      const cp = mw.clone().addScaledVector(up, -t); wh.cp.copy(cp); wh.n.copy(n); wh.surf = s.surf;
-      const fUp = up.clone().multiplyScalar(load);
-      F.add(fUp); T.add(mw.clone().sub(this.pos).cross(fUp));
+      const comp = Math.max(0, SUSP_L - wh.len - this.c0), kf = 1 + 45 * comp * comp + 400 * comp ** 4;
+      const x = SUSP_L + DROOP - wh.len; // spring force only past the droop zone
+      wh.info.set_m_suspensionStiffness(x > DROOP ? SUSP_K * kf * (x - DROOP) / x : 0);
+      wh.info.set_m_wheelsDampingCompression(SUSP_BUMP * Math.sqrt(kf)); wh.info.set_m_wheelsDampingRelaxation(SUSP_REBOUND * Math.sqrt(kf));
+      // Loops and banks load the car smoothly (no impact to overshoot), so they get a higher cap.
+      wh.info.set_m_maxSuspensionForce((this.twisty ? 400 : 160) * CAR_MASS);
+    }
 
-      // Tyre: grip along and across the wheel, capped by the friction circle.
-      const wf = fwd.clone(); if (wh.front) wf.applyAxisAngle(up, steerAng);
+    // Forces (as accelerations) and torques (per unit mass) from the tyres and the handling layer.
+    const F = new V3(), T = new V3();
+    // Tyres: grip along and across each wheel, capped by its friction circle,
+    // with the load from Bullet's suspension. Each wheel uses its axle's average
+    // load (like an anti-roll bar), so a wheel hanging in its droop on twisting
+    // road still grips and the car doesn't snap round.
+    const axles = [{ load: 0, n: 0 }, { load: 0, n: 0 }];
+    for (const wh of this.wheels) if (wh.contact) { const a = axles[wh.front ? 0 : 1]; a.load += Math.max(0, wh.load); a.n++; }
+    for (const wh of this.wheels) {
+      const ax = axles[wh.front ? 0 : 1], load = ax.n ? ax.load / ax.n : 0;
+      if (!wh.contact || load <= 0) continue;
+      const n = wh.n, wf = fwd.clone(); if (wh.front) wf.applyAxisAngle(up, steerAng);
       wf.addScaledVector(n, -wf.dot(n)).normalize();
       const ws = new V3().crossVectors(n, wf).normalize();
-      wh.wf.copy(wf);
-      const r = cp.clone().sub(this.pos);
+      const r = wh.cp.clone().sub(this.pos);
       const vc = this.vel.clone().add(new V3().crossVectors(this.w, r));
-      const vLong = vc.dot(wf), vLat = vc.dot(ws); wh.vLong = vLong;
-      const grass = s.surf === 'grass', rear = !wh.front;
+      const vLong = vc.dot(wf), vLat = vc.dot(ws);
+      const grass = wh.surf === 'grass', rear = !wh.front;
       let mu = sp.grip * (rear ? sp.rear : 1) * (grass ? sp.grassGrip : aero);
       if (hand && rear) mu *= sp.hb;
       if (rear) mu *= this.driftGrip;
       const maxF = mu * load;
-      let fLat = -vLat / dt * 0.16;
-      let fLong = 0;
+      let fLat = -vLat / dt * 0.16, fLong = 0;
       const share = rear ? sp.drive / 2 : (1 - sp.drive) / 2;
       const vmax = grass ? sp.grassV : sp.vmax;
       if (drive > 0 && share > 0) { const k = clamp(fs / vmax, 0, 1); fLong += sp.accel * share * drive * Math.max(0, 1 - k * k * k); }
       if (drive < 0 && share > 0 && fs > -14) fLong += sp.accel * 0.55 * share * drive;
       if (brake > 0) fLong -= clamp(vLong / dt * 0.25, -sp.brake / 4, sp.brake / 4) * brake;
       if (hand && rear) fLong -= clamp(vLong / dt * 0.25, -9, 9);
-      fLong -= vLong * (grass ? 0.5 : 0.025);
+      fLong -= vLong * (grass ? 0.5 : 0.025); // rolling resistance
       const mag = Math.hypot(fLat, fLong);
       if (mag > maxF) { const k = maxF / mag; fLat *= k; fLong *= k; }
-      wh.slip = Math.abs(vLat) + (hand && rear ? Math.abs(vLong) * 0.3 : 0);
-      if (rear) maxRearSlip = Math.max(maxRearSlip, wh.slip);
       const tire = wf.clone().multiplyScalar(fLong).addScaledVector(ws, fLat);
       F.add(tire);
       // Tyre forces act close to the centre of mass's height so hard cornering
       // leans the car without tipping it over.
-      T.add(r.clone().addScaledVector(up, -r.dot(up) * 0.85).cross(tire));
+      T.add(r.addScaledVector(up, -r.dot(up) * 0.85).cross(tire));
     }
-
-    const wasGrounded = this.grounded;
-    this.grounded = contacts > 0;
-    this.surf = grassN >= 2 ? 'grass' : boostOn ? 'boost' : 'road';
-    if (contacts) this.n.copy(nSum.normalize());
+    const boostOn = this.wheels.some(w => w.contact && w.surf === 'boost');
     if (boostOn && fs < Math.max(sp.vmax * 1.3, 62)) F.addScaledVector(fwd, 60);
     if (this.boostT > 0) { this.boostT -= dt; if (fs < sp.vmax * 1.3) F.addScaledVector(fwd, this.boostAmt / 0.5); }
-    if (fs > sp.vmax && this.grounded) F.addScaledVector(fwd, -(fs - sp.vmax) * 0.5);
+    if (fs > sp.vmax && contacts) F.addScaledVector(fwd, -(fs - sp.vmax) * 0.5);
     F.addScaledVector(this.vel, -0.00006 * speed);
 
     const latV = this.vel.dot(left); const beta = Math.atan2(latV, Math.max(1, Math.abs(fs)));
@@ -1557,150 +1756,123 @@ class Car {
       // Recovery aid: when you stop holding a slide the car swings back toward its direction of travel.
       if (Math.abs(beta) > 0.1 && fs > 6 && !hand && !this.holding) T.addScaledVector(up, Math.sign(beta) * (Math.abs(beta) - 0.1) * (Math.abs(beta) > 0.55 ? 30 : 16));
       const wy = this.w.dot(up); T.addScaledVector(up, -wy * 0.6);
-
     } else if (!contacts) {
-      // Road grip over crests: the car stays close to the road instead of
-      // flying off every hump. Kickers are exempt so jumps still fly.
-      // Fades to nothing upside down, so a loop taken too slowly still drops you.
+      // Road grip over crests and walls; fades to nothing upside down, so a
+      // loop taken too slowly still drops you. Kickers are exempt so jumps fly.
+      const tiles = this.nearbyTiles();
       if (!this.fromKicker) {
         const below = surfaceAt(tiles, this.pos, 3.5, 0.3);
         if (below && below.surf !== 'grass' && (below.n.y > 0.5 || this.airTime < 0.5)) F.addScaledVector(below.n, -24 * clamp(0.5 + below.n.y * 0.6, 0, 1));
       }
       // Air control: steer to turn, gas pitches the nose down, brake pulls it up.
-      // The handbrake works as an air brake that stops the car rotating.
+      // The handbrake works as an air brake that stops the car rotating. The car
+      // levels itself to the road it's about to land on (or to flat ground).
       T.addScaledVector(up, -this.steer * 5);
       T.addScaledVector(left, ((input.gas || 0) - (input.brake || 0)) * 4.5);
-      T.add(new V3().crossVectors(up, UP).multiplyScalar(hand ? 22 : 9));
-      const wy = this.w.dot(UP); const k = Math.exp(-(hand ? 7 : 2) * dt);
-      this.w.set(this.w.x * k, wy + (this.w.y - wy) * k, this.w.z * k);
+      const land = surfaceAt(tiles, this.pos.clone().addScaledVector(this.vel, 0.2), 6, 0.5);
+      T.add(new V3().crossVectors(up, land && land.n.y > 0.3 ? land.n : UP).multiplyScalar(hand ? 22 : 12));
     }
     this.vel.addScaledVector(F, dt);
     this.w.addScaledVector(this.invI(T), dt);
-    this.w.multiplyScalar(Math.exp(-0.3 * dt));
-    // Surface follow: with two or more wheels down, pitch and roll track the road's own
-    // rotation (plus a pull back to it), so loops, wall rides and twists stay glued.
-    // Yaw, grip and slides are left to the tyre model.
-    if (contacts >= 2) {
-      const target = new V3().crossVectors(up, this.n).multiplyScalar(9);
-      if (this.nPrev) target.add(new V3().crossVectors(this.nPrev, this.n).divideScalar(dt));
+    if (!contacts) { const wy = this.w.dot(UP); const k = Math.exp(-(hand ? 7 : 2) * dt); this.w.set(this.w.x * k, wy + (this.w.y - wy) * k, this.w.z * k); }
+    // Surface follow: with two or more wheels down, pitch and roll track the road's
+    // own rotation (plus a pull back to it). On banks, wall rides and loops the
+    // road's "up" comes from the track itself and holds even if a wheel lifts for a
+    // moment, so they stay glued; elsewhere it comes from the wheels, so a car going
+    // over a crest leaves it with its own attitude. Yaw, grip and slides are left to the tyres.
+    const road = surfaceAt(this.nearbyTiles(), this.pos, 2.6, 0.6);
+    const twisty = road && road.surf !== 'grass' && TWISTY.has(road.type) && (contacts >= 1 || this.airTime < 0.25);
+    this.twisty = twisty;
+    const nFollow = twisty ? road.n : contacts >= 2 ? this.n : null;
+    if (nFollow) {
+      const target = new V3().crossVectors(up, nFollow).multiplyScalar(9);
+      if (this.nPrev) target.add(new V3().crossVectors(this.nPrev, nFollow).divideScalar(dt));
       target.addScaledVector(up, -target.dot(up));
       const wy = this.w.dot(up); const wp = this.w.clone().addScaledVector(up, -wy);
       wp.lerp(target, 1 - Math.exp(-14 * dt)); this.w.copy(wp).addScaledVector(up, wy);
-      this.nPrev = this.n.clone();
-    } else this.nPrev = null;
-    this.pos.addScaledVector(this.vel, dt);
-    const wq = new THREE.Quaternion(this.w.x * dt * 0.5, this.w.y * dt * 0.5, this.w.z * dt * 0.5, 0).multiply(q);
-    q.set(q.x + wq.x, q.y + wq.y, q.z + wq.z, q.w + wq.w).normalize();
+      this.nPrev = nFollow.clone();
+    } else {
+      // A single wheel down (off a crest, or coming off a bank): stop pitch and
+      // roll building up, so the car neither tips over nor noses down.
+      if (contacts === 1) { const wy = this.w.dot(up); this.w.addScaledVector(up, -wy).multiplyScalar(Math.exp(-8 * dt)).addScaledVector(up, wy); }
+      this.nPrev = null;
+    }
+    // Banked turns and wall rides: the road's edges rise and fall fast as the bank
+    // comes in and out, so on these pieces the car is held down onto the surface
+    // (where it will be next tick) instead of being flung off it.
+    // In loops and banks the car is pressed hard into the road; past what the
+    // suspension can hold it rides on the track itself rather than scraping its body.
+    if (twisty) {
+      const gap = road.h - (sp.comY - SUSP_L + 0.14), vn = this.vel.dot(road.n);
+      if (gap < 0 && vn < -gap * 0.5 / dt) this.vel.addScaledVector(road.n, -gap * 0.5 / dt - vn);
+    }
+    if (road && (road.type === 'bankturn' || road.type === 'wallturn') && !this.fromKicker && this.airTime < 0.4) {
+      const ahead = surfaceAt(this.nearbyTiles(), this.pos.clone().addScaledVector(this.vel, dt), 2.6, 0.6);
+      const gap = ahead && ahead.surf !== 'grass' ? ahead.h - sp.comY - 0.04 : 0;
+      if (gap > 0) this.vel.addScaledVector(ahead.n, -Math.min(gap * 0.4 / dt, 300 * dt));
+    }
+    this.pushVelocities();
+    const before = this.vel.clone();
 
-    this.collideBody(tiles);
-    this.collideWalls(tiles, dt);
-    this.collideObstacles(tiles);
+    phys.world.stepSimulation(dt, 0);
 
+    this.readState();
+    this.readWheels(hand);
+    // Hitting a barrier, pillar or block shows up as a sudden loss of speed.
+    const hit = before.sub(this.vel).length() - GRAV * dt * 1.5;
+    if (hit > 5) events.wall = Math.max(events.wall, hit);
+
+    const nowContacts = this.wheels.filter(w => w.contact).length;
+    const wasGrounded = this.grounded;
+    this.grounded = nowContacts > 0;
+    const gN = this.wheels.filter(w => w.contact && w.surf === 'grass').length;
+    this.surf = gN >= 2 ? 'grass' : this.wheels.some(w => w.contact && w.surf === 'boost') ? 'boost' : 'road';
+    if (nowContacts) { const nSum = new V3(); for (const w of this.wheels) if (w.contact) nSum.add(w.n); this.n.copy(nSum.normalize()); }
     if (this.grounded && !wasGrounded && this.airTime > 0.3) { events.land = true; this.landT = 0.12; }
     this.airTime = this.grounded ? 0 : this.airTime + dt;
-    this.fs = this.vel.dot(new V3(0, 0, 1).applyQuaternion(q));
-    this.slip = maxRearSlip;
+    const fwdNow = new V3(0, 0, 1).applyQuaternion(this.q), leftNow = new V3(1, 0, 0).applyQuaternion(this.q);
+    this.fs = this.vel.dot(fwdNow);
+    this.slip = Math.max(0, ...this.wheels.filter(w => !w.front).map(w => w.slip));
 
     // Drift: a sustained slide at speed charges a boost you get when you straighten up.
-    const sliding = contacts >= 2 && this.fs > 13 && Math.abs(beta) > 0.13 && this.surf !== 'grass';
+    const b2 = Math.atan2(this.vel.dot(leftNow), Math.max(1, Math.abs(this.fs)));
+    const sliding = nowContacts >= 2 && this.fs > 13 && Math.abs(b2) > 0.13 && this.surf !== 'grass';
     if (sliding) { if (!this.drifting) { this.drifting = true; this.driftTime = 0; } this.driftTime += dt; this.slideCool = 0; }
     else if (this.drifting) {
       this.slideCool += dt;
-      if (this.slideCool > 0.15 || !contacts) {
-        const st = contacts ? driftStage(this.driftTime) : null;
+      if (this.slideCool > 0.15 || !nowContacts) {
+        const st = nowContacts ? driftStage(this.driftTime) : null;
         if (st) { this.boostT = 0.5; this.boostAmt = st.boost; events.driftBoost = st; }
         this.drifting = false; this.driftTime = 0;
       }
     }
-    const upNow = new V3(0, 1, 0).applyQuaternion(q);
-    this.flipT = upNow.y < 0.25 && speed < 7 ? this.flipT + dt : 0;
-    if (this.flipT > 1.4) { this.flipT = 0; events.flipped = true; }
+    const upNow = new V3(0, 1, 0).applyQuaternion(this.q);
+    this.flipT = upNow.y < 0.25 && this.vel.length() < 7 ? this.flipT + dt : 0;
+    if (this.flipT > 1.4 || this.pos.y < -20) { this.flipT = 0; events.flipped = true; }
   }
-  // Chassis corners against the road and ground (for landings, scrapes and rollovers).
-  collideBody(tiles) {
-    // All touching corners are solved together from the same state, so a
-    // flat landing pushes the car straight up instead of tipping it.
-    const hits = []; let maxDepth = 0, nAcc = new V3();
-    const carUp = new V3(0, 1, 0).applyQuaternion(this.q);
-    for (const c of this.corners) {
-      const p = c.clone().applyQuaternion(this.q).add(this.pos);
-      const s = surfaceAt(tiles, p, 1.1, 0.9);
-      if (!s) continue;
-      const depth = -s.h; if (depth <= 0) continue;
-      hits.push({ r: p.sub(this.pos), n: s.n, upright: carUp.dot(s.n) > 0.5 }); maxDepth = Math.max(maxDepth, depth); nAcc.add(s.n);
-    }
-    if (!hits.length) return;
-    this.pos.addScaledVector(nAcc.normalize(), maxDepth * 0.8);
-    const dv = new V3(), dw = new V3(); const share = 1 / hits.length;
-    for (const { r, n, upright } of hits) {
-      const vp = this.vel.clone().add(new V3().crossVectors(this.w, r));
-      const vn = vp.dot(n); if (vn >= 0) continue;
-      const k = 1 + n.dot(new V3().crossVectors(this.invI(new V3().crossVectors(r, n)), r));
-      const j = -1.15 * vn / k * share;
-      const J = n.clone().multiplyScalar(j);
-      // Belly scrapes slide; only a car on its side or roof gets real friction.
-      const vt = vp.addScaledVector(n, -vn); const vtl = vt.length();
-      if (vtl > 1e-3) J.addScaledVector(vt, -Math.min(vtl / k * share, (upright ? 0.04 : 0.45) * j) / vtl);
-      dv.add(J); dw.add(this.invI(new V3().crossVectors(r, J)));
-      if (vn < -6) events.wall = Math.max(events.wall, -vn);
-    }
-    this.vel.add(dv); this.w.add(dw);
-  }
-  // Barriers: keep the car between them unless it is high enough to clear them.
-  collideWalls(tiles, dt) {
-    const p = this.pos;
-    for (const t of tiles) {
-      if (!t.cl.box.containsPoint(p)) continue;
-      const c = nearestOnCentreline(t.cl, p);
-      if (Math.abs(c.along) > 0.05) continue;
-      const wallH = TYPES[t.type].wallH || WALL_H;
-      if (c.h - this.spec.comY + 0.25 > wallH || c.h < -2.5) continue;
-      const al = Math.abs(c.lat), sg = Math.sign(c.lat) || 1;
-      const inner = WALL_IN - this.hw, mid = WALL_IN + 0.25, outer = W / 2 + this.hw;
-      let push = 0, nrm = null;
-      if (al > inner && al < mid) { push = inner - al; nrm = c.B.clone().multiplyScalar(-sg); }
-      else if (al >= mid && al < outer) { push = outer - al; nrm = c.B.clone().multiplyScalar(sg); }
-      if (!nrm) continue;
-      p.addScaledVector(c.B, sg * push);
-      const vn = this.vel.dot(nrm);
-      if (vn < 0) {
-        this.vel.addScaledVector(nrm, -vn * 1.2);
-        this.vel.multiplyScalar(1 - clamp(-vn / 90, 0, 0.18));
-        if (vn < -5) events.wall = Math.max(events.wall, -vn);
-      }
-      // Scrape: swing the nose (about the road's normal) to run along the wall.
-      const f = new V3(0, 0, 1).applyQuaternion(this.q);
-      if (f.dot(nrm) < 0) {
-        const tg = t.cl.pts[c.i + 1].clone().sub(t.cl.pts[c.i]).normalize(); if (tg.dot(f) < 0) tg.negate();
-        const fp = f.clone().addScaledVector(c.N, -f.dot(c.N));
-        const d = Math.atan2(new V3().crossVectors(fp, tg).dot(c.N), fp.dot(tg));
-        this.q.premultiply(new THREE.Quaternion().setFromAxisAngle(c.N, d * Math.min(1, 6 * dt)));
-        this.w.addScaledVector(c.N, -this.w.dot(c.N) * 0.4);
-      }
-    }
-  }
-  // Pillars and blocks standing on the road.
-  collideObstacles(tiles) {
-    const f = new V3(0, 0, 1).applyQuaternion(this.q); const r = this.hw; const base = this.pos.y - this.spec.comY;
-    for (const t of tiles) for (const o of t.obs || []) {
-      if (base > o.y1 || this.pos.y < o.y0 - 1) continue;
-      for (const k of [-1, 0, 1]) {
-        const cx = this.pos.x + f.x * k * (this.hl - 1.1), cz = this.pos.z + f.z * k * (this.hl - 1.1);
-        let nx, nz, pen;
-        if (o.kind === 'cyl') {
-          const dx = cx - o.x, dz = cz - o.z, d = Math.hypot(dx, dz); pen = o.r + r - d; if (pen <= 0) continue;
-          nx = d > 1e-4 ? dx / d : 1; nz = d > 1e-4 ? dz / d : 0;
-        } else {
-          const px = clamp(cx, o.x - o.hx, o.x + o.hx), pz = clamp(cz, o.z - o.hz, o.z + o.hz);
-          const dx = cx - px, dz = cz - pz, d = Math.hypot(dx, dz);
-          if (d > 1e-4) { pen = r - d; if (pen <= 0) continue; nx = dx / d; nz = dz / d; }
-          else { const ex = o.hx - Math.abs(cx - o.x), ez = o.hz - Math.abs(cz - o.z); if (ex < ez) { nx = Math.sign(cx - o.x) || 1; nz = 0; pen = ex + r; } else { nx = 0; nz = Math.sign(cz - o.z) || 1; pen = ez + r; } }
-        }
-        this.pos.x += nx * pen; this.pos.z += nz * pen;
-        const vn = this.vel.x * nx + this.vel.z * nz;
-        if (vn < 0) { this.vel.x -= nx * vn * 1.3; this.vel.z -= nz * vn * 1.3; this.vel.multiplyScalar(0.92); this.w.y *= 0.5; if (vn < -4) events.wall = Math.max(events.wall, -vn); }
-      }
-    }
+  // Wheel contacts from Bullet, plus what each wheel is standing on.
+  readWheels(hand) {
+    const tiles = this.nearbyTiles(); const fwd = new V3(0, 0, 1).applyQuaternion(this.q), up = new V3(0, 1, 0).applyQuaternion(this.q);
+    const probe = new V3();
+    this.wheels.forEach(wh => {
+      const ri = wh.info.get_m_raycastInfo();
+      wh.contact = !!ri.get_m_isInContact();
+      wh.len = wh.contact ? ri.get_m_suspensionLength() : SUSP_L + DROOP;
+      wh.load = wh.contact ? wh.info.get_m_wheelsSuspensionForce() / CAR_MASS : 0;
+      if (!wh.contact) { wh.slip = 0; return; }
+      const p = ri.get_m_contactPointWS(), n = ri.get_m_contactNormalWS();
+      wh.cp.set(p.x(), p.y(), p.z()); wh.n.set(n.x(), n.y(), n.z());
+      if (wh.n.dot(up) < 0.3) wh.n.copy(up); // ignore a glancing hit on an edge
+      const s = surfaceAt(tiles, probe.copy(wh.cp).addScaledVector(wh.n, 0.3), 0.8, 0.8);
+      wh.surf = s ? s.surf : 'grass'; wh.type = s ? s.type : null;
+      if (wh.type === 'kicker') this.fromKicker = true; else if (wh.type) this.fromKicker = false;
+      const wf = fwd.clone(); if (wh.front) wf.applyAxisAngle(up, this.steerAng);
+      wf.addScaledVector(wh.n, -wf.dot(wh.n)).normalize(); wh.wf.copy(wf);
+      const ws = new V3().crossVectors(wh.n, wf).normalize();
+      const r = wh.cp.clone().sub(this.pos); const vc = this.vel.clone().add(new V3().crossVectors(this.w, r));
+      wh.vLong = vc.dot(wf);
+      wh.slip = Math.abs(vc.dot(ws)) + (hand && !wh.front ? Math.abs(wh.vLong) * 0.3 : 0);
+    });
   }
   syncMesh(dt) {
     const sp = this.spec;
@@ -1708,7 +1880,7 @@ class Car {
     this.mesh.quaternion.copy(this.q);
     this.mesh.position.copy(this.pos).add(new V3(0, -sp.comY, 0).applyQuaternion(this.q));
     for (const wh of this.wheels) {
-      const len = wh.contact ? wh.len : SUSP_L;
+      const len = wh.contact ? wh.len : SUSP_L + DROOP;
       wh.vis.pivot.position.y = sp.comY + wh.m.y - len;
       wh.vis.w.rotation.x += (wh.contact ? wh.vLong : this.fs) * dt / wh.r;
       if (wh.front) wh.vis.pivot.rotation.y = this.steerAng;
@@ -1872,7 +2044,7 @@ const game = {
   demo: { idx: 0 },
   pb: null,
 };
-game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
+// The car is created in start(), once the physics engine has loaded.
 game.ghostCar = null;
 function setGhostCar(id) {
   if (game.ghost && game.ghostCar === id) return;
@@ -2030,7 +2202,9 @@ function demoInput(car, st) {
   }
   st.idx = bi;
   const sp = Math.abs(car.fs);
-  const look = Math.min(pts.length - 1, bi + Math.round((6 + sp * 0.3) / 1.5));
+  let look = Math.min(pts.length - 1, bi + Math.round((6 + sp * 0.3) / 1.5));
+  // In loops the road ahead curls up out of the car's plane; keep the target close enough to stay in it.
+  while (look > bi + 3 && r.nrms[look].dot(r.nrms[bi]) < 0.85) look--;
   // Steer toward the target as seen from the car itself, so it works upside down in a loop too.
   const rel = pts[look].clone().addScaledVector(r.nrms[look], 0.9).sub(car.pos);
   const fwd = new V3(0, 0, 1).applyQuaternion(car.q), left = new V3(1, 0, 0).applyQuaternion(car.q);
@@ -2039,6 +2213,10 @@ function demoInput(car, st) {
   const speeds = routeSpeeds(r, car.spec);
   const vt = speeds[Math.min(speeds.length - 1, bi + 3)];
   const g = car.grounded && sp < vt ? 1 : 0;
+  // Stuck against something: back out with the wheels turned the other way.
+  st.stuck = car.grounded && sp < 2 ? (st.stuck || 0) + PHYS_DT : 0;
+  if (st.stuck > 1.2) st.backT = 1.1;
+  if (st.backT > 0) { st.backT -= PHYS_DT; return { steer: -steer, gas: 0, brake: 1, drift: false, done: false, lost: false }; }
   return { steer, gas: g, brake: car.grounded && sp > vt + 3 ? 1 : 0, drift: false, done: bi >= pts.length - 3, lost: Math.sqrt(best) > 14 };
 }
 
@@ -2613,7 +2791,7 @@ function physicsTick(input, racing) {
   if (racing) {
     const list = world.cells.get(cellKey(Math.round(car.pos.x / S), Math.round(car.pos.z / S)));
     if (list) for (const t of list) {
-      const dy = car.pos.y - t.l * H; if (dy < -2 || dy > 9) continue;
+      const dy = car.pos.y - t.l * H; if (dy < -2 || dy > 14) continue;
       const lp = car.pos.clone().sub(new V3(t.x * S, 0, t.z * S)); const [, lz] = rotXZ(lp.x, lp.z, (4 - t.r) % 4);
       if (Math.abs(lz) > 1.5) continue;
       if (t.type === 'checkpoint') onCheckpoint(t);
@@ -2651,6 +2829,7 @@ function frame(now) {
       input = demoInput(car, game.demo);
       if (input.done || input.lost || car.pos.y < -20) { demoIdx++; loadDemo(); break; }
       physicsTick(input, false); game.acc -= PHYS_DT;
+      if (events.flipped) { demoIdx++; loadDemo(); break; }
     }
     events.land = false; events.wall = 0; events.driftBoost = null; events.flipped = false;
     car.syncMesh(dt); updateCamera(dt, car, true); updateAudio(car, false, 0);
@@ -2702,12 +2881,14 @@ window.addEventListener('resize', resize);
 
 function start() {
   resize(); applyTheme();
+  game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
   setState('menu'); loadDemo();
   requestAnimationFrame(t => { last = t; frame(t); });
 }
 // Debug/test hooks.
-window.__mt = { game, world, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack };
-start();
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack };
+// Ammo.js returns a "thenable" module; resolve it through a plain object so it isn't unwrapped forever.
+Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
 </body>
 </html>
