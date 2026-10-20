@@ -99,12 +99,22 @@
   #flash.show { opacity: 1; }
 
   /* Touch controls */
-  #touch { position: fixed; inset: auto 0 0 0; display: flex; justify-content: space-between; padding: 0 max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); pointer-events: none; }
-  #touch .grp { display: flex; gap: 10px; pointer-events: auto; }
-  #touch button { width: 72px; height: 72px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.35); font-family: var(--display); font-size: 22px; touch-action: none; user-select: none; -webkit-user-select: none; }
-  #touch button.on { background: rgba(255,210,63,0.45); }
-  body.touch #hud-keys { display: none; }
-  body.touch #hud-speed { bottom: 104px; }
+  #touch { position: fixed; inset: auto 0 0 0; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding: 0 max(14px, env(safe-area-inset-right, 0px)) max(14px, env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px)); pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  #touch .grp { display: flex; gap: 12px; pointer-events: auto; touch-action: none; }
+  #touch .pedals { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 12px; }
+  #touch button { --w: clamp(88px, 15vw, 132px); --h: clamp(88px, 22vh, 140px); width: var(--w); height: var(--h); border-radius: 18px; border: 2px solid rgba(255,255,255,0.4); background: rgba(8,14,26,0.5); color: var(--text); font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; pointer-events: auto; }
+  #touch button span { font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.85; }
+  #touch .gas { grid-column: 2; grid-row: 1 / span 2; height: calc(var(--h) * 1.7 + 12px); border-color: rgba(62,227,138,0.7); }
+  #touch .brake { grid-column: 1; grid-row: 2; border-color: rgba(255,84,104,0.7); }
+  #touch .drift { grid-column: 1; grid-row: 1; height: calc(var(--h) * 0.7); font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; border-color: rgba(98,240,255,0.7); }
+  #touch button.on { background: rgba(255,210,63,0.5); border-color: var(--signal); transform: scale(0.96); }
+  #touch .gas.on { background: rgba(62,227,138,0.5); } #touch .brake.on { background: rgba(255,84,104,0.5); } #touch .drift.on { background: rgba(98,240,255,0.45); }
+  #touch #touch-pause { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: 60px; height: 46px; border-radius: 12px; font-size: 17px; }
+  body.touchui #hud-keys { display: none; }
+  body.touchui #hud-speed { bottom: auto; top: max(14px, env(safe-area-inset-top, 0px)); right: calc(max(14px, env(safe-area-inset-right, 0px)) + 164px); }
+  #hud-drift { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; text-shadow: 0 2px 0 rgba(0,0,0,0.5); }
+  #hud-drift .meter { width: 160px; height: 8px; border-radius: 4px; background: rgba(0,0,0,0.5); overflow: hidden; }
+  #hud-drift .meter i { display: block; height: 100%; width: 0; background: var(--muted); }
 
   /* Panels: pause / finish / modal */
   .panel { width: min(440px, 100%); padding: 22px; display: flex; flex-direction: column; gap: 14px; }
@@ -159,11 +169,13 @@
     .logo { font-size: 36px; }
     #hud-time { font-size: 30px; }
     #minimap { width: 104px; height: 104px; }
+    body.touchui #hud-speed { right: calc(max(14px, env(safe-area-inset-right, 0px)) + 116px); }
     #spd { font-size: 34px; }
     #hud-speed .bar { width: 120px; }
     #hud-medals { display: none; }
     #ed-help { display: none; }
   }
+  @media (max-width: 560px) { body.touchui #hud-speed { top: calc(max(14px, env(safe-area-inset-top, 0px)) + 116px); right: max(14px, env(safe-area-inset-right, 0px)); } }
   @media (prefers-reduced-motion: reduce) { #toast, #flash { transition: none; } }
 </style>
 </head>
@@ -182,14 +194,16 @@
   </div>
   <div id="flash"></div>
   <div id="hud-hint">Press <b>W</b> or <b>↑</b> to launch</div>
+  <div id="hud-drift" hidden><span id="drift-label">Drift</span><div class="meter"><i id="drift-bar"></i></div></div>
   <canvas id="minimap" width="300" height="300"></canvas>
   <div id="hud-speed"><span id="spd">0</span><small>KM/H</small><div class="bar"><i id="spd-bar"></i></div></div>
-  <div id="hud-keys"><kbd>R</kbd> restart · <kbd>Enter</kbd> last checkpoint · <kbd>Space</kbd> drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause</div>
+  <div id="hud-keys"><kbd>R</kbd> restart · <kbd>Enter</kbd> last checkpoint · <kbd>Space</kbd>+steer drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause</div>
 </div>
 
 <div id="touch" hidden>
-  <div class="grp"><button data-k="left" aria-label="Steer left">◀</button><button data-k="right" aria-label="Steer right">▶</button></div>
-  <div class="grp"><button data-k="drift" aria-label="Drift">⟲</button><button data-k="brake" aria-label="Brake">▼</button><button data-k="gas" aria-label="Accelerate">▲</button></div>
+  <div class="grp steer"><button data-k="left" aria-label="Steer left">◀<span>Left</span></button><button data-k="right" aria-label="Steer right">▶<span>Right</span></button></div>
+  <button id="touch-pause" aria-label="Pause">II</button>
+  <div class="grp pedals"><button data-k="drift" class="drift" aria-label="Drift">Drift</button><button data-k="brake" class="brake" aria-label="Brake">▼<span>Brake</span></button><button data-k="gas" class="gas" aria-label="Accelerate">▲<span>Gas</span></button></div>
 </div>
 
 <div id="menu" class="screen" hidden>
@@ -292,7 +306,7 @@
 // ============================================================================
 const S = 20;       // tile size (world units, ~metres)
 const H = 5;        // height of one level
-const W = 12;       // road width
+const W = 14;       // road width
 const TH = 0.8;     // road slab thickness
 const GRAV = 30;
 const PHYS_DT = 1 / 120;
@@ -462,21 +476,21 @@ function finishRoute(pts, segs, tiles, used) {
     const h1 = Math.atan2(b.x - a.x, b.z - a.z), h2 = Math.atan2(c.x - b.x, c.z - b.z);
     let dh = Math.abs(h2 - h1); if (dh > Math.PI) dh = 2 * Math.PI - dh;
     const k = dh / (a.distanceTo(b) * 0.5 + b.distanceTo(c) * 0.5 + 1e-6);
-    if (k > 1e-4) speed[i] = Math.min(VMAX, 0.94 * 2.35 / (k + 2.35 * 0.42 / VMAX));
+    if (k > 1e-4) speed[i] = Math.min(VMAX, 0.94 * 2.3 / (k + 2.3 * 0.38 / VMAX));
     if (a.y - c.y > 1.5 && b.y > 0.5) speed[i] = Math.min(speed[i], VMAX * 0.92);
   }
   for (let i = N - 2; i >= 0; i--) speed[i] = Math.min(speed[i], Math.sqrt(speed[i + 1] ** 2 + 2 * 38 * step));
   const length = segs.reduce((s, g) => s + g.len, 0);
   return { ok: true, pts: out, speed, segs, length, missedCheckpoints: missed, cpTotal: cps.length };
 }
-const VMAX = 62;
+const VMAX = 44;   // top speed on tarmac (~160 km/h)
 
 // Medal targets from the route: time per piece at a realistic pace.
 function medalTimes(route) {
   if (!route || !route.ok) return null;
-  const pace = { turn: 17.5, bigturn: 41, ramp: 57, kicker: 58, boost: 72, gap: 60 };
-  let t = 1.6;
-  for (const g of route.segs) t += g.len / (pace[g.type] || 60);
+  const pace = { turn: 15, bigturn: 34, ramp: 46, kicker: 44, boost: 55, gap: 40 };
+  let t = 2.0;
+  for (const g of route.segs) t += g.len / (pace[g.type] || 48);
   const author = t * 1000;
   return { author: Math.round(author), gold: Math.round(author * 1.08), silver: Math.round(author * 1.25), bronze: Math.round(author * 1.5) };
 }
@@ -491,7 +505,7 @@ const MEDAL_NAMES = { author: 'Author', gold: 'Gold', silver: 'Silver', bronze: 
 // Settings
 // ============================================================================
 const CAR_COLORS = ['#ff5a36', '#ffd23f', '#3ee38a', '#3fa7ff', '#b06bff', '#f2f4f8', '#20242c'];
-const settings = Object.assign({ color: '#ff5a36', theme: 'day', cam: 0, ghost: true, sound: true, shadows: true, name: 'You' }, store.get('mt.settings', {}));
+const settings = Object.assign({ color: '#ff5a36', theme: 'day', cam: 0, ghost: true, sound: true, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
 function saveSettings() { store.set('mt.settings', settings); }
 
 const THEMES = {
@@ -555,7 +569,7 @@ scene.add(ground);
 // ============================================================================
 const MAT = {
   road: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide }),
-  curb: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, flatShading: true }),
+  curb: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, flatShading: true, side: THREE.DoubleSide }),
   pillar: new THREE.MeshStandardMaterial({ color: 0xb8c0cc, roughness: 0.9, flatShading: true }),
   boost: new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xff7a00, emissiveIntensity: 0.9, flatShading: true, side: THREE.DoubleSide }),
   post: new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.6, flatShading: true }),
@@ -594,15 +608,16 @@ function slabGeometry(pts, a, b, off, th, topColor, sideColor) {
     L.push(l); R.push(r); Lb.push(l.clone().setY(l.y - th)); Rb.push(r.clone().setY(r.y - th));
   }
   const quad = (A, B, C, D, c) => { for (const v of [A, B, C, A, C, D]) { pos.push(v.x, v.y, v.z); col.push(c.r, c.g, c.b); } };
+  const sc = i => (typeof sideColor === 'function' ? sideColor(i) : sideColor);
   for (let i = 0; i < n; i++) {
     const tc = typeof topColor === 'function' ? topColor(i) : topColor;
     quad(L[i], R[i], R[i + 1], L[i + 1], tc);
-    quad(Lb[i], Lb[i + 1], Rb[i + 1], Rb[i], sideColor);
-    quad(Lb[i], L[i], L[i + 1], Lb[i + 1], sideColor);
-    quad(R[i], Rb[i], Rb[i + 1], R[i + 1], sideColor);
+    quad(Lb[i], Lb[i + 1], Rb[i + 1], Rb[i], sc(i));
+    quad(Lb[i], L[i], L[i + 1], Lb[i + 1], sc(i));
+    quad(R[i], Rb[i], Rb[i + 1], R[i + 1], sc(i));
   }
-  quad(L[0], Lb[0], Rb[0], R[0], sideColor);
-  quad(L[n], R[n], Rb[n], Lb[n], sideColor);
+  quad(L[0], Lb[0], Rb[0], R[0], sc(0));
+  quad(L[n], R[n], Rb[n], Lb[n], sc(n - 1));
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -623,11 +638,11 @@ function buildTile(t, opts = {}) {
   g.add(road); g.userData.road = road;
   if (opts.ghostMat) { place(g, t); return g; }
 
-  // Red/white curbs along both edges.
+  // Red/white barriers along both edges (low enough to jump over).
   const curbCol = i => (i % 2 ? COL.red : COL.white);
-  for (const [a, b] of [[-W / 2, -W / 2 + 0.9], [W / 2 - 0.9, W / 2]]) {
-    const m = new THREE.Mesh(slabGeometry(pts, a, b, 0.07, 0.07, curbCol, COL.white), MAT.curb);
-    m.receiveShadow = true; g.add(m);
+  for (const [a, b] of [[-W / 2, -WALL_IN], [WALL_IN, W / 2]]) {
+    const m = new THREE.Mesh(slabGeometry(pts, a, b, WALL_H, WALL_H, curbCol, i => (i % 2 ? COL.red : COL.white)), MAT.curb);
+    m.receiveShadow = true; m.castShadow = true; g.add(m);
   }
   // Pillars under raised pieces.
   const mid = pts[Math.floor(pts.length / 2)];
@@ -668,6 +683,16 @@ function buildTile(t, opts = {}) {
   }
   place(g, t);
   return g;
+}
+// World-space centreline samples with horizontal side vectors, for barrier collisions.
+function centreline(t) {
+  const n = TYPES[t.type].n; const pts = [], side = [];
+  for (let i = 0; i <= n; i++) pts.push(tilePoint(t, i / n));
+  for (let i = 0; i <= n; i++) {
+    const tg = pts[Math.min(n, i + 1)].clone().sub(pts[Math.max(0, i - 1)]); tg.y = 0; tg.normalize();
+    side.push(new V3(-tg.z, 0, tg.x));
+  }
+  return { pts, side };
 }
 function place(g, t) { g.position.set(t.x * S, t.l * H, t.z * S); g.rotation.y = t.r * Math.PI / 2; }
 
@@ -741,6 +766,7 @@ function loadTrack(track) {
   for (const t of world.tiles) {
     const g = buildTile(t, t.type === 'checkpoint' ? { cpMat: MAT.cpIdle.clone() } : {});
     t.mesh = g; world.group.add(g);
+    t.cl = centreline(t);
     for (const [x, z] of footprint(t)) {
       const k = cellKey(x, z); if (!world.cells.has(k)) world.cells.set(k, []);
       world.cells.get(k).push(t);
@@ -800,69 +826,145 @@ function buildCar(color, ghost) {
 const raycaster = new THREE.Raycaster();
 const DOWN = new V3(0, -1, 0), UP = new V3(0, 1, 0);
 
+// Barrier geometry: wall strip on top of each road edge, low enough to jump.
+const WALL_IN = W / 2 - 0.5, WALL_H = 1.1, CAR_HALF = 1.05;
+const DRIFT_STAGES = [{ t: 0.6, boost: 7, name: 'Drift boost', color: 'var(--author)' }, { t: 1.5, boost: 12, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.6, boost: 17, name: 'Ultra drift boost', color: '#ff7ad9' }];
+
 class Car {
   constructor(color) {
     this.mesh = buildCar(color, false); scene.add(this.mesh);
     this.pos = new V3(); this.vel = new V3(); this.yaw = 0; this.n = UP.clone(); this.visUp = UP.clone();
-    this.grounded = false; this.surf = 'road'; this.steer = 0; this.fs = 0; this.slip = 0; this.airTime = 0;
+    this.clearState(0);
+  }
+  clearState(speed) {
+    this.grounded = true; this.surf = 'road'; this.steer = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
+    this.drifting = false; this.driftDir = 0; this.driftTime = 0; this.boostT = 0; this.boostAmt = 0; this.slide = 0; this.slideAng = 0;
   }
   setColor(c) { this.mesh.userData.paint.color.set(c); }
   reset(p, yaw, speed = 0) {
     this.pos.copy(p); this.yaw = yaw; this.vel.set(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(speed);
-    this.n.copy(UP); this.visUp.copy(UP); this.grounded = true; this.steer = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
+    this.n.copy(UP); this.visUp.copy(UP); this.clearState(speed);
     this.syncMesh(1);
   }
-  probe() {
-    const gx = Math.round(this.pos.x / S), gz = Math.round(this.pos.z / S);
-    const objs = [ground];
+  nearbyTiles() {
+    const gx = Math.round(this.pos.x / S), gz = Math.round(this.pos.z / S); const out = [];
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
       const list = world.cells.get(cellKey(gx + dx, gz + dz));
-      if (list) for (const t of list) if (!objs.includes(t.mesh.userData.road)) objs.push(t.mesh.userData.road);
+      if (list) for (const t of list) if (!out.includes(t)) out.push(t);
     }
+    return out;
+  }
+  probe(tiles) {
+    const objs = [ground];
+    for (const t of tiles) objs.push(t.mesh.userData.road);
     raycaster.set(new V3(this.pos.x, this.pos.y + 2.5, this.pos.z), DOWN);
     raycaster.far = 2.5 + (this.grounded ? 1.1 : Math.max(0.15, -this.vel.y * PHYS_DT * 1.5 + 0.05));
     const hits = raycaster.intersectObjects(objs, false);
     return hits[0] || null;
   }
+  // Keep the car between the barriers unless it is high enough to clear them.
+  collideWalls(tiles, dt) {
+    const p = this.pos;
+    for (const t of tiles) {
+      const cl = t.cl; if (!cl) continue;
+      let best = Infinity, bi = 0, bu = 0, along = 0;
+      for (let i = 0; i < cl.pts.length - 1; i++) {
+        const a = cl.pts[i], b = cl.pts[i + 1];
+        const abx = b.x - a.x, abz = b.z - a.z, l2 = abx * abx + abz * abz || 1;
+        const raw = ((p.x - a.x) * abx + (p.z - a.z) * abz) / l2; const u = clamp(raw, 0, 1);
+        const qx = a.x + abx * u - p.x, qz = a.z + abz * u - p.z; const d = qx * qx + qz * qz;
+        if (d < best) { best = d; bi = i; bu = u; along = (raw - u) * Math.sqrt(l2); }
+      }
+      if (Math.abs(along) > 0.05) continue; // past the open end of this piece
+      const a = cl.pts[bi], b = cl.pts[bi + 1];
+      const qx = a.x + (b.x - a.x) * bu, qy = a.y + (b.y - a.y) * bu, qz = a.z + (b.z - a.z) * bu;
+      if (p.y > qy + WALL_H - 0.1 || p.y < qy - 2.5) continue; // flying over, or underneath
+      const sx = cl.side[bi].x + (cl.side[bi + 1].x - cl.side[bi].x) * bu, sz = cl.side[bi].z + (cl.side[bi + 1].z - cl.side[bi].z) * bu;
+      const sl = Math.hypot(sx, sz); const side = new V3(sx / sl, 0, sz / sl);
+      const lat = (p.x - qx) * side.x + (p.z - qz) * side.z; const al = Math.abs(lat), sg = Math.sign(lat) || 1;
+      const inner = WALL_IN - CAR_HALF, mid = WALL_IN + 0.25, outer = W / 2 + CAR_HALF;
+      let push = 0, nrm = null;
+      if (al > inner && al < mid) { push = inner - al; nrm = side.clone().multiplyScalar(-sg); }
+      else if (al >= mid && al < outer) { push = outer - al; nrm = side.clone().multiplyScalar(sg); }
+      if (!nrm) continue;
+      p.addScaledVector(side, sg * push);
+      const vn = this.vel.x * nrm.x + this.vel.z * nrm.z;
+      if (vn < 0) {
+        this.vel.x -= nrm.x * vn * 1.2; this.vel.z -= nrm.z * vn * 1.2;
+        const loss = 1 - clamp(-vn / 90, 0, 0.18); this.vel.x *= loss; this.vel.z *= loss;
+        if (vn < -5) events.wall = Math.max(events.wall, -vn);
+      }
+      // Scrape: turn the nose to run along the wall rather than into it.
+      const tx = b.x - a.x, tz = b.z - a.z; const f = this.forward();
+      const dirSign = f.x * tx + f.z * tz >= 0 ? 1 : -1;
+      if (f.x * nrm.x + f.z * nrm.z < 0) {
+        let d = Math.atan2(tx * dirSign, tz * dirSign) - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+        this.yaw += d * Math.min(1, 7 * dt);
+      }
+    }
+  }
   step(dt, input) {
     const fwdFlat = new V3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-    this.steer += clamp(input.steer - this.steer, -dt * 7, dt * 7);
+    this.steer += clamp(input.steer - this.steer, -dt * 6, dt * 6);
     const n = this.grounded ? this.n : UP;
     const fwd = fwdFlat.clone().addScaledVector(n, -fwdFlat.dot(n)).normalize();
     const right = new V3().crossVectors(fwd, n).normalize();
     this.vel.y -= GRAV * dt;
     if (this.grounded) {
       const grass = this.surf === 'grass';
-      const vmax = grass ? 20 : VMAX;
+      const vmax = grass ? 16 : VMAX;
       let fs = this.vel.dot(fwd), ls = this.vel.dot(right); const ns = this.vel.dot(n);
       if (input.gas > 0) {
-        if (fs < -0.5) fs += 55 * dt * input.gas;
-        else if (fs < vmax) fs += (grass ? 14 : 30) * (1 - (fs / vmax) ** 2) * dt * input.gas + 6 * dt;
+        if (fs < -0.5) fs += 45 * dt * input.gas;
+        else if (fs < vmax) fs += (grass ? 11 : 21) * (1 - (fs / vmax) ** 2) * dt * input.gas + 5 * dt;
       }
       if (input.brake > 0) {
-        if (fs > 0.5) fs -= 55 * dt * input.brake;
-        else if (fs > -16) fs -= 18 * dt * input.brake;
+        if (fs > 0.5) fs -= 48 * dt * input.brake;
+        else if (fs > -13) fs -= 15 * dt * input.brake;
       }
-      if (!input.gas && !input.brake) fs -= Math.sign(fs) * Math.min(Math.abs(fs), (grass ? 14 : 3.5) * dt);
-      if (fs > vmax) fs -= (grass ? 40 : 9) * dt;
-      if (this.surf === 'boost') fs = Math.min(fs + 85 * dt, VMAX * 1.45);
-      const grip = input.drift ? 1.6 : (grass ? 4 : 11);
-      ls *= Math.exp(-grip * dt);
-      if (input.drift) fs -= Math.sign(fs) * Math.min(Math.abs(fs), 4 * dt);
+      if (!input.gas && !input.brake) fs -= Math.sign(fs) * Math.min(Math.abs(fs), (grass ? 12 : 3) * dt);
+      if (fs > vmax) fs -= (grass ? 35 : 8) * dt;
+      if (this.surf === 'boost') fs = Math.min(fs + 55 * dt, VMAX * 1.3);
+      if (this.boostT > 0) { this.boostT -= dt; if (fs < VMAX * 1.25) fs += this.boostAmt * dt / 0.5; }
+
+      // Drift: hold drift while steering. The tail slides out, the car turns
+      // tighter, and letting go after a long enough slide gives a boost.
+      const canDrift = !grass && fs > 11;
+      if (input.drift && canDrift && (this.drifting || Math.abs(input.steer) > 0.3)) {
+        if (!this.drifting) { this.drifting = true; this.driftDir = Math.sign(input.steer) || 1; this.driftTime = 0; this.slideAng = Math.atan2(ls, Math.max(1, fs)); }
+        this.driftTime += dt;
+      } else if (this.drifting) {
+        const stage = driftStage(this.driftTime);
+        if (stage && fs > 8) { this.boostT = 0.5; this.boostAmt = stage.boost; events.driftBoost = stage; }
+        this.drifting = false; this.driftTime = 0;
+      }
+      if (this.drifting) {
+        // The car travels at an angle to where it points (tail out) and keeps
+        // almost all of its speed.
+        const sp = Math.max(0, Math.hypot(fs, ls) - 1.2 * dt);
+        this.slideAng += (-this.driftDir * 0.38 - this.slideAng) * Math.min(1, 4 * dt);
+        fs = sp * Math.cos(this.slideAng); ls = sp * Math.sin(this.slideAng);
+      } else {
+        ls *= Math.exp(-(grass ? 4 : 12) * dt);
+      }
       this.slip = Math.abs(ls);
       this.vel.copy(fwd).multiplyScalar(fs).addScaledVector(right, ls).addScaledVector(n, ns);
       const spd = Math.abs(fs);
-      const rate = 2.35 * Math.min(1, spd / 7) * (1 - 0.42 * Math.min(1, spd / VMAX)) * (input.drift ? 1.45 : 1);
-      this.yaw -= this.steer * rate * Math.sign(fs || 1) * dt;
+      let rate = 2.3 * Math.min(1, spd / 6) * (1 - 0.38 * Math.min(1, spd / VMAX));
+      let steer = this.steer;
+      if (this.drifting) { steer = clamp(this.driftDir * 0.5 + this.steer * 0.6, -1.1, 1.1); rate *= 1.2; }
+      this.yaw -= steer * rate * Math.sign(fs || 1) * dt;
       this.fs = fs;
     } else {
       this.yaw -= this.steer * 0.9 * dt;
       this.fs = this.vel.dot(fwdFlat);
       this.slip = 0;
     }
+    this.slide += ((this.drifting ? -this.driftDir * 0.18 : 0) - this.slide) * Math.min(1, 8 * dt);
     this.pos.addScaledVector(this.vel, dt);
 
-    const hit = this.probe();
+    const tiles = this.nearbyTiles();
+    const hit = this.probe(tiles);
     const wasGrounded = this.grounded;
     if (hit) {
       const nrm = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
@@ -876,25 +978,28 @@ class Car {
         this.airTime = 0;
       } else { this.grounded = false; }
     } else { this.grounded = false; }
-    if (!this.grounded) this.airTime += dt;
+    if (!this.grounded) { this.airTime += dt; if (this.drifting) { this.drifting = false; this.driftTime = 0; } }
+    this.collideWalls(tiles, dt);
   }
   syncMesh(dt) {
     const target = this.grounded ? this.n : UP;
     this.visUp.lerp(target, 1 - Math.exp(-(this.grounded ? 14 : 2.5) * dt)).normalize();
-    const f = new V3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    const vy = this.yaw + this.slide;
+    const f = new V3(Math.sin(vy), 0, Math.cos(vy));
     f.addScaledVector(this.visUp, -f.dot(this.visUp)).normalize();
     const x = new V3().crossVectors(this.visUp, f);
     this.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, this.visUp, f));
     this.mesh.position.copy(this.pos);
     for (const wh of this.mesh.userData.wheels) {
       wh.w.rotation.x += this.fs * dt / 0.46;
-      if (wh.front) wh.pivot.rotation.y = -this.steer * 0.42;
+      if (wh.front) wh.pivot.rotation.y = -(this.drifting ? -this.driftDir * 0.35 + this.steer * 0.2 : this.steer * 0.42);
     }
   }
   speedKmh() { return Math.abs(this.fs) * 3.6; }
   forward() { return new V3(Math.sin(this.yaw), 0, Math.cos(this.yaw)); }
 }
-const events = { land: false };
+function driftStage(t) { let s = null; for (const st of DRIFT_STAGES) if (t >= st.t) s = st; return s; }
+const events = { land: false, wall: 0, driftBoost: null };
 
 // ============================================================================
 // Skid marks (instanced quads in a ring buffer)
@@ -915,7 +1020,34 @@ function addSkid(car) {
   }
   skidMesh.instanceMatrix.needsUpdate = true;
 }
-function clearSkids() { skidMesh.count = 0; skidIdx = 0; }
+function clearSkids() { skidMesh.count = 0; skidIdx = 0; for (const p of smoke) { p.visible = false; p.userData.life = 0; } }
+
+// Tyre smoke puffs while drifting.
+const smokeTex = makeTexture((g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(255,255,255,0.9)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); }, 64, 64);
+const smoke = [];
+for (let i = 0; i < 70; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0xe8ecf2, transparent: true, opacity: 0, depthWrite: false }));
+  sp.visible = false; sp.userData = { life: 0, vel: new V3() }; scene.add(sp); smoke.push(sp);
+}
+let smokeIdx = 0;
+function puff(car) {
+  const f = car.forward(); const r = new V3(-f.z, 0, f.x);
+  for (const sd of [-1, 1]) {
+    const sp = smoke[smokeIdx]; smokeIdx = (smokeIdx + 1) % smoke.length;
+    sp.position.copy(car.pos).addScaledVector(f, -1.5).addScaledVector(r, sd * 1.05).add(new V3(0, 0.4, 0));
+    sp.userData.life = 1; sp.userData.vel.set((Math.random() - 0.5) * 2, 1.5 + Math.random(), (Math.random() - 0.5) * 2).addScaledVector(car.vel, 0.15);
+    sp.visible = true;
+  }
+}
+function updateSmoke(dt) {
+  for (const sp of smoke) {
+    if (!sp.visible) continue;
+    const u = sp.userData; u.life -= dt * 1.4;
+    if (u.life <= 0) { sp.visible = false; continue; }
+    sp.position.addScaledVector(u.vel, dt);
+    const sc = 1 + (1 - u.life) * 3.5; sp.scale.set(sc, sc, sc); sp.material.opacity = u.life * 0.45;
+  }
+}
 
 // ============================================================================
 // Audio: synthesized engine + tyre noise. Starts after the first input.
@@ -986,13 +1118,30 @@ const padPrev = {};
 function padEdge(p, b, fn) { const k = p.index + ':' + b; const now = !!(p.buttons[b] && p.buttons[b].pressed); if (now && !padPrev[k]) fn(); padPrev[k] = now; }
 
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-if (isTouch) document.body.classList.add('touch');
-for (const b of document.querySelectorAll('#touch button')) {
-  const k = b.dataset.k;
-  const on = e => { e.preventDefault(); touchState[k] = true; b.classList.add('on'); initAudio(); };
-  const off = e => { e.preventDefault(); touchState[k] = false; b.classList.remove('on'); };
-  b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('pointerleave', off);
+function touchUI() { return settings.touch === 'on' || (settings.touch !== 'off' && isTouch); }
+// Every finger is tracked on its own, and a finger can slide from one button to
+// another (say Left to Right) without lifting.
+const touchPointers = new Map();
+function refreshTouch() {
+  const held = new Set();
+  for (const [, pt] of touchPointers) {
+    const el = document.elementFromPoint(pt.x, pt.y); const b = el && el.closest && el.closest('#touch [data-k]');
+    if (b) held.add(b.dataset.k);
+  }
+  for (const b of document.querySelectorAll('#touch [data-k]')) { const k = b.dataset.k; touchState[k] = held.has(k); b.classList.toggle('on', touchState[k]); }
 }
+const touchEl = $('touch');
+touchEl.addEventListener('pointerdown', e => {
+  if (e.target.closest('#touch-pause')) return;
+  e.preventDefault(); initAudio();
+  try { touchEl.setPointerCapture(e.pointerId); } catch (err) { /* capture not supported */ }
+  touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); refreshTouch();
+});
+touchEl.addEventListener('pointermove', e => { if (!touchPointers.has(e.pointerId)) return; e.preventDefault(); touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); refreshTouch(); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) touchEl.addEventListener(ev, e => { if (touchPointers.delete(e.pointerId)) refreshTouch(); });
+touchEl.addEventListener('contextmenu', e => e.preventDefault());
+$('touch-pause').addEventListener('click', () => togglePause());
+function releaseTouch() { touchPointers.clear(); refreshTouch(); }
 
 // ============================================================================
 // Game state
@@ -1030,7 +1179,8 @@ function restartRace() {
   game.ghost.visible = false;
   game.camPos.copy(p).addScaledVector(game.car.forward(), -8).add(new V3(0, 3.5, 0));
   $('hud-delta').hidden = true; $('hud-hint').hidden = false; game.offTrack = 0;
-  $('hud-hint').innerHTML = isTouch ? 'Press <b>▲</b> to launch' : 'Press <b>W</b> or <b>↑</b> to launch';
+  $('hud-hint').innerHTML = touchUI() ? 'Press <b>Gas</b> to launch' : 'Press <b>W</b> or <b>↑</b> to launch';
+  $('hud-drift').hidden = true;
   updateHudStatic();
 }
 function setCpMat(t, done) {
@@ -1165,6 +1315,16 @@ function updateHudStatic() {
   el.innerHTML = ['author', 'gold', 'silver', 'bronze'].map(k => `<div class="${pbT != null && pbT <= m[k] ? 'got' : 'miss'}"><span class="medal-dot m-${k}"></span>${fmtTime(m[k])}</div>`).join('') +
     `<div class="got" style="margin-top:3px">PB&nbsp;${fmtTime(pbT)}</div>`;
 }
+function updateDriftHud(car) {
+  const el = $('hud-drift');
+  if (!car.drifting) { if (!el.hidden) el.hidden = true; return; }
+  el.hidden = false;
+  const st = driftStage(car.driftTime); const max = DRIFT_STAGES[DRIFT_STAGES.length - 1].t;
+  const bar = $('drift-bar'); bar.style.width = Math.min(100, car.driftTime / max * 100) + '%';
+  bar.style.background = st ? st.color : 'var(--muted)';
+  $('drift-label').textContent = st ? st.name.replace(' boost', '') + ' ready' : 'Drift';
+  $('drift-label').style.color = st ? st.color : 'var(--text)';
+}
 function updateHud() {
   $('hud-time').textContent = fmtTime(game.time);
   const kmh = game.car.speedKmh();
@@ -1211,7 +1371,9 @@ function setState(s) {
   $('pause').hidden = s !== 'paused';
   $('finish').hidden = s !== 'finished';
   $('editor').hidden = s !== 'editor';
-  $('touch').hidden = !(isTouch && s === 'race');
+  $('touch').hidden = !(touchUI() && s === 'race');
+  document.body.classList.toggle('touchui', touchUI());
+  if (s !== 'race') releaseTouch();
   $('modal').hidden = true;
   editor.cursor.visible = s === 'editor';
   editor.grid.visible = s === 'editor';
@@ -1289,12 +1451,14 @@ function showSettings() {
   openModal(`<div class="eyebrow">Garage &amp; display</div><h2>Settings</h2>
     <div class="field"><label>Car paint</label><div class="swatches" id="m-sw">${CAR_COLORS.map(c => `<button style="background:${c}" data-c="${c}" class="${c === settings.color ? 'sel' : ''}" aria-label="Paint ${c}"></button>`).join('')}</div></div>
     <div class="field"><label for="m-theme">Time of day</label><select id="m-theme"><option value="day">Midday</option><option value="sunset">Sunset</option><option value="night">Night (headlights)</option></select></div>
+    <div class="field"><label for="m-touch">On-screen buttons</label><select id="m-touch"><option value="auto">Automatic (touch screens)</option><option value="on">Always show</option><option value="off">Never show</option></select></div>
     <div class="field"><label for="m-cam">Default camera</label><select id="m-cam">${CAM_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
     <label class="toggle"><span>Race against my best ghost</span><input type="checkbox" id="m-ghost"></label>
     <label class="toggle"><span>Engine sound</span><input type="checkbox" id="m-sound"></label>
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
-  $('m-theme').value = settings.theme; $('m-cam').value = settings.cam;
+  $('m-theme').value = settings.theme; $('m-cam').value = settings.cam; $('m-touch').value = settings.touch;
+  $('m-touch').onchange = e => { settings.touch = e.target.value; saveSettings(); document.body.classList.toggle('touchui', touchUI()); };
   $('m-ghost').checked = settings.ghost; $('m-sound').checked = settings.sound; $('m-shadows').checked = settings.shadows;
   $('m-sw').onclick = e => { const c = e.target.dataset.c; if (!c) return; settings.color = c; game.car.setColor(c); saveSettings(); for (const b of $('m-sw').children) b.classList.toggle('sel', b.dataset.c === c); };
   $('m-theme').onchange = e => { settings.theme = e.target.value; saveSettings(); applyTheme(); };
@@ -1314,7 +1478,7 @@ function showHelp() {
       <kbd>W / ↑</kbd><span>Accelerate (the clock starts on your first input)</span>
       <kbd>S / ↓</kbd><span>Brake, then reverse</span>
       <kbd>A D / ← →</kbd><span>Steer</span>
-      <kbd>Space / Shift</kbd><span>Drift: less grip, sharper turn-in</span>
+      <kbd>Space / Shift</kbd><span>Drift: hold it while steering to slide round corners. Let go after a long slide for a speed boost (the meter turns blue, yellow, then pink).</span>
       <kbd>R</kbd><span>Instant restart</span>
       <kbd>Enter</kbd><span>Back to last checkpoint (the clock keeps running)</span>
       <kbd>C</kbd><span>Switch camera</span>
@@ -1623,10 +1787,10 @@ function loadDemo() {
 
 function physicsTick(input, racing) {
   const car = game.car;
-  car.step(PHYS_DT, input);
+  car.step(PHYS_DT, input); game.recTick++;
   if (racing) {
     game.time += PHYS_DT * 1000;
-    if (++game.recTick % 4 === 0) {
+    if (game.recTick % 4 === 0) {
       const q = car.mesh.quaternion;
       game.rec.push([game.time, car.pos.x, car.pos.y, car.pos.z, q.x, q.y, q.z, q.w]);
     }
@@ -1642,7 +1806,8 @@ function physicsTick(input, racing) {
       else if (t.type === 'finish' && game.state === 'race') onFinish();
     }
   }
-  if (car.grounded && car.surf !== 'grass' && car.slip > 5.5 && game.recTick % 3 === 0) addSkid(car);
+  if (car.grounded && car.surf !== 'grass' && car.slip > 4.5 && game.recTick % 3 === 0) addSkid(car);
+  if (car.drifting && game.recTick % 5 === 0) puff(car);
 }
 
 function updateGhost() {
@@ -1663,6 +1828,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const st = game.state; const car = game.car;
   for (const c of scenery.children) if (c.userData.drift) c.position.x += c.userData.drift * dt;
+  updateSmoke(dt);
 
   if (st === 'menu') {
     game.acc += dt;
@@ -1672,6 +1838,7 @@ function frame(now) {
       if (input.done || input.lost || car.pos.y < -20) { demoIdx++; loadDemo(); break; }
       physicsTick(input, false); game.acc -= PHYS_DT;
     }
+    events.land = false; events.wall = 0; events.driftBoost = null;
     car.syncMesh(dt); updateCamera(dt, car, true); updateAudio(car, false, 0);
   } else if (st === 'race' || st === 'finished') {
     let input = readInput();
@@ -1687,6 +1854,9 @@ function frame(now) {
       else if (!hint.hidden) hint.hidden = true;
     }
     if (events.land) { events.land = false; blip(110, 0.18, 'sine', 0.3); }
+    if (events.wall) { blip(80 + Math.random() * 30, 0.12, 'square', Math.min(0.22, events.wall / 60)); events.wall = 0; }
+    if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); blip(620, 0.1); setTimeout(() => blip(930, 0.16), 70); }
+    updateDriftHud(car);
     car.syncMesh(dt); updateGhost(); updateCamera(dt, car, false); updateHud();
     updateAudio(car, true, input.gas);
   } else if (st === 'paused') {
