@@ -1653,10 +1653,12 @@ class Car {
     const fwd = new V3(0, 0, 1).applyQuaternion(q), left = new V3(1, 0, 0).applyQuaternion(q), up = new V3(0, 1, 0).applyQuaternion(q);
     const fs = this.vel.dot(fwd);
     const speed = this.vel.length();
-    // Steering eases in, snaps back faster, and narrows with speed.
+    // Steering eases in and back out, more gently the faster you go (so full lock
+    // at speed doesn't snap the car round), and the wheel angle narrows with speed.
     const tgt = input.steer; const back = Math.abs(tgt) < Math.abs(this.steer) || tgt * this.steer < 0;
-    this.steer += clamp(tgt - this.steer, -(back ? 10 : 5.5) * dt, (back ? 10 : 5.5) * dt);
-    const steerAng = -this.steer * sp.steer / (1 + Math.max(0, fs) / sp.steerFall);
+    const vf = Math.max(0, fs), rate = back ? 10 / (1 + vf / 35) : 5.5 / (1 + vf / 25);
+    this.steer += clamp(tgt - this.steer, -rate * dt, rate * dt);
+    const steerAng = -this.steer * sp.steer / (1 + vf / sp.steerFall + (vf / 60) ** 2);
     this.steerAng = steerAng;
 
     let drive = 0, brake = 0;
