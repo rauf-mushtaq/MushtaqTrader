@@ -248,6 +248,12 @@
 
   #toast { position: fixed; left: 50%; top: max(18px, env(safe-area-inset-top, 0px)); transform: translate(-50%, -10px); padding: 9px 16px; border-radius: 4px; background: var(--panel-solid); border: 1px solid var(--line); font-family: var(--display); letter-spacing: 0.04em; opacity: 0; transition: opacity 0.2s, transform 0.2s; pointer-events: none; z-index: 50; max-width: calc(100% - 32px); }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .mp-invite { position: fixed; top: max(12px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 10px; padding: 7px 7px 7px 14px; border-radius: 6px; background: var(--panel-solid); border: 1px solid var(--signal); box-shadow: 0 6px 24px rgba(0,0,0,0.45); max-width: calc(100% - 32px); box-sizing: border-box; font-size: 14px; }
+  .mp-invite span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mp-invite b { color: var(--signal); font-weight: 600; }
+  .mp-invite .btn { flex: 0 0 auto; padding: 6px 14px; font-size: 13px; }
+  .mp-invite .x { flex: 0 0 auto; padding: 2px 6px; border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; }
+  .mp-invite .x:hover { color: var(--text); }
 
   @media (max-width: 760px) {
     #menu { align-items: flex-start; }
@@ -413,6 +419,7 @@
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="mp-invite" class="mp-invite" role="status" hidden><span id="mp-invite-text"></span><button class="btn primary" id="mp-invite-join">Join</button><button class="x" id="mp-invite-x" aria-label="Dismiss">×</button></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.110.0/examples/js/libs/ammo.js"></script>
@@ -2444,7 +2451,7 @@ function setState(s) {
   editor.grid.visible = s === 'editor';
   game.car.mesh.visible = s !== 'editor';
   if (s !== 'race') { game.ghost.visible = false; for (const r of game.rivals) r.mesh.visible = r.tag.visible = false; }
-  $('online').hidden = s !== 'online';
+  $('online').hidden = s !== 'online'; mpInvite();
   if (s !== 'race' && s !== 'finished') for (const c of mp.cars.values()) c.mesh.visible = c.tag.visible = false;
   if (s === 'menu') renderMenu();
 }
@@ -2857,7 +2864,19 @@ function mpLobbyChanged() {
   $('btn-online').hidden = !mp.room;
   const n = mpOpenRaces().length; $('online-count').textContent = n ? n + ' open' : '';
   if (game.state === 'online' && !mp.r) mpRender();
+  mpInvite();
 }
+// Whenever someone is hosting a race, players on the menu are invited to join.
+const mpDismissed = new Set(); let mpInvited = '';
+function mpInvite() {
+  const el = $('mp-invite'), race = !mp.r && game.state === 'menu' ? mpOpenRaces().filter(r => !mpDismissed.has(r.room)).pop() : null;
+  el.hidden = !race; if (!race) return;
+  $('mp-invite-text').innerHTML = `<b>${escapeHtml(race.nm || nickOf(race.by) || 'Someone')}</b> is hosting a live race · ${escapeHtml(race.track)}${race.live ? ' · racing now' : ''}`;
+  el.dataset.room = race.room;
+  if (mpInvited !== race.room) { mpInvited = race.room; blip(760, 0.08); setTimeout(() => blip(1140, 0.1), 90); }
+}
+$('mp-invite-join').onclick = () => { const room = $('mp-invite').dataset.room; $('mp-invite').hidden = true; if (room) mpJoin(room, false); };
+$('mp-invite-x').onclick = () => { mpDismissed.add($('mp-invite').dataset.room); mpInvite(); };
 
 // Tracks travel as small specs: an official track, the daily for a date, a
 // random seed, or a community track.
