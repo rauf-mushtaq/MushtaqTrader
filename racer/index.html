@@ -1121,7 +1121,7 @@ function loadTrack(track) {
 // vmax m/s · accel m/s² · grip = tyre friction · rear = rear grip vs front
 // (below 1 = tail-happy) · drive = share sent to the rear wheels · steer = max
 // wheel angle · steerFall = speed where steering halves · df = downforce grip
-// · hb = rear grip with the handbrake · comY = centre of mass above ground.
+// · hb = how loose the handbrake makes the rear (lower = looser) · comY = centre of mass above ground.
 // ============================================================================
 const CARS = [
   { id: 'street', name: 'Street GT', cls: 'Sports coupé', model: 'street', color: '#ff5a36', accent: '#1d2129', comY: 0.75, height: 1.55, vmax: 66, accel: 27, grip: 1.95, rear: 1.04, drive: 1, steer: 0.55, steerFall: 22, df: 0.15, brake: 52, hb: 0.30, grassGrip: 0.5, grassV: 22 },
@@ -1132,8 +1132,8 @@ const CARS = [
   { id: 'hyper', name: 'Apex Hyper', cls: 'Hypercar', model: 'hyper', color: '#121418', accent: '#ff7a1a', comY: 0.66, height: 1.3, vmax: 86, accel: 34, grip: 1.95, rear: 1.03, drive: 0.6, steer: 0.52, steerFall: 25, df: 0.4, brake: 60, hb: 0.32, grassGrip: 0.45, grassV: 20 },
   { id: 'volt', name: 'Volt EV', cls: 'Electric hypercar', model: 'volt', color: '#f2f4f8', accent: '#24d8ff', comY: 0.7, height: 1.45, vmax: 74, accel: 40, grip: 1.9, rear: 1.03, drive: 0.5, steer: 0.54, steerFall: 23, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.55, grassV: 24 },
   { id: 'stock', name: 'Oval Stock Car', cls: 'Stock car', model: 'stock', color: '#ffd23f', accent: '#1c63d8', comY: 0.76, height: 1.5, vmax: 78, accel: 28, grip: 1.8, rear: 1.0, drive: 1, steer: 0.5, steerFall: 22, df: 0.2, brake: 50, hb: 0.30, grassGrip: 0.5, grassV: 22 },
-  { id: 'muscle', name: 'Big Block', cls: 'Muscle car', model: 'muscle', color: '#2a6b3f', accent: '#f4f4f4', comY: 0.8, height: 1.6, vmax: 70, accel: 31, grip: 1.7, rear: 0.93, drive: 1, steer: 0.55, steerFall: 21, df: 0.05, brake: 46, hb: 0.26, grassGrip: 0.5, grassV: 22 },
-  { id: 'drift', name: 'Kanjo Drift', cls: 'Drift coupé', model: 'drift', color: '#ff7ad9', accent: '#20242c', comY: 0.72, height: 1.5, vmax: 64, accel: 28, grip: 1.8, rear: 0.88, drive: 1, steer: 0.62, steerFall: 22, df: 0.1, brake: 50, hb: 0.20, grassGrip: 0.5, grassV: 22 },
+  { id: 'muscle', name: 'Big Block', cls: 'Muscle car', model: 'muscle', color: '#2a6b3f', accent: '#f4f4f4', comY: 0.8, height: 1.6, vmax: 70, accel: 31, grip: 1.7, rear: 0.97, drive: 1, steer: 0.55, steerFall: 21, df: 0.05, brake: 46, hb: 0.26, grassGrip: 0.5, grassV: 22 },
+  { id: 'drift', name: 'Kanjo Drift', cls: 'Drift coupé', model: 'drift', color: '#ff7ad9', accent: '#20242c', comY: 0.72, height: 1.5, vmax: 64, accel: 28, grip: 1.8, rear: 0.94, drive: 1, steer: 0.62, steerFall: 22, df: 0.1, brake: 50, hb: 0.20, grassGrip: 0.5, grassV: 22 },
   { id: 'rally', name: 'Gravel Hatch', cls: 'Rally hatchback', model: 'rally', color: '#3fa7ff', accent: '#ffd23f', comY: 0.82, height: 1.75, vmax: 62, accel: 29, grip: 1.85, rear: 0.97, drive: 0.5, steer: 0.6, steerFall: 22, df: 0.1, brake: 52, hb: 0.24, grassGrip: 0.9, grassV: 42 },
   { id: 'truck', name: 'Trail Pickup', cls: 'Off-road pickup', model: 'truck', color: '#b06bff', accent: '#20242c', comY: 1.1, height: 2.45, vmax: 56, accel: 23, grip: 1.7, rear: 1.0, drive: 0.5, steer: 0.55, steerFall: 20, df: 0, brake: 44, hb: 0.30, grassGrip: 1.0, grassV: 46 },
   { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 58, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
@@ -1433,7 +1433,7 @@ const DROOP = 0.12;
 const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr']); // pieces whose road tilts or turns over
 const CAR_MASS = 1000;
 const INERTIA = new V3(3.0, 2.6, 1.7); // pitch, yaw, roll (per unit mass)
-const DRIFT_STAGES = [{ t: 0.6, boost: 6, name: 'Drift boost', color: 'var(--author)' }, { t: 1.4, boost: 10, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.4, boost: 15, name: 'Ultra drift boost', color: '#ff7ad9' }];
+const DRIFT_STAGES = [{ t: 0.6, boost: 3, name: 'Drift boost', color: 'var(--author)' }, { t: 1.4, boost: 5, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.4, boost: 8, name: 'Ultra drift boost', color: '#ff7ad9' }];
 
 let A = null; // the Ammo module, once loaded
 // Not every Ammo class exposes a destructor; free what can be freed.
@@ -1675,14 +1675,13 @@ class Car {
     const hand = !!input.drift;
     const aero = 1 + sp.df * (speed / 50) ** 2;
     const contacts = this.wheels.filter(w => w.contact).length;
-    // Sustained drift: once the tail is out, steering into the slide keeps the
-    // rear tyres loose; let go or counter-steer and grip comes back.
+    // Sustained drift: once the tail is out (from the handbrake), steering into
+    // the slide keeps the rear tyres a little loose; let go or counter-steer and
+    // grip comes back.
     const betaNow = Math.atan2(this.vel.dot(left), Math.max(1, Math.abs(fs)));
     const flat = this.n.y > 0.9;
     const holding = this.drifting && flat && Math.abs(input.steer) > 0.25 && Math.sign(input.steer) === Math.sign(betaNow) && fs > 10;
-    // Turning in hard at speed lets the tail step out on its own (no button needed).
-    const hardTurn = !this.drifting && flat && Math.abs(input.steer) > 0.85 && fs > 30;
-    this.driftGrip += ((holding ? 0.93 : hardTurn ? 0.94 : 1) - this.driftGrip) * Math.min(1, (holding || hardTurn ? 5 : 4) * dt);
+    this.driftGrip += ((holding ? 0.97 : 1) - this.driftGrip) * Math.min(1, 4 * dt);
     this.holding = holding;
 
     // Bullet does the suspension: a progressive spring (a bump stop) that stiffens
@@ -1717,7 +1716,7 @@ class Car {
       const vLong = vc.dot(wf), vLat = vc.dot(ws);
       const grass = wh.surf === 'grass', rear = !wh.front;
       let mu = sp.grip * (rear ? sp.rear : 1) * (grass ? sp.grassGrip : aero);
-      if (hand && rear) mu *= sp.hb;
+      if (hand && rear) mu *= 0.5 + 0.5 * sp.hb;
       if (rear) mu *= this.driftGrip;
       const maxF = mu * load;
       let fLat = -vLat / dt * 0.16, fLong = 0;
@@ -1726,7 +1725,7 @@ class Car {
       if (drive > 0 && share > 0) { const k = clamp(fs / vmax, 0, 1); fLong += sp.accel * share * drive * Math.max(0, 1 - k * k * k); }
       if (drive < 0 && share > 0 && fs > -14) fLong += sp.accel * 0.55 * share * drive;
       if (brake > 0) fLong -= clamp(vLong / dt * 0.25, -sp.brake / 4, sp.brake / 4) * brake;
-      if (hand && rear) fLong -= clamp(vLong / dt * 0.25, -9, 9);
+      if (hand && rear) fLong -= clamp(vLong / dt * 0.25, -6, 6);
       fLong -= vLong * (grass ? 0.5 : 0.025); // rolling resistance
       const mag = Math.hypot(fLat, fLong);
       if (mag > maxF) { const k = maxF / mag; fLat *= k; fLong *= k; }
@@ -1744,17 +1743,24 @@ class Car {
 
     const latV = this.vel.dot(left); const beta = Math.atan2(latV, Math.max(1, Math.abs(fs)));
     if (contacts >= 2 && this.holding) {
-      // Drift controller: settle at 10–17° of slide (more steer, more angle)
+      // Drift controller: settle at 7–10° of slide (more steer, more angle)
       // and turn sideways scrub into forward drive so the slide keeps its pace.
-      const target = Math.sign(input.steer) * (0.17 + 0.12 * Math.min(1, Math.abs(input.steer)));
+      const target = Math.sign(input.steer) * (0.12 + 0.06 * Math.min(1, Math.abs(input.steer)));
       const dBeta = (beta - (this.prevBeta ?? beta)) / dt;
       T.addScaledVector(up, -(target - beta) * 34 + dBeta * 5);
       if (fs < sp.vmax) F.addScaledVector(fwd, Math.min(26, Math.abs(latV) * 2.2));
     }
+    if (contacts >= 2 && fs > 6 && !hand && !this.holding) {
+      // Recovery aid: unless you're holding a drift, the car swings back toward
+      // its direction of travel (damped, so it settles instead of fishtailing).
+      // On banks and walls the tyres need some slip to hold the car up, so there
+      // it only steps in for bigger slides.
+      const dBeta = (beta - (this.prevBeta ?? beta)) / dt, from = flat ? 0.05 : 0.1;
+      const pull = Math.abs(beta) > from ? Math.sign(beta) * (Math.abs(beta) - from) * (Math.abs(beta) > 0.5 ? 30 : flat ? 20 : 16) : 0;
+      T.addScaledVector(up, pull + (flat ? dBeta * 3 : 0));
+    }
     this.prevBeta = beta;
     if (contacts >= 2) {
-      // Recovery aid: when you stop holding a slide the car swings back toward its direction of travel.
-      if (Math.abs(beta) > 0.1 && fs > 6 && !hand && !this.holding) T.addScaledVector(up, Math.sign(beta) * (Math.abs(beta) - 0.1) * (Math.abs(beta) > 0.55 ? 30 : 16));
       const wy = this.w.dot(up); T.addScaledVector(up, -wy * 0.6);
     } else if (!contacts) {
       // Road grip over crests and walls; fades to nothing upside down, so a
@@ -1836,7 +1842,7 @@ class Car {
 
     // Drift: a sustained slide at speed charges a boost you get when you straighten up.
     const b2 = Math.atan2(this.vel.dot(leftNow), Math.max(1, Math.abs(this.fs)));
-    const sliding = nowContacts >= 2 && this.fs > 13 && Math.abs(b2) > 0.13 && this.surf !== 'grass';
+    const sliding = nowContacts >= 2 && this.fs > 13 && Math.abs(b2) > 0.1 && this.surf !== 'grass';
     if (sliding) { if (!this.drifting) { this.drifting = true; this.driftTime = 0; } this.driftTime += dt; this.slideCool = 0; }
     else if (this.drifting) {
       this.slideCool += dt;
