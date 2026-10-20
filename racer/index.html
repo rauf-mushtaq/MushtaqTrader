@@ -68,7 +68,8 @@
   .track-card .actions button { font-size: 11px; padding: 3px 7px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .track-card .actions button:hover { color: var(--text); border-color: var(--text); }
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); }
+  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.community { color: #62f0ff; }
+  .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .medal-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
   .m-author { background: var(--author); } .m-gold { background: var(--gold); } .m-silver { background: var(--silver); } .m-bronze { background: var(--bronze); } .m-none { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
   .empty-note { color: var(--muted); font-size: 14px; margin: 0; }
@@ -256,7 +257,7 @@
       <div class="flag"></div>
       <div class="eyebrow">Low-poly time trial</div>
       <h1 class="logo">Mushtaq<span>Track</span></h1>
-      <p>Set a time, chase your ghost, build your own circuits and swap them with friends as share codes.</p>
+      <p>Set a time, chase your ghost, build your own circuits and share them with other players.</p>
       <div class="menu-btns">
         <button class="btn primary" id="btn-play">Quick race <kbd>Enter</kbd></button>
         <button class="btn car-line" id="btn-garage"><span>Garage</span><small id="menu-car">Street GT</small></button>
@@ -2370,6 +2371,65 @@ function togglePause() {
 function customTracks() { return store.get('mt.custom', []); }
 function saveCustomTracks(list) { return store.set('mt.custom', list); }
 
+// Community tracks: tracks every player has published, shared through the page's
+// database when the game runs as a hosted page. Each player keeps their own list
+// in one document, community/<their id>; everyone reads them all. A local copy
+// of the game has no database, so it simply shows no Community tab.
+const MAX_PUBLISHED = 20;
+const community = { db: null, user: null, me: null, owner: false, canWrite: null, docs: [], shown: [], decoded: new Map(), queue: Promise.resolve() };
+async function initCommunity() {
+  if (!window.claude || !window.claude.use) return;
+  const [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+  if (!db) return;
+  community.user = user;
+  if (user) { community.me = await user.id(); community.owner = await user.isOwner(); community.canWrite = await user.can('data.write'); }
+  community.db = db;
+  db.collection('community').onSnapshot(snap => {
+    community.docs = snap.docs.filter(d => d.exists).map(d => { const b = d.data(); return { author: d.id, tracks: Array.isArray(b.tracks) ? b.tracks.slice(0, MAX_PUBLISHED) : [] }; });
+    refreshCommunity();
+  }, () => { community.db = null; refreshCommunity(); });
+  refreshCommunity();
+}
+function refreshCommunity() { if (game.state === 'menu') renderTrackList(); }
+// Everyone's published tracks, newest first. Shared data is untrusted: bad or
+// oversized entries are skipped.
+function communityTracks() {
+  const out = [], clean = v => String(v).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 64);
+  for (const d of community.docs) for (const p of d.tracks) {
+    if (!p || typeof p.code !== 'string' || p.code.length > 20000) continue;
+    if (!community.decoded.has(p.code)) { let t = null; try { t = decodeTrack(p.code); if (t.tiles.length > 600) t = null; } catch (e) { /* unreadable entry */ } community.decoded.set(p.code, t); }
+    const t = community.decoded.get(p.code); if (!t) continue;
+    out.push({ ...t, id: 'p.' + clean(d.author) + '.' + clean(p.id), pid: String(p.id), author: d.author, published: +p.published || 0, official: false, community: true });
+  }
+  return out.sort((a, b) => b.published - a.published);
+}
+function canPublish() { return !!(community.db && community.me && community.canWrite !== false); }
+function myPublished() { const d = community.docs.find(x => x.author === community.me); return d ? d.tracks.slice() : []; }
+function publishedEntry(tr) { return myPublished().find(p => p && p.id === tr.id) || null; }
+// One write at a time to the community documents.
+function writeCommunity(author, tracks) {
+  const run = () => community.db.doc('community/' + author).set({ tracks, updated: Date.now() });
+  community.queue = community.queue.catch(() => {}).then(run);
+  return community.queue;
+}
+function communityFailed(e) {
+  if (e && e.code === 'invalid_argument') { community.canWrite = false; refreshCommunity(); toast('You can race community tracks, but publishing needs Contributor access to this game.'); }
+  else if (e && e.code === 'quota_exceeded') toast('Community storage is full. Unpublish an old track first.');
+  else toast('Could not reach Community. Try again in a moment.');
+}
+async function publishTrack(tr) {
+  if (!trackInfo(tr).route.ok) { toast('Finish the track first: it needs a route from Start to Finish.'); return; }
+  const list = myPublished().filter(p => p && p.id !== tr.id);
+  if (list.length >= MAX_PUBLISHED) { toast(`You can publish up to ${MAX_PUBLISHED} tracks. Unpublish one first.`); return; }
+  const updating = !!publishedEntry(tr);
+  list.unshift({ id: tr.id, code: encodeTrack(tr), published: Date.now() });
+  try { await writeCommunity(community.me, list); toast(updating ? 'Updated “' + tr.name + '” in Community' : 'Published “' + tr.name + '” to Community'); } catch (e) { communityFailed(e); }
+}
+async function unpublishTrack(author, pid, name) {
+  const d = community.docs.find(x => x.author === author); if (!d) return;
+  try { await writeCommunity(author, d.tracks.filter(p => p && String(p.id) !== pid)); toast('Removed “' + name + '” from Community'); } catch (e) { communityFailed(e); }
+}
+
 const routeCache = new Map();
 function trackInfo(tr) {
   const key = tr.id + ':' + tr.tiles.length;
@@ -2379,10 +2439,10 @@ function trackInfo(tr) {
 function trackCard(tr, ref, actions) {
   const pb = store.get(trackKey(tr), null); const { route, medals } = trackInfo(tr);
   const medal = pb ? medalFor(pb.time, medals) : 'none';
-  const diff = tr.official || tr.generated ? tr.diff : 'Custom';
+  const diff = tr.official || tr.generated ? tr.diff : tr.community ? 'Community' : 'Custom';
   return `<div class="track-card" role="button" tabindex="0" data-play="${ref}">
     <div class="meta"><span class="diff ${diff.toLowerCase()}">${diff}</span><span>${ENVS[envFor(tr)].label} · ${(route.length ? (route.length / 1000).toFixed(2) + ' km' : 'unfinished')}</span></div>
-    <div class="name">${escapeHtml(tr.name)}</div>
+    <div class="name">${escapeHtml(tr.name)}</div>${tr.community ? `<div class="by" data-author="${escapeHtml(tr.author)}">${tr.author === community.me ? 'by you' : ''}</div>` : ''}
     <div class="meta"><span class="best"><span class="medal-dot m-${medal}"></span>${pb ? fmtTime(pb.time) : 'No time yet'}</span><span>${MEDAL_NAMES[medal]}</span></div>
     <div class="actions">${actions}</div>
   </div>`;
@@ -2401,20 +2461,46 @@ function renderMenu() {
       <div class="seed-row"><input id="seed-input" aria-label="Track seed" maxlength="12" value="${escapeHtml(lastSeed)}"><button class="btn" data-seed="go" style="padding:4px 10px;font-size:12px">Race</button></div>
       <div class="actions"><button data-seed="new">New track</button><button data-copy="r:">Copy to editor</button></div>
     </div>`;
-  const cust = customTracks();
-  const counts = { All: OFFICIAL.length, Yours: cust.length };
+  renderTrackList();
+}
+// The tabs and track grid (redrawn on their own when community tracks change).
+function renderTrackList() {
+  const cust = customTracks(), comm = community.db ? communityTracks() : [];
+  const tabs = community.db ? [...TABS, 'Community'] : TABS;
+  if (!tabs.includes(menuTab)) menuTab = 'All';
+  const counts = { All: OFFICIAL.length, Yours: cust.length, Community: comm.length };
   for (const t of OFFICIAL) counts[t.diff] = (counts[t.diff] || 0) + 1;
-  $('track-tabs').innerHTML = TABS.map(t => `<button class="tab ${t === menuTab ? 'sel' : ''}" role="tab" aria-selected="${t === menuTab}" data-tab="${t}">${t}<span>${counts[t] || 0}</span></button>`).join('');
+  $('track-tabs').innerHTML = tabs.map(t => `<button class="tab ${t === menuTab ? 'sel' : ''}" role="tab" aria-selected="${t === menuTab}" data-tab="${t}">${t}<span>${counts[t] || 0}</span></button>`).join('');
   let html;
-  if (menuTab === 'Yours') html = cust.length ? cust.map((tr, i) => trackCard({ ...tr, official: false }, 'c:' + i, `<button data-edit="${i}">Edit</button><button data-share="${i}">Share</button><button data-del="${i}">Delete</button>`)).join('') : '<p class="empty-note">Tracks you save in the editor or import from a code appear here.</p>';
+  if (menuTab === 'Yours') html = cust.length ? cust.map((tr, i) => trackCard({ ...tr, official: false }, 'c:' + i, `<button data-edit="${i}">Edit</button><button data-share="${i}">Share</button>${canPublish() ? publishButtons(tr, i) : ''}<button data-del="${i}">Delete</button>`)).join('') : '<p class="empty-note">Tracks you save in the editor or import from a code appear here.</p>';
+  else if (menuTab === 'Community') {
+    community.shown = comm;
+    html = comm.length ? comm.map((tr, i) => trackCard(tr, 'p:' + i, `<button data-copy="p:${i}">Copy to editor</button>${tr.author === community.me || community.owner ? `<button data-remove="${i}">${tr.author === community.me ? 'Unpublish' : 'Remove'}</button>` : ''}`)).join('')
+      : `<p class="empty-note">${canPublish() ? 'No community tracks yet. Build one in the editor, save it, then press Publish on it under Yours.' : 'No community tracks yet. Tracks other players publish appear here.'}</p>`;
+  }
   else html = OFFICIAL.map((tr, i) => [tr, i]).filter(([tr]) => menuTab === 'All' || tr.diff === menuTab).map(([tr, i]) => trackCard(tr, 'o:' + i, `<button data-copy="o:${i}">Copy to editor</button>`)).join('');
   $('grid-tracks').innerHTML = html;
+  if (menuTab === 'Community') nameAuthors();
+}
+// Publish, or for a published track Unpublish (plus Update once it's been edited since).
+function publishButtons(tr, i) {
+  const p = publishedEntry(tr);
+  if (!p) return `<button data-pub="${i}">Publish</button>`;
+  return (p.code !== encodeTrack(tr) ? `<button data-pub="${i}">Update</button>` : '') + `<button data-unpub="${i}">Unpublish</button>`;
+}
+// Fill in who made each community track (names are resolved, never stored).
+async function nameAuthors() {
+  const els = [...document.querySelectorAll('#grid-tracks .by[data-author]')], ids = [...new Set(els.map(el => el.dataset.author))];
+  if (!ids.length || !community.user) return;
+  const ps = await community.user.profiles(ids);
+  for (const el of els) if (el.isConnected) el.textContent = el.dataset.author === community.me ? 'by you' : 'by ' + ((ps[el.dataset.author] && ps[el.dataset.author].name) || 'another player');
 }
 function trackFromRef(ref) {
   const [kind, i] = ref.split(':');
   if (kind === 'o') return OFFICIAL[+i];
   if (kind === 'd') return dailyTrack();
   if (kind === 'r') return randomTrack(lastSeed);
+  if (kind === 'p') return community.shown[+i] || null;
   const c = customTracks()[+i]; return c ? { ...c, official: false } : null;
 }
 function raceSeed(seed) { lastSeed = cleanSeed(seed) || randomSeed(); store.set('mt.seed', lastSeed); startTrack(randomTrack(lastSeed)); }
@@ -2428,6 +2514,13 @@ document.querySelector('#menu .tracks').addEventListener('click', e => {
     else if (btn.dataset.copy) { const tr = trackFromRef(btn.dataset.copy); openEditor({ id: null, name: tr.name + ' (copy)', tiles: tr.tiles.map(stripTile) }); }
     else if (btn.dataset.edit) { const i = +btn.dataset.edit; openEditor({ ...list[i], idx: i }); }
     else if (btn.dataset.share) showShare(list[+btn.dataset.share]);
+    else if (btn.dataset.pub) publishTrack(list[+btn.dataset.pub]);
+    else if (btn.dataset.unpub) { const tr = list[+btn.dataset.unpub]; unpublishTrack(community.me, tr.id, tr.name); }
+    else if (btn.dataset.remove) {
+      const tr = community.shown[+btn.dataset.remove]; if (!tr) return;
+      if (tr.author === community.me) unpublishTrack(tr.author, tr.pid, tr.name);
+      else confirmModal(`Remove “${escapeHtml(tr.name)}” from Community for everyone?`, 'Remove', () => unpublishTrack(tr.author, tr.pid, tr.name));
+    }
     else if (btn.dataset.del) confirmModal(`Delete “${escapeHtml(list[+btn.dataset.del].name)}”?`, 'Delete', () => { list.splice(+btn.dataset.del, 1); saveCustomTracks(list); renderMenu(); toast('Track deleted'); });
     return;
   }
@@ -2947,6 +3040,7 @@ function start() {
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
   setState('menu'); loadDemo();
   requestAnimationFrame(t => { last = t; frame(t); });
+  initCommunity();
 }
 // Debug/test hooks.
 window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack };

@@ -14,6 +14,7 @@ A low-poly time-trial racer in the style of PolyTrack, in a single HTML file (`r
 - **34 official tracks** across Easy, Medium, Hard and Expert, plus a **daily track** and **endless random tracks** from a seed you can share. The generator uses every piece type.
 - **Medals** (Bronze, Silver, Gold, Author), a **ghost of your best run** with live split deltas, and a local leaderboard that records which car you used.
 - **Track editor** with 17 piece types, height levels, an environment picker, undo, a route check, and `MT1.` share codes.
+- **Community tracks** (on the hosted page): press Publish on a track under Yours and everyone who plays the game sees it in the Community tab, with its maker's name. They can race it or copy it into their own editor. You can update or unpublish your own tracks, and the game's owner can remove any track. Publishing needs Contributor access or higher to the page; people with view-only access can still race community tracks. A copy of the game opened as a local file has no Community tab.
 - Red/white barriers on every edge (you can clear them when airborne), skid marks, tyre smoke, engine sound, three cameras (the chase camera rolls with the car through loops), a minimap, and keyboard, gamepad and large touch controls.
 - An autopilot drives the menu background. It was used to test all 14 cars on all 34 official tracks, and to set the medal times.
 
