@@ -870,7 +870,10 @@ function envFor(track) { return ENVS[track && track.env] ? track.env : 'summer';
 // ============================================================================
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+// Tablets and phones draw the 3D view at a lower resolution (the menus and text stay
+// sharp), with a smaller shadow map: about 60% fewer pixels a frame on an iPad.
+const LOW_POWER = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LOW_POWER ? 1.25 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -879,13 +882,13 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.setScalar(LOW_POWER ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 300 });
 sun.shadow.bias = -0.0005;
 scene.add(sun); scene.add(sun.target);
 // The sun (and its shadow) follows the view, moving in whole shadow-map pixels
 // across the light's direction so shadow edges stay still instead of crawling.
-const SUN_OFF = new V3(60, 110, 40), SUN_TEXEL = 120 / 2048;
+const SUN_OFF = new V3(60, 110, 40), SUN_TEXEL = 120 / sun.shadow.mapSize.x;
 const sunDir = SUN_OFF.clone().normalize(), sunRight = new V3(0, 1, 0).cross(sunDir).normalize(), sunUp = sunDir.clone().cross(sunRight);
 function placeSun(p) {
   const snap = v => Math.round(v / SUN_TEXEL) * SUN_TEXEL;
