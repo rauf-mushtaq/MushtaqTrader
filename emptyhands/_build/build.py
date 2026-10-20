@@ -472,13 +472,13 @@ def build_home():
 <section class="section section--dark">
   <div class="wrap">
     <div class="section-head reveal">
-      <div><span class="eyebrow">Inside the dojo</span><h2>Watch the EmptyHands film</h2></div>
-      <p class="lead">Training, gradings and the words of the parents and students who make our dojo what it is.</p>
+      <div><span class="eyebrow">Inside the dojo</span><h2>Watch the dojo in action</h2></div>
+      <p class="lead">Kihon, kata, kumite and gradings — two minutes of real training on the dojo floor.</p>
     </div>
     <div class="film reveal">
       <video preload="none" playsinline poster="assets/img/dojo-film-poster.jpg"><source src="assets/video/dojo-film.mp4" type="video/mp4"></video>
       <button class="film-play" aria-label="Play the EmptyHands dojo film"><span>%(play)s</span></button>
-      <div class="film-meta">EmptyHands Karate School<strong>A year in our dojo · 5 min</strong></div>
+      <div class="film-meta">EmptyHands Karate School<strong>Training in our dojo · 2 min</strong></div>
     </div>
   </div>
 </section>
@@ -1016,7 +1016,7 @@ def build_gallery():
     <div class="film reveal">
       <video preload="none" playsinline poster="assets/img/dojo-film-poster.jpg"><source src="assets/video/dojo-film.mp4" type="video/mp4"></video>
       <button class="film-play" aria-label="Play the EmptyHands dojo film"><span>%s</span></button>
-      <div class="film-meta">EmptyHands Karate School<strong>A year in our dojo · 5 min</strong></div>
+      <div class="film-meta">EmptyHands Karate School<strong>Training in our dojo · 2 min</strong></div>
     </div>
   </div>
 </section>
