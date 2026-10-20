@@ -592,7 +592,7 @@ def build_disciplines():
     body = discipline_page(
         'karate', '空手道', 'Karate-Dō', 'Traditional Shotokan Karate · Ilford &amp; Epping',
         'Classical Shotokan with influences from Goju Ryu, Shiatsu and the internal martial arts — for children and adults of every level.',
-        ('img', 'instructors-training-honbu-dojo-epping.webp'),
+        ('img', 'azeem-mushtaq-sensei.webp'),
         '''<span class="eyebrow">Information</span>
 <h2>Karate as it was meant to be taught.</h2>
 <p class="lead">EmptyHands is a Traditional KaraTe School. Our practice is based on the classical Shotokan System with some influences from Goju Ryu, Shiatsu (acupressure) &amp; Internal Martial Arts (Tai Chi Chuan).</p>
@@ -985,11 +985,10 @@ def build_join():
 GALLERY = [
     ('homekarate.webp', 'Students training at EmptyHands'), ('azeem-mushtaq-sensei.webp', 'Sensei Azeem leading the class'),
     ('eh-students-q.webp', 'Students practising in pairs'), ('shotokan-tigers.webp', 'EmptyHands students outdoors'),
-    ('instructors-training-honbu-dojo-epping.webp', 'Instructor training at the Epping Honbu Dojo'),
     ('leila2-edited.webp', 'Leila in a low stance'), ('image-1.webp', 'Students in the dojo hall'),
     ('reet.webp', 'Reet performing a high kick'), ('taichi-school.webp', 'Tai Chi practice'),
     ('image-1-1.webp', 'A workshop on the mats'),
-    ('amarah.webp', 'Amarah in kata'), ('adwaitha.webp', 'Adwaitha in a fighting stance'),
+    ('adwaitha.webp', 'Adwaitha in a fighting stance'),
     ('dhillon.webp', 'Dhillon in a stance'), ('leila.webp', 'Leila training'),
     ('amushtaqsensei.webp', 'Azeem Sensei teaching a seminar'), ('azeem-mushtaq.webp', 'Azeem Sensei'),
     ('rex-lassalle.webp', 'Rex Lassalle, Shiatsu Master'), ('yoga-studio.webp', 'Yoga practice'),

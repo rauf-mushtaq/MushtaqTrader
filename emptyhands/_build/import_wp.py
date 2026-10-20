@@ -15,7 +15,7 @@ IMGMAP = json.load(open(os.path.join(HERE, 'content', 'imgmap.json')))
 UPLOADS = 'https://emptyhands.co.uk/wp-content/uploads/'
 
 # Older duplicates of newer posts on the original site.
-DROP = {'blog-3', 'blog-5', 'chi-2'}
+DROP = {'blog-3', 'blog-5', 'chi-2', 'trainee-instructors'}
 
 CATEGORY = {
     'karate_rules': 'Karate', 'budo-culture': 'Karate', 'evidence-based-karate-training': 'Karate',
@@ -39,7 +39,7 @@ COVER = {
     '5-actionable-tips-to-becoming-a-better-karateka': '2024/05/image.png',
     'coping-with-stress-is-karate-the-answer': '2024/06/zazen.webp', 'kobudo': '2024/05/Jo-Kabudo.jpg',
     'immunity-tips': '2024/05/5-Element-theory.jpg',
-    'fight-club': '2024/05/Instructors-training_Honbu-Dojo-Epping.jpg',
+    'fight-club': '2025/08/homekarate.jpg',
     'coronavirus-online-karate-training': '2024/05/image-1.png', 'yoga-karate': '2024/05/Yoga-Studio.jpg',
     'virtual-dojo': '2024/05/EHTEAMS-1.jpg', 'chi': '2024/05/yinyang.png',
     'trainee-instructors': '2024/05/eh-students_q.jpg',
