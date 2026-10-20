@@ -35,7 +35,7 @@ DOJOS = [
         'name': 'Ilford Dojo', 'k': '道場', 'address': 'Church Hall, St Andrew’s, The Drive, Ilford IG1 3PE',
         'map': 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2479.911952490874!2d0.05531907609409833!3d51.569847606140094!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47d8a6e571c6255d%3A0x4fbe36703a646aeb!2sEmptyhands%20Karate%20School!5e0!3m2!1sen!2s!4v1707932577567!5m2!1sen!2s',
         'directions': 'https://www.google.com/maps/dir/?api=1&destination=Emptyhands+Karate+School+The+Drive+Ilford+IG1+3PE',
-        'classes': ['Karate — Thursdays 6pm–9pm', 'Tai Chi — Thursdays 6pm–7pm', 'Yoga — Thursdays 8pm–9pm'],
+        'classes': ['Karate — Thursdays 7pm–9pm', 'Tai Chi — Thursdays 6pm–7pm', 'Yoga — Thursdays 8pm–9pm'],
     },
     {
         'name': 'Epping Dojo', 'k': '本部', 'address': 'Jack Silley Pavilion, Epping',
@@ -287,7 +287,7 @@ DOJO_KUN = [
 ]
 
 TIMETABLE = [
-    ('Thursday', 'karate', 'Karate-Dō', 'All grades, children & adults', '6:00pm – 9:00pm', 'Ilford', 'Weekly'),
+    ('Thursday', 'karate', 'Karate-Dō', 'All grades, children & adults', '7:00pm – 9:00pm', 'Ilford', 'Weekly'),
     ('Thursday', 'taichi', 'Tai Chi Chuan', 'Yang family style', '6:00pm – 7:00pm', 'Ilford', 'Book ahead'),
     ('Thursday', 'yoga', 'Yoga', 'Himalayan Hatha — drop-in', '8:00pm – 9:00pm', 'Ilford', 'Drop-in'),
     ('Tuesday', 'taichi', 'Tai Chi Chuan', 'Yang family style', '6:30pm – 8:30pm', 'Epping', 'Book ahead'),
@@ -598,8 +598,8 @@ def build_disciplines():
 <p class="lead">EmptyHands is a Traditional KaraTe School. Our practice is based on the classical Shotokan System with some influences from Goju Ryu, Shiatsu (acupressure) &amp; Internal Martial Arts (Tai Chi Chuan).</p>
 <p>Our Dojo was founded in 2006 on the ideals of Gichin Funakoshi Hanshi (founder of modern-day Karate). The format of our syllabus has been inspired by the work of the late Hirokazu Kanazawa Sōke with some adaptations.</p>
 <p>Our teaching philosophy is person-centred and based upon the fundamentals of KaraTe-Dô: Kihon (basics), Kata (form), Bunkai (application) and Kumite (sparring). We also place great emphasis on the values and beliefs of KaraTe through the study of the Dojo Kun.</p>
-<p>We run weekly classes every Thursday from 6pm to 9pm, and advanced classes for our more developed students at our other Dojo in Epping. We publish our calendar at the end of each year so that every student has ample opportunity to plan their year ahead.</p>''',
-        [('When', 'Thursdays, 6pm – 9pm'), ('Where', 'Church Hall, St Andrew’s, The Drive, Ilford IG1 3PE'), ('Advanced', 'Additional classes at our Epping Dojo'),
+<p>We run weekly classes every Thursday from 7pm to 9pm, and advanced classes for our more developed students at our other Dojo in Epping. We publish our calendar at the end of each year so that every student has ample opportunity to plan their year ahead.</p>''',
+        [('When', 'Thursdays, 7pm – 9pm'), ('Where', 'Church Hall, St Andrew’s, The Drive, Ilford IG1 3PE'), ('Advanced', 'Additional classes at our Epping Dojo'),
          ('Style', 'Shotokan, with Goju Ryu influences'), ('Ages', 'Children (from 4) and adults'), ('Try it', '£10 pay-as-you-go for new starters')],
         [('fist', 'f.ist', 'hand and fingers clenched, a gesture'), ('learn', 'le.arn', 'to gain or acquire knowledge or skill'),
          ('develop', 'de.vel.op', 'to grow or transform into a new state'), ('empower', 'em.pow.er', 'to give ability, freedom — to enable'),
