@@ -335,6 +335,7 @@
       <button class="btn" id="ed-down" title="Level down (Q)">Level −</button>
       <button class="btn" id="ed-up" title="Level up (E)">Level +</button>
       <button class="btn" id="ed-erase" title="Eraser (X)">Eraser</button>
+      <select id="ed-env" aria-label="Environment" class="btn" style="padding:6px 8px"><option value="summer">Summer</option><option value="winter">Winter</option><option value="desert">Desert</option></select>
       <span id="ed-status"></span>
     </div>
   </div>
@@ -399,32 +400,77 @@ function flash(msg, color) {
 // ============================================================================
 // Track pieces. Each piece is described by a centreline path in local space:
 // it enters at local (0, 0, -S/2) heading +z. Rotation r turns it in 90° steps.
+// A piece can also give the road's "up" (normal) along the path, which is how
+// banked turns, wall rides and loops tilt or flip the road surface.
 // ============================================================================
 const straightPath = u => [0, 0, -S / 2 + u * S];
 const KICK_H = 2;   // kicker lip height; exit slope is 2·KICK_H/S
+const wideTurnPath = u => { const a = u * Math.PI / 2, R = 30; return [R - R * Math.cos(a), 0, -S / 2 + R * Math.sin(a)]; };
+// Banked wide turn: the road tilts toward the turn's centre around its centre
+// line (so the racing line stays level), easing in and out of the bank. The
+// low edge dips below the piece's level, so these sit best on raised track.
+const bankAngle = (maxAngle, gentle) => u => maxAngle * (gentle ? Math.sin(Math.PI * u) ** 1.4 : smooth(clamp(u / 0.28, 0, 1)) * smooth(clamp((1 - u) / 0.28, 0, 1)));
+const bankedNormal = phiAt => u => {
+  const a = u * Math.PI / 2, phi = phiAt(u); const inX = Math.cos(a), inZ = -Math.sin(a); // horizontal unit toward (30, -10)
+  return [inX * Math.sin(phi), Math.cos(phi), inZ * Math.sin(phi)];
+};
+const BANK = bankAngle(0.62, false), WALL = bankAngle(1.1, true);
+// Loop: 20 m run-in, a 10 m radius loop that shifts one lane sideways, 20 m run-out.
+const LOOP_R = 10, LOOP_LEN = 40 + 2 * Math.PI * LOOP_R;
+const loopPath = side => u => {
+  const s = u * LOOP_LEN;
+  if (s <= 20) return [0, 0, -10 + s];
+  if (s >= LOOP_LEN - 20) return [20 * side, 0, 10 + s - (LOOP_LEN - 20)];
+  const th = (s - 20) / LOOP_R; return [20 * side * smooth(th / (2 * Math.PI)), LOOP_R - LOOP_R * Math.cos(th), 10 + LOOP_R * Math.sin(th)];
+};
+const loopNormal = u => { const s = u * LOOP_LEN; if (s <= 20 || s >= LOOP_LEN - 20) return [0, 1, 0]; const th = (s - 20) / LOOP_R; return [0, Math.cos(th), -Math.sin(th)]; };
 const TYPES = {
   straight:   { label: 'Road',      key: '1', fp: [[0, 0]], n: 8,  path: straightPath },
   turn:       { label: 'Turn',      key: '2', fp: [[0, 0]], n: 16, path: u => { const a = u * Math.PI / 2; return [S / 2 - S / 2 * Math.cos(a), 0, -S / 2 + S / 2 * Math.sin(a)]; } },
-  bigturn:    { label: 'Wide turn', key: '3', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, path: u => { const a = u * Math.PI / 2, R = 30; return [R - R * Math.cos(a), 0, -S / 2 + R * Math.sin(a)]; } },
-  ramp:       { label: 'Ramp',      key: '4', fp: [[0, 0]], n: 14, span: 1, path: u => [0, H * smooth(u), -S / 2 + u * S] },
+  bigturn:    { label: 'Wide turn', key: '3', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, path: wideTurnPath },
+  ramp:       { label: 'Ramp',      key: '4', fp: [[0, 0]], n: 14, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * S] },
   kicker:     { label: 'Kicker',    key: '5', fp: [[0, 0]], n: 10, path: u => [0, KICK_H * u * u, -S / 2 + u * S] },
   boost:      { label: 'Boost',     key: '6', fp: [[0, 0]], n: 8,  path: straightPath },
   checkpoint: { label: 'Checkpoint', key: '7', fp: [[0, 0]], n: 8, path: straightPath },
   start:      { label: 'Start',     key: '8', fp: [[0, 0]], n: 8,  path: straightPath },
   finish:     { label: 'Finish',    key: '9', fp: [[0, 0]], n: 8,  path: straightPath },
+  longramp:   { label: 'Long slope', key: '0', fp: [[0, 0], [0, 1]], n: 24, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * 2 * S] },
+  bankturn:   { label: 'Banked turn', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, levels: 1, below: 1, path: wideTurnPath, nrm: bankedNormal(BANK) },
+  wallturn:   { label: 'Wall ride', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 40, levels: 2, below: 2, path: wideTurnPath, nrm: bankedNormal(WALL) },
+  loop:       { label: 'Loop', fp: [[0, 0], [0, 1], [1, 0], [1, 1]], n: 72, levels: 4, path: loopPath(1), nrm: loopNormal },
+  loopr:      { label: 'Loop (right)', fp: [[0, 0], [0, 1], [-1, 0], [-1, 1]], n: 72, levels: 4, path: loopPath(-1), nrm: loopNormal },
+  pillar:     { label: 'Pillar', fp: [[0, 0]], n: 8, path: straightPath, line: u => 4 * Math.sin(Math.PI * u), obstacles: [{ kind: 'cyl', x: 0, z: 0, r: 1.4, h: 6 }] },
+  chicane:    { label: 'Chicane', fp: [[0, 0]], n: 8, path: straightPath, line: u => -3.9 * Math.sin(2 * Math.PI * u), obstacles: [{ kind: 'box', x: 3.3, z: -4.5, hx: 3.2, hz: 1.1, h: 2.2 }, { kind: 'box', x: -3.3, z: 4.5, hx: 3.2, hz: 1.1, h: 2.2 }] },
+  tunnel:     { label: 'Tunnel', fp: [[0, 0]], n: 8, path: straightPath, wallH: 5.2 },
 };
-const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish'];
+const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel'];
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // world (x,z) heading for rotation r
 
 function rotXZ(x, z, r) { const a = r * Math.PI / 2, c = Math.cos(a), s = Math.sin(a); return [x * c + z * s, -x * s + z * c]; }
+function rotV(v, r) { const [x, z] = rotXZ(v.x, v.z, r); return v.set(x, v.y, z); }
 function footprint(t) {
   return TYPES[t.type].fp.map(([a, b]) => { const [dx, dz] = rotXZ(a, b, t.r); return [t.x + Math.round(dx), t.z + Math.round(dz)]; });
 }
-function tileLevels(t) { return TYPES[t.type].span ? [t.l, t.l + 1] : [t.l]; }
+function tileLevels(t) { const T = TYPES[t.type], out = []; for (let k = -(T.below || 0); k <= (T.levels || 0); k++) out.push(t.l + k); return out; }
 function tilePoint(t, u, out) {
   const p = TYPES[t.type].path(u); const [x, z] = rotXZ(p[0], p[2], t.r);
   return (out || new V3()).set(t.x * S + x, t.l * H + p[1], t.z * S + z);
 }
+// Local frame at u: position, tangent, road normal (up) and side (B = T × N).
+function pieceFrame(type, u) {
+  const T = TYPES[type]; const p = T.path(u); const e = 1e-3;
+  const a = T.path(Math.max(0, u - e)), b = T.path(Math.min(1, u + e));
+  const tg = new V3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
+  const n0 = T.nrm ? new V3(...T.nrm(u)) : new V3(0, 1, 0);
+  const N = n0.addScaledVector(tg, -n0.dot(tg)).normalize();
+  return { p: new V3(p[0], p[1], p[2]), T: tg, N, B: new V3().crossVectors(tg, N).normalize() };
+}
+function localFrames(type, us) {
+  const f = { pts: [], B: [], N: [] };
+  for (const u of us) { const fr = pieceFrame(type, u); f.pts.push(fr.p); f.B.push(fr.B); f.N.push(fr.N); }
+  return f;
+}
+function uSteps(n) { const out = []; for (let i = 0; i <= n; i++) out.push(i / n); return out; }
 function tileLength(t) {
   const n = TYPES[t.type].n * 2; let len = 0; const a = new V3(), b = new V3();
   tilePoint(t, 0, a);
@@ -434,12 +480,15 @@ function tileLength(t) {
 
 // Turtle notation for the official tracks: every piece connects to the last.
 // ST start, S road, B boost, C checkpoint, F finish, K kicker, G gap,
-// U ramp up, D ramp down, L/R tight turn, BL/BR wide turn. A number repeats.
+// U/D ramp up/down, LU/LD long slope up/down, L/R tight turn, BL/BR wide turn,
+// QL/QR banked turn, WL/WR wall ride, OL/OR loop (exits one lane left/right),
+// P pillar, X chicane, T tunnel. A number repeats.
 function turtle(seq) {
   let x = 0, z = 0, l = 0, d = 0; const tiles = []; const gaps = [];
   const add = (type, X, Z, L, R) => tiles.push({ type, x: X, z: Z, l: L, r: R });
   const adv = () => { x += DIRS[d][0]; z += DIRS[d][1]; };
-  const simple = { ST: 'start', S: 'straight', B: 'boost', C: 'checkpoint', F: 'finish', K: 'kicker' };
+  const simple = { ST: 'start', S: 'straight', B: 'boost', C: 'checkpoint', F: 'finish', K: 'kicker', P: 'pillar', X: 'chicane', T: 'tunnel' };
+  const wide = { BL: 'bigturn', QL: 'bankturn', WL: 'wallturn' }, wideR = { BR: 'bigturn', QR: 'bankturn', WR: 'wallturn' };
   for (const cmd of seq.trim().split(/\s+/)) {
     const m = cmd.match(/^([A-Z]+)(\d*)$/); const n = m[2] ? +m[2] : 1; const c = m[1];
     for (let k = 0; k < n; k++) {
@@ -449,8 +498,11 @@ function turtle(seq) {
       else if (c === 'D') { l--; add('ramp', x, z, l, (d + 2) % 4); adv(); }
       else if (c === 'L') { add('turn', x, z, l, d); d = (d + 1) % 4; adv(); }
       else if (c === 'R') { add('turn', x, z, l, (d + 1) % 4); d = (d + 3) % 4; adv(); }
-      else if (c === 'BL') { add('bigturn', x, z, l, d); const X = DIRS[(d + 1) % 4], F = DIRS[d]; x += 2 * X[0] + F[0]; z += 2 * X[1] + F[1]; d = (d + 1) % 4; }
-      else if (c === 'BR') { const r = (d + 1) % 4, X = DIRS[(r + 1) % 4], F = DIRS[r]; const ax = x - X[0] - F[0], az = z - X[1] - F[1]; add('bigturn', ax, az, l, r); x = ax - F[0]; z = az - F[1]; d = (d + 3) % 4; }
+      else if (wide[c]) { add(wide[c], x, z, l, d); const X = DIRS[(d + 1) % 4], F = DIRS[d]; x += 2 * X[0] + F[0]; z += 2 * X[1] + F[1]; d = (d + 1) % 4; }
+      else if (wideR[c]) { const r = (d + 1) % 4, X = DIRS[(r + 1) % 4], F = DIRS[r]; const ax = x - X[0] - F[0], az = z - X[1] - F[1]; add(wideR[c], ax, az, l, r); x = ax - F[0]; z = az - F[1]; d = (d + 3) % 4; }
+      else if (c === 'LU') { add('longramp', x, z, l, d); l++; x += 2 * DIRS[d][0]; z += 2 * DIRS[d][1]; }
+      else if (c === 'LD') { l--; add('longramp', x + DIRS[d][0], z + DIRS[d][1], l, (d + 2) % 4); x += 2 * DIRS[d][0]; z += 2 * DIRS[d][1]; }
+      else if (c === 'OL' || c === 'OR') { const sd = c === 'OL' ? 1 : -1, X = DIRS[(d + 1) % 4], F = DIRS[d]; add(c === 'OL' ? 'loop' : 'loopr', x, z, l, d); x += sd * X[0] + 2 * F[0]; z += sd * X[1] + 2 * F[1]; }
     }
   }
   tiles.end = { x, z, l, d }; tiles.gaps = gaps;
@@ -472,7 +524,7 @@ function occupied(tiles) {
 function generateSeq(seed) {
   const rnd = mulberry32(hashStr(seed));
   for (let attempt = 0; attempt < 80; attempt++) {
-    const toks = ['ST', 'S', 'S']; let sinceCp = 0, cps = 0, jumps = 0;
+    const toks = ['ST', 'S', 'S']; let sinceCp = 0, cps = 0, jumps = 0, loops = 0;
     const target = 30 + Math.floor(rnd() * 16);
     for (let guard = 0; guard < 200; guard++) {
       const cur = turtle(toks.join(' '));
@@ -482,13 +534,17 @@ function generateSeq(seed) {
       }
       const e = cur.end; const opts = [];
       const add = (chunk, w) => opts.push({ chunk, w });
-      add(['S'], 20); add(['S', 'S'], 10);
-      add(['BL', 'S'], 9); add(['BR', 'S'], 9);
-      add(['L', 'S'], 5); add(['R', 'S'], 5);
-      if (e.l < 3) add(['U', 'S', 'S'], 6);
-      if (e.l > 0) add(['D', 'S', 'S'], 8);
-      add(['B', 'S'], 4);
-      if (jumps < 2) add(['B', 'S', 'K', 'G', 'S', 'S', 'S'], 5);
+      add(['S'], 18); add(['S', 'S'], 9);
+      add(['BL', 'S'], 8); add(['BR', 'S'], 8);
+      add(['L', 'S'], 4); add(['R', 'S'], 4);
+      add(['QL', 'S', 'S'], 4); add(['QR', 'S', 'S'], 4);
+      if (e.l < 3) { add(['U', 'S', 'S'], 4); add(['LU', 'S'], 4); }
+      if (e.l > 0) { add(['D', 'S', 'S'], 5); add(['LD', 'S'], 5); }
+      if (e.l >= 2) { add(['WL', 'S', 'S', 'S'], 4); add(['WR', 'S', 'S', 'S'], 4); }
+      add(['B', 'S'], 3);
+      if (jumps < 2) add(['B', 'S', 'K', 'G', 'S', 'S', 'S'], 4);
+      if (loops < 2) { add(['B', 'S', 'OL', 'S', 'S'], 3); add(['B', 'S', 'OR', 'S', 'S'], 3); }
+      add(['P', 'S'], 2); add(['X', 'S'], 2); add(['T', 'T'], 2);
       if (sinceCp >= 6) add(['C', 'S'], 15 + sinceCp * 4);
       let placed = false;
       while (opts.length) {
@@ -502,6 +558,7 @@ function generateSeq(seed) {
         toks.push(...o.chunk); placed = true;
         if (o.chunk[0] === 'C') { cps++; sinceCp = 0; } else sinceCp += o.chunk.length;
         if (o.chunk.includes('K')) jumps++;
+        if (o.chunk.includes('OL') || o.chunk.includes('OR')) loops++;
         break;
       }
       if (!placed) break;
@@ -512,38 +569,49 @@ function generateSeq(seed) {
 const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function randomSeed() { let out = ''; for (let i = 0; i < 6; i++) out += SEED_CHARS[Math.floor(Math.random() * SEED_CHARS.length)]; return out; }
 function cleanSeed(v) { return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12); }
-function randomTrack(seed) { seed = cleanSeed(seed) || randomSeed(); return { id: 'r_' + seed, name: 'Random · ' + seed, diff: 'Random', seed, tiles: turtle(generateSeq(seed)), official: false, generated: true }; }
+const ENV_LIST = ['summer', 'winter', 'desert'];
+function randomTrack(seed) { seed = cleanSeed(seed) || randomSeed(); return { id: 'r_' + seed, name: 'Random · ' + seed, diff: 'Random', env: ENV_LIST[hashStr(seed + 'env') % 3], seed, tiles: turtle(generateSeq(seed)), official: false, generated: true }; }
 function todayKey() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function dailyTrack() {
   const key = todayKey(); const label = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  return { id: 'd_' + key, name: 'Daily · ' + label, diff: 'Daily', seed: 'DAILY' + key, tiles: turtle(generateSeq('DAILY' + key)), official: false, generated: true };
+  return { id: 'd_' + key, name: 'Daily · ' + label, diff: 'Daily', env: ENV_LIST[hashStr(key) % 3], seed: 'DAILY' + key, tiles: turtle(generateSeq('DAILY' + key)), official: false, generated: true };
 }
 
 const OFFICIAL = [
-  { id: 'o1', name: 'Green Mile', diff: 'Easy', seq: 'ST S3 BR S2 C S2 BL S4 B S3 R S L S2 C S3 BR S2 F' },
-  { id: 'o2', name: 'Coastal Run', diff: 'Easy', seq: 'ST S4 BL S3 C S4 BR S5 B S3 BL S2 C S4 F' },
-  { id: 'o3', name: 'Rookie Ring', diff: 'Easy', seq: 'ST S3 BR S3 C S2 BR S5 B S3 BL S2 F' },
-  { id: 'o4', name: 'Long Straight', diff: 'Easy', seq: 'ST S6 B S6 C S6 B S6 C S4 BR S4 F' },
-  { id: 'o5', name: 'Hill Climb', diff: 'Easy', seq: 'ST S2 U S3 U S2 C S2 D S3 D S2 B S2 F' },
-  { id: 'o6', name: 'Lazy River', diff: 'Easy', seq: 'ST S2 BL S2 BR S2 C S2 BR S2 BL S3 C S2 BL S2 F' },
-  { id: 'o7', name: 'Bridgeworks', diff: 'Medium', seq: 'ST S2 U S2 BL S2 C S U S3 BR S2 D S2 C S2 L S R S2 D S2 F' },
-  { id: 'o8', name: 'Kick Flip', diff: 'Medium', seq: 'ST S2 B S2 K G S3 C S BR S2 B S K G2 S3 C S2 L S2 R S2 B S K G S3 F' },
-  { id: 'o9', name: 'Switchbacks', diff: 'Medium', seq: 'ST S3 L S R S L S R S2 C S2 R S L S R S L S2 C S3 F' },
-  { id: 'o10', name: 'Overpass', diff: 'Medium', seq: 'ST S5 C S2 BR S2 BR S U S3 S3 D S2 BR S C S2 F' },
-  { id: 'o11', name: 'Double Jump', diff: 'Medium', seq: 'ST S2 B S2 K G S3 C S2 BL S B S K G2 S3 C S2 BR S2 F' },
-  { id: 'o12', name: 'Boost Alley', diff: 'Medium', seq: 'ST S B S2 B S2 C S2 BR B S3 B S2 C S BL S B S3 F' },
-  { id: 'o13', name: 'Terraces', diff: 'Medium', seq: 'ST S2 U S2 L S U S2 R S C S D S2 L S D S2 R S2 C S F' },
-  { id: 'o14', name: 'Hairpin Hills', diff: 'Hard', seq: 'ST S3 L L S3 R R S3 C S L L U S2 D R R S3 C S2 BL S2 F' },
-  { id: 'o15', name: 'Skyline', diff: 'Hard', seq: 'ST S B U S U S C S BR S2 B S K G S4 BR S2 U S C S L S R B S2 D S D S BL S C S2 BR B S3 F' },
-  { id: 'o16', name: 'Spiral Tower', diff: 'Hard', seq: 'ST S2 U S L S U S L S U S L S C S U S L S2 B S K G S3 D S D S C S2 BR S2 F' },
-  { id: 'o17', name: 'Gap Runner', diff: 'Hard', seq: 'ST S2 B S K G S2 K G S2 C S BL S B S K G2 S2 K G S2 C S BR S B S K G S3 F' },
-  { id: 'o18', name: 'Needle', diff: 'Hard', seq: 'ST S2 R L S R L S2 C S L R S L R S2 B S2 C S2 R R S3 F' },
-  { id: 'o19', name: 'Corkscrew Ridge', diff: 'Hard', seq: 'ST S2 U S BR U S2 C S BL D S2 B S2 U S BR S C S2 D S BL D S2 F' },
-  { id: 'o20', name: 'Sky Bridge', diff: 'Expert', seq: 'ST S B U S2 U S2 U S2 C S2 BL S3 B S K G S4 C S BR S2 L L S3 C S2 D S2 D S2 D S2 BR S2 F' },
-  { id: 'o21', name: 'Leap of Faith', diff: 'Expert', seq: 'ST S B U S2 U S2 U S2 C S B S K G2 S3 D S2 D S2 C S BL S B S K G2 S3 C S2 F' },
-  { id: 'o22', name: 'The Gauntlet', diff: 'Expert', seq: 'ST S2 B S K G S2 C S R L S2 U S BL S2 D S C S2 L R S2 B S K G S3 C S2 U S2 D S BR S C S3 F' },
-  { id: 'o23', name: 'Endurance', diff: 'Expert', seq: 'ST S4 BR S3 C S2 BL S4 B S2 BL S3 C S2 U S2 BR S3 D S2 C S2 R S L S3 B S2 K G S3 C S2 BL S4 BR S2 C S5 F' },
-  { id: 'o24', name: 'Precision', diff: 'Expert', seq: 'ST S2 L R L R S C S R L R L S C S2 L L S2 R R S2 C S2 F' }
+  { id: 'o1', name: 'Green Mile', diff: 'Easy', env: 'summer', seq: 'ST S3 BR S2 C S2 BL S4 B S3 R S L S2 C S3 BR S2 F' },
+  { id: 'o2', name: 'Coastal Run', diff: 'Easy', env: 'summer', seq: 'ST S4 BL S3 C S4 BR S5 B S3 BL S2 C S4 F' },
+  { id: 'o3', name: 'Rookie Ring', diff: 'Easy', env: 'summer', seq: 'ST S3 BR S3 C S2 BR S5 B S3 BL S2 F' },
+  { id: 'o4', name: 'Long Straight', diff: 'Easy', env: 'desert', seq: 'ST S6 B S6 C S6 B S6 C S4 BR S4 F' },
+  { id: 'o5', name: 'Hill Climb', diff: 'Easy', env: 'winter', seq: 'ST S2 U S3 U S2 C S2 D S3 D S2 B S2 F' },
+  { id: 'o6', name: 'Lazy River', diff: 'Easy', env: 'summer', seq: 'ST S2 BL S2 BR S2 C S2 BR S2 BL S3 C S2 BL S2 F' },
+  { id: 'o7', name: 'Loop de Loop', diff: 'Easy', env: 'summer', seq: 'ST S2 B S OL S3 C S2 BR S3 B S OR S3 C S2 F' },
+  { id: 'o8', name: 'Banked Bend', diff: 'Easy', env: 'summer', seq: 'ST S2 U S2 QL S3 C S2 QR S3 D S2 B S2 C S2 F' },
+  { id: 'o9', name: 'Slalom', diff: 'Easy', env: 'winter', seq: 'ST S2 P S2 X S2 C S2 BR S2 X S P S2 C S2 F' },
+  { id: 'o10', name: 'Bridgeworks', diff: 'Medium', env: 'summer', seq: 'ST S2 U S2 BL S2 C S U S3 BR S2 D S2 C S2 L S R S2 D S2 F' },
+  { id: 'o11', name: 'Kick Flip', diff: 'Medium', env: 'desert', seq: 'ST S2 B S2 K G S3 C S BR S2 B S K G2 S3 C S2 L S2 R S2 B S K G S3 F' },
+  { id: 'o12', name: 'Switchbacks', diff: 'Medium', env: 'winter', seq: 'ST S3 L S R S L S R S2 C S2 R S L S R S L S2 C S3 F' },
+  { id: 'o13', name: 'Overpass', diff: 'Medium', env: 'summer', seq: 'ST S5 C S2 BR S2 BR S U S3 S3 D S2 BR S C S2 F' },
+  { id: 'o14', name: 'Double Jump', diff: 'Medium', env: 'desert', seq: 'ST S2 B S2 K G S3 C S2 BL S B S K G2 S3 C S2 BR S2 F' },
+  { id: 'o15', name: 'Boost Alley', diff: 'Medium', env: 'summer', seq: 'ST S B S2 B S2 C S2 BR B S3 B S2 C S BL S B S3 F' },
+  { id: 'o16', name: 'Terraces', diff: 'Medium', env: 'winter', seq: 'ST S2 U S2 L S U S2 R S C S D S2 L S D S2 R S2 C S F' },
+  { id: 'o17', name: 'Wall Street', diff: 'Medium', env: 'summer', seq: 'ST S2 LU S LU S2 WL S2 C S2 WR S3 LD S LD S2 C S2 F' },
+  { id: 'o18', name: 'Tunnel Vision', diff: 'Medium', env: 'winter', seq: 'ST S2 T3 C S BR T3 S2 B S OL S3 C S2 F' },
+  { id: 'o19', name: 'Hairpin Hills', diff: 'Hard', env: 'winter', seq: 'ST S3 L L S3 R R S3 C S L L U S2 D R R S3 C S2 BL S2 F' },
+  { id: 'o20', name: 'Skyline', diff: 'Hard', env: 'summer', seq: 'ST S B U S U S C S BR S2 B S K G S4 BR S2 U S C S L S R B S2 D S D S BL S C S2 BR B S3 F' },
+  { id: 'o21', name: 'Spiral Tower', diff: 'Hard', env: 'desert', seq: 'ST S2 U S L S U S L S U S L S C S U S L S2 B S K G S3 D S D S C S2 BR S2 F' },
+  { id: 'o22', name: 'Gap Runner', diff: 'Hard', env: 'desert', seq: 'ST S2 B S K G S2 K G S2 C S BL S B S K G2 S2 K G S2 C S BR S B S K G S3 F' },
+  { id: 'o23', name: 'Needle', diff: 'Hard', env: 'winter', seq: 'ST S2 R L S R L S2 C S L R S L R S2 B S2 C S2 R R S3 F' },
+  { id: 'o24', name: 'Corkscrew Ridge', diff: 'Hard', env: 'desert', seq: 'ST S2 U S BR U S2 C S BL D S2 B S2 U S BR S C S2 D S BL D S2 F' },
+  { id: 'o25', name: 'Corkscrew Loops', diff: 'Hard', env: 'desert', seq: 'ST S2 B S OL S2 OR S3 C S2 BL S2 B S OL S3 C S2 F' },
+  { id: 'o26', name: 'Velodrome', diff: 'Hard', env: 'summer', seq: 'ST S LU S2 LU S2 WL S3 WL S4 C S3 WR S3 WR S3 LD S2 LD S2 C S2 F' },
+  { id: 'o27', name: 'Desert Rally', diff: 'Hard', env: 'desert', seq: 'ST S2 X S2 P S BR S2 B S K G S3 C S2 U S2 QL S2 D S2 X S2 C S2 F' },
+  { id: 'o28', name: 'Sky Bridge', diff: 'Expert', env: 'winter', seq: 'ST S B U S2 U S2 U S2 C S2 BL S3 B S K G S4 C S BR S2 L L S3 C S2 D S2 D S2 D S2 BR S2 F' },
+  { id: 'o29', name: 'Leap of Faith', diff: 'Expert', env: 'summer', seq: 'ST S B U S2 U S2 U S2 C S B S K G2 S3 D S2 D S2 C S BL S B S K G2 S3 C S2 F' },
+  { id: 'o30', name: 'The Gauntlet', diff: 'Expert', env: 'desert', seq: 'ST S2 B S K G S2 C S R L S2 U S BL S2 D S C S2 L R S2 B S K G S3 C S2 U S2 D S BR S C S3 F' },
+  { id: 'o31', name: 'Endurance', diff: 'Expert', env: 'summer', seq: 'ST S4 BR S3 C S2 BL S4 B S2 BL S3 C S2 U S2 BR S3 D S2 C S2 R S L S3 B S2 K G S3 C S2 BL S4 BR S2 C S5 F' },
+  { id: 'o32', name: 'Precision', diff: 'Expert', env: 'winter', seq: 'ST S2 L R L R S C S R L R L S C S2 L L S2 R R S2 C S2 F' },
+  { id: 'o33', name: 'Glacier Gauntlet', diff: 'Expert', env: 'winter', seq: 'ST S B S OL S2 LU S2 WL S2 C S2 B S K G S3 LD S2 X S2 P S2 QR S2 C S2 B S OR S3 F' },
+  { id: 'o34', name: 'PolyMax', diff: 'Expert', env: 'desert', seq: 'ST S2 B S OL S3 C S LU S LU S2 WR S2 B S K G S3 C S2 WL S2 LD S2 QR S2 T3 C S2 X S P S2 LD S2 B S OR S3 C S2 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
 
 // ============================================================================
@@ -559,14 +627,16 @@ function computeRoute(tiles) {
     const ta = tilePoint(t, 0.02).sub(a).normalize(), tb = b.clone().sub(tilePoint(t, 0.98)).normalize();
     return { t, a, b, ta, tb };
   });
-  const pts = []; const segs = []; const used = new Set();
+  const pts = []; const nrms = []; const segs = []; const used = new Set();
   let cur = ends[tiles.indexOf(start)], forward = true, guard = 0;
   while (cur && guard++ < 2000) {
     used.add(cur.t);
     const n = TYPES[cur.t.type].n * 2;
-    for (let i = 0; i <= n; i++) pts.push(tilePoint(cur.t, forward ? i / n : 1 - i / n));
+    // The racing line: the centre line, or around the obstacles where a piece has them.
+    const line = TYPES[cur.t.type].line;
+    for (let i = 0; i <= n; i++) { const u = forward ? i / n : 1 - i / n; const p = tilePoint(cur.t, u); if (line) p.add(rotV(new V3(line(u), 0, 0), cur.t.r)); pts.push(p); nrms.push(rotV(pieceFrame(cur.t.type, u).N, cur.t.r)); }
     segs.push({ type: cur.t.type, len: tileLength(cur.t), tile: cur.t });
-    if (cur.t.type === 'finish') return finishRoute(pts, segs, tiles, used);
+    if (cur.t.type === 'finish') return finishRoute(pts, nrms, segs, tiles, used);
     const P = forward ? cur.b : cur.a;
     const dir = forward ? cur.tb : cur.ta.clone().negate();
     let next = null, nextFwd = true, best = Infinity, gap = 0;
@@ -595,32 +665,36 @@ function computeRoute(tiles) {
   }
   return { ok: false, reason: 'The road from Start does not reach the Finish.', pts, segs };
 }
-function finishRoute(pts, segs, tiles, used) {
+function finishRoute(pts, nrms, segs, tiles, used) {
   const cps = tiles.filter(t => t.type === 'checkpoint');
   const missed = cps.filter(t => !used.has(t)).length;
   // Resample to even spacing and attach target speeds for the demo driver.
-  const out = [pts[0].clone()]; const step = 1.5; let acc = 0;
+  const out = [pts[0].clone()], outN = [nrms[0].clone()]; const step = 1.5; let acc = 0;
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i]; const d = a.distanceTo(b);
     if (d < 1e-6) continue;
     let t = step - acc;
-    while (t <= d) { out.push(a.clone().lerp(b, t / d)); t += step; }
+    while (t <= d) { out.push(a.clone().lerp(b, t / d)); outN.push(nrms[i - 1].clone().lerp(nrms[i], t / d).normalize()); t += step; }
     acc = d - (t - step);
   }
-  const N = out.length; const curv = new Array(N).fill(0), crest = new Array(N).fill(0);
+  const N = out.length; const curv = new Array(N).fill(0), rawCurv = new Array(N).fill(0), crest = new Array(N).fill(0);
   for (let i = 0; i < N; i++) {
     const i0 = Math.max(0, i - 4), i1 = Math.min(N - 1, i + 4);
     if (i1 - i0 < 4) continue;
     const a = out[i0], b = out[i], c = out[i1];
     const h1 = Math.atan2(b.x - a.x, b.z - a.z), h2 = Math.atan2(c.x - b.x, c.z - b.z);
     let dh = Math.abs(h2 - h1); if (dh > Math.PI) dh = 2 * Math.PI - dh;
-    curv[i] = dh / (a.distanceTo(b) * 0.5 + b.distanceTo(c) * 0.5 + 1e-6);
+    rawCurv[i] = dh / (a.distanceTo(b) * 0.5 + b.distanceTo(c) * 0.5 + 1e-6);
+    // Banked turns, wall rides and loops hold the car up, so they set no corner limit.
+    const tilted = k => { const t = out[Math.min(N - 1, k + 1)].clone().sub(out[Math.max(0, k - 1)]); const sd = new V3(-t.z, 0, t.x).normalize(); return outN[k].y < 0.5 || Math.abs(outN[k].dot(sd)) > 0.2; };
+    if (tilted(i0) || tilted(i) || tilted(i1)) continue;
+    curv[i] = rawCurv[i];
     const d1 = Math.hypot(b.x - a.x, b.z - a.z) || 1, d2 = Math.hypot(c.x - b.x, c.z - b.z) || 1;
     crest[i] = ((b.y - a.y) / d1 - (c.y - b.y) / d2) / ((d1 + d2) / 2);
   }
   const length = segs.reduce((s, g) => s + g.len, 0);
   const jumps = segs.filter(g => g.type === 'gap').map(g => ({ P: g.P, Q: g.Q, idx: nearestIdx(out, g.P) }));
-  return { ok: true, pts: out, curv, crest, jumps, step, speeds: {}, segs, length, missedCheckpoints: missed, cpTotal: cps.length };
+  return { ok: true, pts: out, nrms: outN, curv, rawCurv, crest, jumps, step, speeds: {}, segs, length, missedCheckpoints: missed, cpTotal: cps.length };
 }
 function nearestIdx(pts, p) { let b = Infinity, bi = 0; for (let i = 0; i < pts.length; i++) { const d = pts[i].distanceToSquared(p); if (d < b) { b = d; bi = i; } } return bi; }
 // Take-off speed that carries a car from a kicker lip P to a little past landing point Q.
@@ -648,7 +722,7 @@ function routeSpeeds(route, spec) {
   for (let i = 0; i < N; i++) {
     if (route.crest[i] < 0.02) continue;
     let turnAhead = 0, slowest = Infinity;
-    for (let j = i; j < Math.min(N, i + 60); j++) { turnAhead = Math.max(turnAhead, route.curv[j]); slowest = Math.min(slowest, v[j]); }
+    for (let j = i; j < Math.min(N, i + 60); j++) { turnAhead = Math.max(turnAhead, route.rawCurv[j]); slowest = Math.min(slowest, v[j]); }
     // Brakes do nothing in the air, so be at corner speed before leaving the ground.
     if (turnAhead > 0.025) v[i] = Math.min(v[i], Math.sqrt(GRAV / route.crest[i]) * 1.5, slowest * 1.1);
   }
@@ -666,9 +740,9 @@ function routeSpeeds(route, spec) {
 function medalTimes(route) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 16.6, bigturn: 32.8, ramp: 30, kicker: 30, boost: 70, gap: 52 };
-  let t = 1.1;
-  for (const g of route.segs) t += g.len / (pace[g.type] || 55.3);
+  const pace = { turn: 16.9, bigturn: 33, ramp: 32, kicker: 32, longramp: 36, boost: 70, gap: 46, bankturn: 50, wallturn: 50, loop: 43, loopr: 43, pillar: 24, chicane: 11, tunnel: 55 };
+  let t = 1.2;
+  for (const g of route.segs) t += g.len / (pace[g.type] || 55);
   const author = t * 1000;
   return { author: Math.round(author), gold: Math.round(author * 1.08), silver: Math.round(author * 1.25), bronze: Math.round(author * 1.5) };
 }
@@ -693,6 +767,14 @@ const THEMES = {
   night:  { top: '#050914', bottom: '#1b2848', fog: '#141d33', ground: '#1f3a2c', ground2: '#1a3226', sun: '#9fb6ff', sunI: 0.35, hemiSky: '#3a4f80', hemiGround: '#0b1210', hemiI: 0.35, tree: '#173d2a', tree2: '#1f4d33', night: true },
 };
 
+// Track environments (like PolyTrack's Summer / Winter / Desert), combined with the time of day.
+const ENVS = {
+  summer: { label: 'Summer', ground: '#4f8f3e', tree: '#2f8a4f', tree2: '#3fa35a', rock: '#9ea4ad', fogMix: 0 },
+  winter: { label: 'Winter', ground: '#e8eef6', tree: '#2c5e4a', tree2: '#3a6e57', rock: '#aab4c2', fogMix: 0.35 },
+  desert: { label: 'Desert', ground: '#dcb57a', tree: '#4f8a3a', tree2: '#5f9a44', rock: '#c27a4a', fogMix: 0.25 },
+};
+function envFor(track) { return ENVS[track && track.env] ? track.env : 'summer'; }
+
 // ============================================================================
 // Renderer, scene, lights
 // ============================================================================
@@ -716,20 +798,23 @@ scene.add(headlight); scene.add(headlight.target);
 
 let skyTex = null;
 function applyTheme() {
-  const th = THEMES[settings.theme] || THEMES.day;
+  const th = THEMES[settings.theme] || THEMES.day; const env = ENVS[world.env] || ENVS.summer;
+  const dim = settings.theme === 'night' ? 0.32 : settings.theme === 'sunset' ? 0.8 : 1;
+  const shade = c => new THREE.Color(c).multiplyScalar(dim);
+  const fogCol = new THREE.Color(th.fog).lerp(new THREE.Color(env.ground), env.fogMix * dim);
   const c = document.createElement('canvas'); c.width = 2; c.height = 256;
   const g = c.getContext('2d'); const grd = g.createLinearGradient(0, 0, 0, 256);
-  grd.addColorStop(0, th.top); grd.addColorStop(0.62, th.bottom); grd.addColorStop(1, th.fog);
+  grd.addColorStop(0, th.top); grd.addColorStop(0.62, th.bottom); grd.addColorStop(1, '#' + fogCol.getHexString());
   g.fillStyle = grd; g.fillRect(0, 0, 2, 256);
   if (skyTex) skyTex.dispose();
   skyTex = new THREE.CanvasTexture(c);
   scene.background = skyTex;
-  scene.fog = new THREE.Fog(th.fog, 160, 900);
+  scene.fog = new THREE.Fog(fogCol, 160, 900);
   hemi.color.set(th.hemiSky); hemi.groundColor.set(th.hemiGround); hemi.intensity = th.hemiI;
   sun.color.set(th.sun); sun.intensity = th.sunI;
   headlight.intensity = th.night ? 2.2 : 0;
-  groundMat.color.set(th.ground);
-  treeMatA.color.set(th.tree); treeMatB.color.set(th.tree2);
+  groundMat.color.copy(shade(env.ground));
+  treeMatA.color.copy(shade(env.tree)); treeMatB.color.copy(shade(env.tree2)); rockMat.color.copy(shade(env.rock));
   cloudMat.color.set(th.night ? '#2a3550' : '#ffffff'); cloudMat.emissiveIntensity = th.night ? 0.05 : 0.35;
   renderer.shadowMap.enabled = settings.shadows;
   sun.castShadow = settings.shadows;
@@ -750,6 +835,7 @@ const MAT = {
   road: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true, side: THREE.DoubleSide }),
   curb: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, flatShading: true, side: THREE.DoubleSide }),
   pillar: new THREE.MeshStandardMaterial({ color: 0xb8c0cc, roughness: 0.9, flatShading: true }),
+  block: new THREE.MeshStandardMaterial({ color: 0x5b6577, roughness: 0.8, flatShading: true }),
   boost: new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xff7a00, emissiveIntensity: 0.9, flatShading: true, side: THREE.DoubleSide }),
   post: new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.6, flatShading: true }),
   cpIdle: new THREE.MeshStandardMaterial({ color: 0x24b8ff, emissive: 0x0a4c80, emissiveIntensity: 0.6, flatShading: true }),
@@ -774,17 +860,16 @@ function banner(kind) {
   return BANNERS[kind];
 }
 
-// Build a slab along a sampled centreline between lateral offsets a..b.
-function slabGeometry(pts, a, b, off, th, topColor, sideColor) {
+// Build a slab along a sampled frame (points, side B, normal N) between
+// lateral offsets a..b, raised `off` along the normal and `th` thick.
+function slabGeometry(fr, a, b, off, th, topColor, sideColor) {
   const pos = [], col = [];
-  const n = pts.length - 1; const L = [], R = [], Lb = [], Rb = [];
-  const up = new V3(0, 1, 0);
+  const n = fr.pts.length - 1; const L = [], R = [], Lb = [], Rb = [];
   for (let i = 0; i <= n; i++) {
-    const p = pts[i]; const t = pts[Math.min(n, i + 1)].clone().sub(pts[Math.max(0, i - 1)]).normalize();
-    const side = new V3().crossVectors(t, up).normalize();
-    const l = p.clone().addScaledVector(side, a); l.y += off;
-    const r = p.clone().addScaledVector(side, b); r.y += off;
-    L.push(l); R.push(r); Lb.push(l.clone().setY(l.y - th)); Rb.push(r.clone().setY(r.y - th));
+    const p = fr.pts[i], B = fr.B[i], Nn = fr.N[i];
+    const l = p.clone().addScaledVector(B, a).addScaledVector(Nn, off);
+    const r = p.clone().addScaledVector(B, b).addScaledVector(Nn, off);
+    L.push(l); R.push(r); Lb.push(l.clone().addScaledVector(Nn, -th)); Rb.push(r.clone().addScaledVector(Nn, -th));
   }
   const quad = (A, B, C, D, c) => { for (const v of [A, B, C, A, C, D]) { pos.push(v.x, v.y, v.z); col.push(c.r, c.g, c.b); } };
   const sc = i => (typeof sideColor === 'function' ? sideColor(i) : sideColor);
@@ -804,37 +889,49 @@ function slabGeometry(pts, a, b, off, th, topColor, sideColor) {
   return g;
 }
 
-function localPts(type, n) { const T = TYPES[type]; const out = []; for (let i = 0; i <= n; i++) { const p = T.path(i / n); out.push(new V3(p[0], p[1], p[2])); } return out; }
+const signTex = {};
+function arrowSign(dir) {
+  if (!signTex[dir]) signTex[dir] = new THREE.MeshStandardMaterial({ map: makeTexture((g, w, h) => {
+    g.fillStyle = '#ffd23f'; g.fillRect(0, 0, w, h); g.fillStyle = '#16181d';
+    for (let k = 0; k < 3; k++) { const x0 = 30 + k * 70; g.beginPath(); if (dir > 0) { g.moveTo(x0 + 40, 8); g.lineTo(x0 + 10, h / 2); g.lineTo(x0 + 40, h - 8); g.lineTo(x0 + 62, h - 8); g.lineTo(x0 + 32, h / 2); g.lineTo(x0 + 62, 8); } else { g.moveTo(x0 + 22, 8); g.lineTo(x0 + 52, h / 2); g.lineTo(x0 + 22, h - 8); g.lineTo(x0, h - 8); g.lineTo(x0 + 30, h / 2); g.lineTo(x0, 8); } g.closePath(); g.fill(); }
+  }, 256, 80), roughness: 0.6 });
+  return signTex[dir];
+}
 
-// Build the visual + collision group for one tile (in local space, then placed).
+// Build the visual group for one tile (in local space, then placed).
 function buildTile(t, opts = {}) {
   const T = TYPES[t.type]; const g = new THREE.Group();
-  const pts = localPts(t.type, T.n);
+  const fr = localFrames(t.type, uSteps(T.n));
+  const pts = fr.pts;
   const isBoost = t.type === 'boost';
-  const road = new THREE.Mesh(slabGeometry(pts, -W / 2, W / 2, 0, TH, isBoost ? COL.asphaltBoost : COL.asphalt, COL.side), opts.ghostMat || MAT.road);
+  const road = new THREE.Mesh(slabGeometry(fr, -W / 2, W / 2, 0, TH, isBoost ? COL.asphaltBoost : COL.asphalt, COL.side), opts.ghostMat || MAT.road);
   road.castShadow = !opts.ghostMat; road.receiveShadow = !opts.ghostMat;
-  road.userData.surf = isBoost ? 'boost' : 'road';
   g.add(road); g.userData.road = road;
   if (opts.ghostMat) { place(g, t); return g; }
 
-  // Red/white barriers along both edges (low enough to jump over).
+  // Red/white barriers along both edges (low enough to jump over). Tunnels get tall walls and a roof.
+  const wallH = T.wallH || WALL_H;
   const curbCol = i => (i % 2 ? COL.red : COL.white);
   for (const [a, b] of [[-W / 2, -WALL_IN], [WALL_IN, W / 2]]) {
-    const m = new THREE.Mesh(slabGeometry(pts, a, b, WALL_H, WALL_H, curbCol, i => (i % 2 ? COL.red : COL.white)), MAT.curb);
+    const m = new THREE.Mesh(slabGeometry(fr, a, b, wallH, wallH, T.wallH ? COL.side : curbCol, T.wallH ? COL.side : curbCol), MAT.curb);
     m.receiveShadow = true; m.castShadow = true; g.add(m);
   }
-  // Pillars under raised pieces.
-  const mid = pts[Math.floor(pts.length / 2)];
-  const baseY = t.l * H + Math.min(...pts.map(p => p.y));
+  if (t.type === 'tunnel') {
+    const roof = new THREE.Mesh(slabGeometry(fr, -W / 2 - 0.4, W / 2 + 0.4, wallH + 0.7, 0.7, COL.side, COL.side), MAT.curb);
+    roof.castShadow = true; g.add(roof);
+    for (const z of [-S / 2 + 0.2, S / 2 - 0.2]) { const band = new THREE.Mesh(new THREE.BoxGeometry(W + 1.2, 0.5, 0.4), MAT.boost); band.position.set(0, wallH + 0.45, z); g.add(band); }
+  }
+  // Pillars under raised pieces, below their lowest point.
+  let low = 0; for (let i = 1; i < pts.length; i++) if (pts[i].y < pts[low].y) low = i;
+  const baseY = t.l * H + pts[low].y;
   if (baseY > 0.5) {
     const ph = baseY - TH + 0.45;
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(2.2, ph, 2.2), MAT.pillar);
-    pillar.position.set(mid.x, -t.l * H - 0.45 + ph / 2, mid.z);
+    pillar.position.set(pts[low].x, -t.l * H - 0.45 + ph / 2, pts[low].z);
     pillar.castShadow = true; g.add(pillar);
   }
   if (t.type === 'kicker') {
-    const lip = [0.86, 1].map(u => new V3(...TYPES.kicker.path(u)));
-    const m = new THREE.Mesh(slabGeometry(lip, -W / 2, W / 2, 0.03, 0.03, COL.red, COL.red), MAT.curb);
+    const m = new THREE.Mesh(slabGeometry(localFrames('kicker', [0.86, 1]), -W / 2, W / 2, 0.03, 0.03, COL.red, COL.red), MAT.curb);
     g.add(m);
   }
   if (isBoost) {
@@ -845,6 +942,18 @@ function buildTile(t, opts = {}) {
       chev.rotation.x = -Math.PI / 2; chev.position.set(0, 0.05, -6 + k * 5.5);
       g.add(chev);
     }
+  }
+  for (const o of T.obstacles || []) {
+    const geo = o.kind === 'cyl' ? new THREE.CylinderGeometry(o.r, o.r * 1.1, o.h, 10) : new THREE.BoxGeometry(o.hx * 2, o.h, o.hz * 2);
+    const m = new THREE.Mesh(geo, o.kind === 'cyl' ? MAT.pillar : MAT.block); m.position.set(o.x, o.h / 2, o.z); m.castShadow = true; m.receiveShadow = true; g.add(m);
+    const stripe = new THREE.Mesh(o.kind === 'cyl' ? new THREE.CylinderGeometry(o.r + 0.02, o.r + 0.02, 0.5, 10) : new THREE.BoxGeometry(o.hx * 2 + 0.04, 0.4, o.hz * 2 + 0.04), MAT.boost);
+    stripe.position.set(o.x, o.h - 0.5, o.z); g.add(stripe);
+  }
+  // Arrow signs on the outside of tight turns, one facing each way in.
+  if (t.type === 'turn') {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.2, 0.3), MAT.post); post.position.set(-9.2, 1.6, 9.2); g.add(post);
+    const a = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.45), arrowSign(1)); a.position.set(-9.2, 2.6, 9.0); a.rotation.y = Math.PI; g.add(a);
+    const b = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.45), arrowSign(-1)); b.position.set(-9.0, 2.6, 9.2); b.rotation.y = Math.PI / 2; g.add(b);
   }
   if (t.type === 'start' || t.type === 'finish' || t.type === 'checkpoint') {
     const line = new THREE.Mesh(new THREE.PlaneGeometry(W, 2.2), new THREE.MeshStandardMaterial({ map: checkerTex, roughness: 0.8 }));
@@ -863,21 +972,23 @@ function buildTile(t, opts = {}) {
   place(g, t);
   return g;
 }
-// World-space centreline samples with horizontal side vectors, for barrier collisions.
+// World-space centreline frames, used for driving contact, barriers and the autopilot.
 function centreline(t) {
-  const n = TYPES[t.type].n; const pts = [], side = [];
-  for (let i = 0; i <= n; i++) pts.push(tilePoint(t, i / n));
+  const n = TYPES[t.type].n; const pts = [], side = [], nrm = [];
   for (let i = 0; i <= n; i++) {
-    const tg = pts[Math.min(n, i + 1)].clone().sub(pts[Math.max(0, i - 1)]); tg.y = 0; tg.normalize();
-    side.push(new V3(-tg.z, 0, tg.x));
+    const fr = pieceFrame(t.type, i / n);
+    pts.push(tilePoint(t, i / n)); side.push(rotV(fr.B, t.r)); nrm.push(rotV(fr.N, t.r));
   }
-  const nrm = [];
-  for (let i = 0; i < n; i++) {
-    const tg = pts[i + 1].clone().sub(pts[i]).normalize();
-    const nn = new V3().crossVectors(tg, side[i].clone().add(side[i + 1]).normalize()); if (nn.y < 0) nn.negate();
-    nrm.push(nn.normalize());
-  }
-  return { pts, side, nrm };
+  let mn = new V3(Infinity, Infinity, Infinity), mx = new V3(-Infinity, -Infinity, -Infinity);
+  for (const p of pts) { mn.min(p); mx.max(p); }
+  return { pts, side, nrm, box: new THREE.Box3(mn.addScalar(-W), mx.addScalar(W)) };
+}
+// Obstacles in world space: pillars (circles) and blocks (boxes), as seen from above.
+function obstaclesFor(t) {
+  return (TYPES[t.type].obstacles || []).map(o => {
+    const [x, z] = rotXZ(o.x, o.z, t.r); const swap = t.r % 2 === 1;
+    return { kind: o.kind, x: t.x * S + x, z: t.z * S + z, y0: t.l * H, y1: t.l * H + o.h, r: o.r, hx: swap ? o.hz : o.hx, hz: swap ? o.hx : o.hz };
+  });
 }
 function place(g, t) { g.position.set(t.x * S, t.l * H, t.z * S); g.rotation.y = t.r * Math.PI / 2; }
 
@@ -886,6 +997,7 @@ const treeMatA = new THREE.MeshStandardMaterial({ color: 0x2f8a4f, flatShading: 
 const treeMatB = new THREE.MeshStandardMaterial({ color: 0x3fa35a, flatShading: true, roughness: 1 });
 const trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a5236, flatShading: true });
 const rockMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ad, flatShading: true });
+const snowMat = new THREE.MeshStandardMaterial({ color: 0xf4f8ff, flatShading: true, roughness: 1 });
 const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.35, flatShading: true, roughness: 1, transparent: true, opacity: 0.92 });
 const scenery = new THREE.Group(); scene.add(scenery);
 let seed = 1;
@@ -898,11 +1010,14 @@ function buildScenery(tiles) {
     minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
   }
   seed = 7 + tiles.length * 31;
-  const coneGeo = new THREE.ConeGeometry(2.4, 6.5, 6); const trunkGeo = new THREE.CylinderGeometry(0.4, 0.5, 2, 5);
+  const env = world.env;
+  const coneGeo = env === 'desert' ? new THREE.CylinderGeometry(0.55, 0.65, 6.5, 7) : new THREE.ConeGeometry(2.4, 6.5, 6);
+  const trunkGeo = env === 'desert' ? new THREE.CylinderGeometry(0.35, 0.4, 2.2, 6) : new THREE.CylinderGeometry(0.4, 0.5, 2, 5);
   const rockGeo = new THREE.DodecahedronGeometry(1.6, 0);
   const pad = 9; const count = 260;
   const cones = [new THREE.InstancedMesh(coneGeo, treeMatA, count), new THREE.InstancedMesh(coneGeo, treeMatB, count)];
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, count * 2);
+  const trunks = new THREE.InstancedMesh(trunkGeo, env === 'desert' ? treeMatA : trunkMat, count * 2);
+  const snow = new THREE.InstancedMesh(new THREE.ConeGeometry(2.4, 2.6, 6), snowMat, count * 2); let si = 0;
   const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 80);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new V3(), p = new V3();
   let ci = [0, 0], ti = 0, ri = 0;
@@ -911,17 +1026,25 @@ function buildScenery(tiles) {
     if (occ.has(cx + ',' + cz)) continue;
     const x = cx * S + (rand() - 0.5) * S, z = cz * S + (rand() - 0.5) * S;
     const sc = 0.7 + rand() * 0.9; const k = rand() < 0.5 ? 0 : 1;
-    if (rand() < 0.12 && ri < 80) {
-      q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 3, 0)); s.set(sc * 1.4, sc, sc * 1.2); p.set(x, -0.2, z);
+    if (rand() < (env === 'desert' ? 0.3 : 0.12) && ri < 80) {
+      const big = env === 'desert' && rand() < 0.4 ? 3.5 : 1;
+      q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 3, 0)); s.set(sc * 1.4 * big, sc * big, sc * 1.2 * big); p.set(x, -0.2, z);
       rocks.setMatrixAt(ri++, m.compose(p, q, s)); continue;
     }
     if (ci[k] >= count) continue;
     q.identity(); s.setScalar(sc); p.set(x, -0.45 + 1 * sc + 3.25 * sc, z);
     cones[k].setMatrixAt(ci[k]++, m.compose(p, q, s));
-    p.set(x, -0.45 + 1 * sc, z); trunks.setMatrixAt(ti++, m.compose(p, q, s));
+    if (env === 'desert') {
+      // Cactus arm: a short column hung off the side of the main one.
+      q.setFromEuler(new THREE.Euler(0, rand() * 6.28, 0)); const side = new V3(1.1 * sc, 0, 0).applyQuaternion(q);
+      p.set(x + side.x, -0.45 + 4.2 * sc, z + side.z); trunks.setMatrixAt(ti++, m.compose(p, q, s)); q.identity();
+    } else {
+      p.set(x, -0.45 + 1 * sc, z); trunks.setMatrixAt(ti++, m.compose(p, q, s));
+      if (env === 'winter') { p.set(x, -0.45 + 1 * sc + 5.4 * sc, z); snow.setMatrixAt(si++, m.compose(p, q, s.clone().multiplyScalar(0.55))); }
+    }
   }
-  cones[0].count = ci[0]; cones[1].count = ci[1]; trunks.count = ti; rocks.count = ri;
-  for (const im of [...cones, trunks, rocks]) { im.castShadow = true; im.receiveShadow = true; scenery.add(im); }
+  cones[0].count = ci[0]; cones[1].count = ci[1]; trunks.count = ti; rocks.count = ri; snow.count = si;
+  for (const im of [...cones, trunks, rocks, snow]) { im.castShadow = true; im.receiveShadow = true; scenery.add(im); }
   const cx = (minX + maxX) / 2 * S, cz = (minZ + maxZ) / 2 * S;
   for (let i = 0; i < 14; i++) {
     const cl = new THREE.Group();
@@ -940,18 +1063,19 @@ function buildScenery(tiles) {
 // ============================================================================
 const world = {
   track: null, tiles: [], group: new THREE.Group(), cells: new Map(), route: null, medals: null,
-  cps: [], start: null,
+  cps: [], start: null, env: 'summer',
 };
 scene.add(world.group);
 const cellKey = (x, z) => x + ',' + z;
 
 function loadTrack(track) {
   world.track = track; world.tiles = track.tiles.map(t => ({ ...t }));
+  const env = envFor(track); if (env !== world.env) { world.env = env; applyTheme(); }
   world.group.clear(); world.cells.clear(); world.cps = []; world.start = null;
   for (const t of world.tiles) {
     const g = buildTile(t, t.type === 'checkpoint' ? { cpMat: MAT.cpIdle.clone() } : {});
     t.mesh = g; world.group.add(g);
-    t.cl = centreline(t);
+    t.cl = centreline(t); t.obs = obstaclesFor(t);
     for (const [x, z] of footprint(t)) {
       const k = cellKey(x, z); if (!world.cells.has(k)) world.cells.set(k, []);
       world.cells.get(k).push(t);
@@ -1230,32 +1354,37 @@ function disposeTree(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose()
 // ============================================================================
 const UP = new V3(0, 1, 0);
 const GROUND_Y = -0.45;
-function nearestOnCentreline(cl, x, z) {
-  let best = Infinity, bi = 0, bu = 0, along = 0;
-  for (let i = 0; i < cl.pts.length - 1; i++) {
-    const a = cl.pts[i], b = cl.pts[i + 1];
-    const abx = b.x - a.x, abz = b.z - a.z, l2 = abx * abx + abz * abz || 1;
-    const raw = ((x - a.x) * abx + (z - a.z) * abz) / l2; const u = clamp(raw, 0, 1);
-    const qx = a.x + abx * u - x, qz = a.z + abz * u - z; const d = qx * qx + qz * qz;
+// Nearest point on a piece's centreline to p (in 3D), with the road frame there:
+// lat = sideways offset, h = height above the road surface along its normal.
+function nearestOnCentreline(cl, p) {
+  let best = Infinity, bi = 0, bu = 0, along = 0; const P = cl.pts;
+  for (let i = 0; i < P.length - 1; i++) {
+    const a = P[i], b = P[i + 1];
+    const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z, l2 = abx * abx + aby * aby + abz * abz || 1;
+    const raw = ((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / l2; const u = clamp(raw, 0, 1);
+    const dx = a.x + abx * u - p.x, dy = a.y + aby * u - p.y, dz = a.z + abz * u - p.z; const d = dx * dx + dy * dy + dz * dz;
     if (d < best) { best = d; bi = i; bu = u; along = (raw - u) * Math.sqrt(l2); }
   }
-  const a = cl.pts[bi], b = cl.pts[bi + 1];
-  const qx = a.x + (b.x - a.x) * bu, qy = a.y + (b.y - a.y) * bu, qz = a.z + (b.z - a.z) * bu;
-  const sx = cl.side[bi].x + (cl.side[bi + 1].x - cl.side[bi].x) * bu, sz = cl.side[bi].z + (cl.side[bi + 1].z - cl.side[bi].z) * bu;
-  const sl = Math.hypot(sx, sz) || 1;
-  const lat = (x - qx) * sx / sl + (z - qz) * sz / sl;
-  return { i: bi, u: bu, along, qx, qy, qz, sx: sx / sl, sz: sz / sl, lat };
+  const q = P[bi].clone().lerp(P[bi + 1], bu);
+  const B = cl.side[bi].clone().lerp(cl.side[bi + 1], bu).normalize();
+  const N = cl.nrm[bi].clone().lerp(cl.nrm[bi + 1], bu).normalize();
+  const rx = p.x - q.x, ry = p.y - q.y, rz = p.z - q.z;
+  return { i: bi, u: bu, along, q, B, N, lat: rx * B.x + ry * B.y + rz * B.z, h: rx * N.x + ry * N.y + rz * N.z };
 }
-// Highest surface under (x, z) between yTop - range and yTop.
-function surfaceAt(tiles, x, z, yTop, range) {
+// Nearest road (or ground) surface for a point that sits between maxBelow under
+// it and maxAbove over it. Works for flat, sloped, banked, vertical and upside-down road.
+function surfaceAt(tiles, p, maxAbove, maxBelow) {
   let best = null;
-  if (GROUND_Y <= yTop && GROUND_Y >= yTop - range) best = { y: GROUND_Y, n: UP, surf: 'grass' };
   for (const t of tiles) {
-    const c = nearestOnCentreline(t.cl, x, z);
+    if (!t.cl.box.containsPoint(p)) continue;
+    const c = nearestOnCentreline(t.cl, p);
     if (Math.abs(c.along) > 0.05 || Math.abs(c.lat) > W / 2) continue;
-    if (c.qy > yTop || c.qy < yTop - range) continue;
-    if (!best || c.qy > best.y) best = { y: c.qy, n: t.cl.nrm[c.i], surf: t.type === 'boost' ? 'boost' : 'road', type: t.type };
+    if (c.h > maxAbove || c.h < -maxBelow) continue;
+    if (!best || c.h < best.h) best = { q: c.q, n: c.N, h: c.h, surf: t.type === 'boost' ? 'boost' : 'road', type: t.type };
   }
+  // The ground only counts where there's no road (a banked edge can dip below it).
+  const gh = p.y - GROUND_Y;
+  if (!best && gh <= maxAbove && gh >= -maxBelow) best = { q: new V3(p.x, GROUND_Y, p.z), n: UP, h: gh, surf: 'grass', type: null };
   return best;
 }
 
@@ -1292,7 +1421,7 @@ class Car {
   }
   clearState(speed) {
     this.grounded = true; this.surf = 'road'; this.steer = 0; this.steerAng = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
-    this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1;
+    this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0;
     for (const w of this.wheels || []) { w.comp = this.c0; w.len = SUSP_L - this.c0; w.contact = false; w.slip = 0; w.vLong = speed; }
   }
   setColor(c) { this.mesh.userData.paint.color.set(c); }
@@ -1335,13 +1464,18 @@ class Car {
     let drive = 0, brake = 0;
     if (input.gas > 0) { if (fs < -1) brake = input.gas; else drive = input.gas; }
     if (input.brake > 0) { if (fs > 1) brake = Math.max(brake, input.brake); else drive = -input.brake; }
+    // Right after a landing the throttle cuts briefly so both rear wheels settle first.
+    if (this.landT > 0) { this.landT -= dt; drive = Math.min(drive, 0); }
     const hand = !!input.drift;
     const aero = 1 + sp.df * (speed / 50) ** 2;
     // Sustained drift: once the tail is out, steering into the slide keeps the
     // rear tyres loose; let go or counter-steer and grip comes back.
     const betaNow = Math.atan2(this.vel.dot(left), Math.max(1, Math.abs(fs)));
-    const holding = this.drifting && Math.abs(input.steer) > 0.25 && Math.sign(input.steer) === Math.sign(betaNow) && fs > 10;
-    this.driftGrip += ((holding ? 0.88 : 1) - this.driftGrip) * Math.min(1, (holding ? 6 : 3) * dt);
+    const holding = this.drifting && this.n.y > 0.9 && Math.abs(input.steer) > 0.25 && Math.sign(input.steer) === Math.sign(betaNow) && fs > 10;
+    // Turning in hard at speed lets the tail step out on its own (no button needed).
+    const flat = this.n.y > 0.9;
+    const hardTurn = !this.drifting && flat && Math.abs(input.steer) > 0.85 && fs > 30;
+    this.driftGrip += ((holding ? 0.88 : hardTurn ? 0.86 : 1) - this.driftGrip) * Math.min(1, (holding || hardTurn ? 6 : 3) * dt);
     this.holding = holding;
 
     const F = new V3(0, -GRAV, 0), T = new V3();
@@ -1351,12 +1485,11 @@ class Car {
     for (const wh of this.wheels) {
       wh.contact = false;
       const mw = wh.m.clone().applyQuaternion(q).add(this.pos);
-      if (up.y < 0.2) { wh.len = SUSP_L; continue; }
-      const s = surfaceAt(tiles, mw.x, mw.z, mw.y + 0.2, SUSP_L + wh.r + 1.2);
+      const s = surfaceAt(tiles, mw, SUSP_L + wh.r + 1.2, 0.2);
       if (!s) { wh.len = SUSP_L; continue; }
       const n = s.n; const denom = n.dot(up);
       if (denom < 0.3) { wh.len = SUSP_L; continue; }
-      const t = n.y * (mw.y - s.y) / denom; const len = t - wh.r;
+      const t = s.h / denom; const len = t - wh.r;
       if (len >= SUSP_L) { wh.len = SUSP_L; wh.comp = 0; continue; }
       contacts++; wh.contact = true; nSum.add(n); this.fromKicker = s.type === 'kicker' || (this.fromKicker && s.type == null);
       if (s.surf === 'grass') grassN++; if (s.surf === 'boost') boostOn = true;
@@ -1424,29 +1557,46 @@ class Car {
       // Recovery aid: when you stop holding a slide the car swings back toward its direction of travel.
       if (Math.abs(beta) > 0.1 && fs > 6 && !hand && !this.holding) T.addScaledVector(up, Math.sign(beta) * (Math.abs(beta) - 0.1) * (Math.abs(beta) > 0.55 ? 30 : 16));
       const wy = this.w.dot(up); T.addScaledVector(up, -wy * 0.6);
-      T.add(new V3().crossVectors(up, this.n).multiplyScalar(10 * contacts / 4));
+
     } else if (!contacts) {
       // Road grip over crests: the car stays close to the road instead of
       // flying off every hump. Kickers are exempt so jumps still fly.
-      if (!this.fromKicker) { const below = surfaceAt(tiles, this.pos.x, this.pos.z, this.pos.y, 3.5); if (below && below.surf !== 'grass') F.addScaledVector(below.n, -24); }
-      // Light air control and self-levelling for landings.
-      T.addScaledVector(up, -this.steer * 4);
-      T.add(new V3().crossVectors(up, UP).multiplyScalar(16));
-      // Damp pitch and roll spin, keep yaw.
-      const wy = this.w.dot(UP); const k = Math.exp(-2.5 * dt);
+      // Fades to nothing upside down, so a loop taken too slowly still drops you.
+      if (!this.fromKicker) {
+        const below = surfaceAt(tiles, this.pos, 3.5, 0.3);
+        if (below && below.surf !== 'grass' && (below.n.y > 0.5 || this.airTime < 0.5)) F.addScaledVector(below.n, -24 * clamp(0.5 + below.n.y * 0.6, 0, 1));
+      }
+      // Air control: steer to turn, gas pitches the nose down, brake pulls it up.
+      // The handbrake works as an air brake that stops the car rotating.
+      T.addScaledVector(up, -this.steer * 5);
+      T.addScaledVector(left, ((input.gas || 0) - (input.brake || 0)) * 4.5);
+      T.add(new V3().crossVectors(up, UP).multiplyScalar(hand ? 22 : 9));
+      const wy = this.w.dot(UP); const k = Math.exp(-(hand ? 7 : 2) * dt);
       this.w.set(this.w.x * k, wy + (this.w.y - wy) * k, this.w.z * k);
     }
     this.vel.addScaledVector(F, dt);
     this.w.addScaledVector(this.invI(T), dt);
     this.w.multiplyScalar(Math.exp(-0.3 * dt));
+    // Surface follow: with two or more wheels down, pitch and roll track the road's own
+    // rotation (plus a pull back to it), so loops, wall rides and twists stay glued.
+    // Yaw, grip and slides are left to the tyre model.
+    if (contacts >= 2) {
+      const target = new V3().crossVectors(up, this.n).multiplyScalar(9);
+      if (this.nPrev) target.add(new V3().crossVectors(this.nPrev, this.n).divideScalar(dt));
+      target.addScaledVector(up, -target.dot(up));
+      const wy = this.w.dot(up); const wp = this.w.clone().addScaledVector(up, -wy);
+      wp.lerp(target, 1 - Math.exp(-14 * dt)); this.w.copy(wp).addScaledVector(up, wy);
+      this.nPrev = this.n.clone();
+    } else this.nPrev = null;
     this.pos.addScaledVector(this.vel, dt);
     const wq = new THREE.Quaternion(this.w.x * dt * 0.5, this.w.y * dt * 0.5, this.w.z * dt * 0.5, 0).multiply(q);
     q.set(q.x + wq.x, q.y + wq.y, q.z + wq.z, q.w + wq.w).normalize();
 
     this.collideBody(tiles);
     this.collideWalls(tiles, dt);
+    this.collideObstacles(tiles);
 
-    if (this.grounded && !wasGrounded && this.airTime > 0.35) events.land = true;
+    if (this.grounded && !wasGrounded && this.airTime > 0.3) { events.land = true; this.landT = 0.12; }
     this.airTime = this.grounded ? 0 : this.airTime + dt;
     this.fs = this.vel.dot(new V3(0, 0, 1).applyQuaternion(q));
     this.slip = maxRearSlip;
@@ -1471,18 +1621,18 @@ class Car {
     // All touching corners are solved together from the same state, so a
     // flat landing pushes the car straight up instead of tipping it.
     const hits = []; let maxDepth = 0, nAcc = new V3();
-    const upright = new V3(0, 1, 0).applyQuaternion(this.q).y > 0.5;
+    const carUp = new V3(0, 1, 0).applyQuaternion(this.q);
     for (const c of this.corners) {
       const p = c.clone().applyQuaternion(this.q).add(this.pos);
-      const s = surfaceAt(tiles, p.x, p.z, p.y + 0.9, 2.0);
+      const s = surfaceAt(tiles, p, 1.1, 0.9);
       if (!s) continue;
-      const depth = (s.y - p.y) * s.n.y; if (depth <= 0) continue;
-      hits.push({ r: p.sub(this.pos), n: s.n }); maxDepth = Math.max(maxDepth, depth); nAcc.add(s.n);
+      const depth = -s.h; if (depth <= 0) continue;
+      hits.push({ r: p.sub(this.pos), n: s.n, upright: carUp.dot(s.n) > 0.5 }); maxDepth = Math.max(maxDepth, depth); nAcc.add(s.n);
     }
     if (!hits.length) return;
     this.pos.addScaledVector(nAcc.normalize(), maxDepth * 0.8);
     const dv = new V3(), dw = new V3(); const share = 1 / hits.length;
-    for (const { r, n } of hits) {
+    for (const { r, n, upright } of hits) {
       const vp = this.vel.clone().add(new V3().crossVectors(this.w, r));
       const vn = vp.dot(n); if (vn >= 0) continue;
       const k = 1 + n.dot(new V3().crossVectors(this.invI(new V3().crossVectors(r, n)), r));
@@ -1498,32 +1648,57 @@ class Car {
   }
   // Barriers: keep the car between them unless it is high enough to clear them.
   collideWalls(tiles, dt) {
-    const p = this.pos; const bottom = p.y - this.spec.comY + 0.25;
+    const p = this.pos;
     for (const t of tiles) {
-      const c = nearestOnCentreline(t.cl, p.x, p.z);
+      if (!t.cl.box.containsPoint(p)) continue;
+      const c = nearestOnCentreline(t.cl, p);
       if (Math.abs(c.along) > 0.05) continue;
-      if (bottom > c.qy + WALL_H || p.y < c.qy - 2.5) continue;
-      const side = new V3(c.sx, 0, c.sz); const al = Math.abs(c.lat), sg = Math.sign(c.lat) || 1;
-      const half = this.hw;
-      const inner = WALL_IN - half, mid = WALL_IN + 0.25, outer = W / 2 + half;
+      const wallH = TYPES[t.type].wallH || WALL_H;
+      if (c.h - this.spec.comY + 0.25 > wallH || c.h < -2.5) continue;
+      const al = Math.abs(c.lat), sg = Math.sign(c.lat) || 1;
+      const inner = WALL_IN - this.hw, mid = WALL_IN + 0.25, outer = W / 2 + this.hw;
       let push = 0, nrm = null;
-      if (al > inner && al < mid) { push = inner - al; nrm = side.clone().multiplyScalar(-sg); }
-      else if (al >= mid && al < outer) { push = outer - al; nrm = side.clone().multiplyScalar(sg); }
+      if (al > inner && al < mid) { push = inner - al; nrm = c.B.clone().multiplyScalar(-sg); }
+      else if (al >= mid && al < outer) { push = outer - al; nrm = c.B.clone().multiplyScalar(sg); }
       if (!nrm) continue;
-      p.addScaledVector(side, sg * push);
-      const vn = this.vel.x * nrm.x + this.vel.z * nrm.z;
+      p.addScaledVector(c.B, sg * push);
+      const vn = this.vel.dot(nrm);
       if (vn < 0) {
-        this.vel.x -= nrm.x * vn * 1.2; this.vel.z -= nrm.z * vn * 1.2;
-        const loss = 1 - clamp(-vn / 90, 0, 0.18); this.vel.x *= loss; this.vel.z *= loss;
+        this.vel.addScaledVector(nrm, -vn * 1.2);
+        this.vel.multiplyScalar(1 - clamp(-vn / 90, 0, 0.18));
         if (vn < -5) events.wall = Math.max(events.wall, -vn);
       }
-      // Scrape: swing the nose to run along the wall rather than into it.
-      const a = t.cl.pts[c.i], b = t.cl.pts[c.i + 1]; const tx = b.x - a.x, tz = b.z - a.z; const f = this.forward();
-      if (f.x * nrm.x + f.z * nrm.z < 0) {
-        const dirSign = f.x * tx + f.z * tz >= 0 ? 1 : -1;
-        let d = Math.atan2(tx * dirSign, tz * dirSign) - Math.atan2(f.x, f.z); d = Math.atan2(Math.sin(d), Math.cos(d));
-        this.q.premultiply(new THREE.Quaternion().setFromAxisAngle(UP, d * Math.min(1, 6 * dt)));
-        this.w.y *= 0.6;
+      // Scrape: swing the nose (about the road's normal) to run along the wall.
+      const f = new V3(0, 0, 1).applyQuaternion(this.q);
+      if (f.dot(nrm) < 0) {
+        const tg = t.cl.pts[c.i + 1].clone().sub(t.cl.pts[c.i]).normalize(); if (tg.dot(f) < 0) tg.negate();
+        const fp = f.clone().addScaledVector(c.N, -f.dot(c.N));
+        const d = Math.atan2(new V3().crossVectors(fp, tg).dot(c.N), fp.dot(tg));
+        this.q.premultiply(new THREE.Quaternion().setFromAxisAngle(c.N, d * Math.min(1, 6 * dt)));
+        this.w.addScaledVector(c.N, -this.w.dot(c.N) * 0.4);
+      }
+    }
+  }
+  // Pillars and blocks standing on the road.
+  collideObstacles(tiles) {
+    const f = new V3(0, 0, 1).applyQuaternion(this.q); const r = this.hw; const base = this.pos.y - this.spec.comY;
+    for (const t of tiles) for (const o of t.obs || []) {
+      if (base > o.y1 || this.pos.y < o.y0 - 1) continue;
+      for (const k of [-1, 0, 1]) {
+        const cx = this.pos.x + f.x * k * (this.hl - 1.1), cz = this.pos.z + f.z * k * (this.hl - 1.1);
+        let nx, nz, pen;
+        if (o.kind === 'cyl') {
+          const dx = cx - o.x, dz = cz - o.z, d = Math.hypot(dx, dz); pen = o.r + r - d; if (pen <= 0) continue;
+          nx = d > 1e-4 ? dx / d : 1; nz = d > 1e-4 ? dz / d : 0;
+        } else {
+          const px = clamp(cx, o.x - o.hx, o.x + o.hx), pz = clamp(cz, o.z - o.hz, o.z + o.hz);
+          const dx = cx - px, dz = cz - pz, d = Math.hypot(dx, dz);
+          if (d > 1e-4) { pen = r - d; if (pen <= 0) continue; nx = dx / d; nz = dz / d; }
+          else { const ex = o.hx - Math.abs(cx - o.x), ez = o.hz - Math.abs(cz - o.z); if (ex < ez) { nx = Math.sign(cx - o.x) || 1; nz = 0; pen = ex + r; } else { nx = 0; nz = Math.sign(cz - o.z) || 1; pen = ez + r; } }
+        }
+        this.pos.x += nx * pen; this.pos.z += nz * pen;
+        const vn = this.vel.x * nx + this.vel.z * nz;
+        if (vn < 0) { this.vel.x -= nx * vn * 1.3; this.vel.z -= nz * vn * 1.3; this.vel.multiplyScalar(0.92); this.w.y *= 0.5; if (vn < -4) events.wall = Math.max(events.wall, -vn); }
       }
     }
   }
@@ -1693,7 +1868,7 @@ const game = {
   started: false, time: 0, acc: 0,
   cpHit: new Set(), splits: [], lastCp: null,
   rec: [], recTick: 0,
-  camMode: settings.cam, camPos: new V3(), camLook: new V3(), orbit: 0,
+  camMode: settings.cam, camPos: new V3(), camLook: new V3(), camUp: new V3(0, 1, 0), orbit: 0,
   demo: { idx: 0 },
   pb: null,
 };
@@ -1711,8 +1886,8 @@ function selectCar(id) {
   game.demo.idx = 0;
 }
 
-// v2 keys: physics and the track list changed, so older times no longer compare.
-function trackKey(track) { return 'mt2.pb.' + track.id; }
+// v3 keys: physics and the track list changed, so older times no longer compare.
+function trackKey(track) { return 'mt3.pb.' + track.id; }
 function loadPB(track) { return store.get(trackKey(track), null); }
 
 function spawnPoint() {
@@ -1785,9 +1960,9 @@ function onFinish() {
   const key = trackKey(world.track);
   const prev = store.get(key, null);
   const isPB = !prev || time < prev.time;
-  const board = store.get('mt2.lb.' + world.track.id, []);
+  const board = store.get('mt3.lb.' + world.track.id, []);
   board.push({ t: time, d: Date.now(), c: game.car.spec.id }); board.sort((a, b) => a.t - b.t); board.length = Math.min(board.length, 8);
-  store.set('mt2.lb.' + world.track.id, board);
+  store.set('mt3.lb.' + world.track.id, board);
   if (isPB) {
     const saved = store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice(), ghost: compressGhost(game.rec) });
     if (!saved) store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice() });
@@ -1805,27 +1980,35 @@ function compressGhost(rec) { return rec.map(f => f.map((v, i) => i < 4 ? Math.r
 const CAM_NAMES = ['Chase', 'Far chase', 'Bonnet'];
 function updateCamera(dt, car, cinematic) {
   const f = car.forward(); const sp = Math.abs(car.fs);
+  // The chase camera rolls with the car's "up" on the road (through loops and
+  // wall rides) and settles back to level in the air.
+  game.camUp.lerp(car.grounded ? car.visUp : UP, 1 - Math.exp(-(car.grounded ? 5 : 2) * dt)).normalize();
   let want, look;
+  camera.up.set(0, 1, 0);
   if (cinematic) {
     game.orbit += dt * 0.25;
     const off = new V3(Math.sin(game.orbit) * 14, 6 + Math.sin(game.orbit * 0.7) * 2, Math.cos(game.orbit) * 14);
     want = car.pos.clone().add(off); look = car.pos.clone().add(new V3(0, 1, 0));
   } else if (game.camMode === 2) {
-    want = car.pos.clone().addScaledVector(car.visUp, 1.55).addScaledVector(f, 0.4);
-    look = want.clone().addScaledVector(f, 20).addScaledVector(car.visUp, -0.5);
-    game.camPos.copy(want); game.camLook.copy(look);
+    const f3 = new V3(0, 0, 1).applyQuaternion(car.q);
+    want = car.pos.clone().addScaledVector(car.visUp, 1.55).addScaledVector(f3, 0.4);
+    look = want.clone().addScaledVector(f3, 20).addScaledVector(car.visUp, -0.5);
+    game.camPos.copy(want); game.camLook.copy(look); camera.up.copy(car.visUp);
   } else {
-    const far = game.camMode === 1;
+    const far = game.camMode === 1; const cu = game.camUp;
     const back = (far ? 12 : 7.2) + sp * 0.035;
-    const vel = car.vel.clone(); vel.y = 0;
-    const dir = vel.lengthSq() > 25 ? f.clone().lerp(vel.normalize(), 0.35).normalize() : f;
-    want = car.pos.clone().addScaledVector(dir, -back).add(new V3(0, far ? 5.5 : 3.1, 0));
-    look = car.pos.clone().addScaledVector(f, 5).add(new V3(0, 1.3, 0));
+    const f3 = new V3(0, 0, 1).applyQuaternion(car.q); f3.addScaledVector(cu, -f3.dot(cu)).normalize();
+    const vel = car.vel.clone(); vel.addScaledVector(cu, -vel.dot(cu));
+    const dir = vel.lengthSq() > 25 ? (car.grounded ? f3.clone().lerp(vel.normalize(), 0.35).normalize() : vel.normalize()) : f3;
+    want = car.pos.clone().addScaledVector(dir, -back).addScaledVector(cu, far ? 5.5 : 3.1);
+    look = car.pos.clone().addScaledVector(dir, 5).addScaledVector(cu, 1.3);
+    camera.up.copy(cu);
   }
   if (game.camMode !== 2 || cinematic) {
     const k = 1 - Math.exp(-(cinematic ? 3 : 9) * dt);
     game.camPos.lerp(want, k); game.camLook.lerp(look, 1 - Math.exp(-14 * dt));
-    if (game.camPos.y < car.pos.y + 0.8) game.camPos.y = car.pos.y + 0.8;
+    const cu = cinematic ? UP : game.camUp; const above = game.camPos.clone().sub(car.pos).dot(cu);
+    if (above < 0.8) game.camPos.addScaledVector(cu, 0.8 - above);
   }
   camera.position.copy(game.camPos); camera.lookAt(game.camLook);
   const fov = 68 + clamp(sp / 70, 0, 1.5) * 20;
@@ -1842,19 +2025,21 @@ function demoInput(car, st) {
   const r = world.route; if (!r || !r.ok) return { steer: 0, gas: 1, brake: 0, drift: false };
   const pts = r.pts; let best = Infinity, bi = st.idx;
   for (let i = Math.max(0, st.idx - 5); i < Math.min(pts.length, st.idx + 60); i++) {
-    const d = (pts[i].x - car.pos.x) ** 2 + (pts[i].z - car.pos.z) ** 2 + ((pts[i].y - car.pos.y) * 0.5) ** 2;
+    const d = pts[i].distanceToSquared(car.pos);
     if (d < best) { best = d; bi = i; }
   }
   st.idx = bi;
   const sp = Math.abs(car.fs);
   const look = Math.min(pts.length - 1, bi + Math.round((6 + sp * 0.3) / 1.5));
-  const tgt = pts[look];
-  const want = Math.atan2(tgt.x - car.pos.x, tgt.z - car.pos.z);
-  let err = want - car.yaw; err = Math.atan2(Math.sin(err), Math.cos(err));
+  // Steer toward the target as seen from the car itself, so it works upside down in a loop too.
+  const rel = pts[look].clone().addScaledVector(r.nrms[look], 0.9).sub(car.pos);
+  const fwd = new V3(0, 0, 1).applyQuaternion(car.q), left = new V3(1, 0, 0).applyQuaternion(car.q);
+  const err = Math.atan2(rel.dot(left), Math.max(0.1, rel.dot(fwd)));
   const steer = car.grounded ? clamp(-err * 2.0, -1, 1) : 0;
   const speeds = routeSpeeds(r, car.spec);
   const vt = speeds[Math.min(speeds.length - 1, bi + 3)];
-  return { steer, gas: sp < vt ? 1 : 0, brake: sp > vt + 3 ? 1 : 0, drift: false, done: bi >= pts.length - 3, lost: Math.sqrt(best) > 14 };
+  const g = car.grounded && sp < vt ? 1 : 0;
+  return { steer, gas: g, brake: car.grounded && sp > vt + 3 ? 1 : 0, drift: false, done: bi >= pts.length - 3, lost: Math.sqrt(best) > 14 };
 }
 
 // ============================================================================
@@ -1955,7 +2140,7 @@ function trackCard(tr, ref, actions) {
   const medal = pb ? medalFor(pb.time, medals) : 'none';
   const diff = tr.official || tr.generated ? tr.diff : 'Custom';
   return `<div class="track-card" role="button" tabindex="0" data-play="${ref}">
-    <div class="meta"><span class="diff ${diff.toLowerCase()}">${diff}</span><span>${(route.length ? (route.length / 1000).toFixed(2) + ' km' : 'unfinished')}</span></div>
+    <div class="meta"><span class="diff ${diff.toLowerCase()}">${diff}</span><span>${ENVS[envFor(tr)].label} · ${(route.length ? (route.length / 1000).toFixed(2) + ' km' : 'unfinished')}</span></div>
     <div class="name">${escapeHtml(tr.name)}</div>
     <div class="meta"><span class="best"><span class="medal-dot m-${medal}"></span>${pb ? fmtTime(pb.time) : 'No time yet'}</span><span>${MEDAL_NAMES[medal]}</span></div>
     <div class="actions">${actions}</div>
@@ -2082,7 +2267,7 @@ function showSettings() {
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
   $('m-reset').onclick = () => confirmModal('Delete every saved time and ghost?', 'Delete times', () => {
-    try { Object.keys(localStorage).filter(k => /^mt2?\.(pb|lb)\./.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
+    try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
     toast('All times cleared'); if (game.state === 'menu') renderMenu();
   });
 }
@@ -2092,7 +2277,9 @@ function showHelp() {
       <kbd>W / ↑</kbd><span>Accelerate (the clock starts on your first input)</span>
       <kbd>S / ↓</kbd><span>Brake, then reverse</span>
       <kbd>A D / ← →</kbd><span>Steer</span>
-      <kbd>Space / Shift</kbd><span>Handbrake: loosens the rear tyres to start a slide. The car also slides on its own if you turn in hard at speed, or lift or brake mid-corner. Hold a slide and then straighten up for a speed boost (the meter turns blue, yellow, then pink).</span>
+      <kbd>Drifting</kbd><span>Turn in hard at speed and the tail steps out on its own. Keep steering into the slide to hold it, then straighten up for a speed boost (the meter turns blue, yellow, then pink).</span>
+      <kbd>Space / Shift</kbd><span>Handbrake for a sharper slide. In the air it's an air brake that stops the car spinning.</span>
+      <kbd>In the air</kbd><span>Steer to turn the car, W / ↑ dips the nose, S / ↓ lifts it. Line up your landing.</span>
       <kbd>R</kbd><span>Instant restart</span>
       <kbd>Enter</kbd><span>Back to last checkpoint (the clock keeps running)</span>
       <kbd>C</kbd><span>Switch camera</span>
@@ -2110,7 +2297,7 @@ function showHelp() {
 const TYPE_IDS = PALETTE;
 function stripTile(t) { return { type: t.type, x: t.x, z: t.z, l: t.l, r: t.r }; }
 function encodeTrack(tr) {
-  const json = JSON.stringify({ n: tr.name, t: tr.tiles.map(t => [TYPE_IDS.indexOf(t.type), t.x, t.z, t.l, t.r]) });
+  const json = JSON.stringify({ n: tr.name, e: envFor(tr), t: tr.tiles.map(t => [TYPE_IDS.indexOf(t.type), t.x, t.z, t.l, t.r]) });
   const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return 'MT1.' + b64;
 }
@@ -2120,7 +2307,7 @@ function decodeTrack(code) {
   const obj = JSON.parse(decodeURIComponent(escape(atob(b64))));
   const tiles = obj.t.map(a => ({ type: TYPE_IDS[a[0]], x: a[1] | 0, z: a[2] | 0, l: a[3] | 0, r: ((a[4] | 0) % 4 + 4) % 4 }));
   if (!tiles.length || tiles.some(t => !t.type)) throw new Error('This code contains unknown pieces.');
-  return { name: String(obj.n || 'Imported track').slice(0, 40), tiles };
+  return { name: String(obj.n || 'Imported track').slice(0, 40), env: ENVS[obj.e] ? obj.e : 'summer', tiles };
 }
 function newId() { return 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36); }
 function showShare(tr) {
@@ -2169,6 +2356,7 @@ const ghostBad = new THREE.MeshStandardMaterial({ color: 0xff5468, transparent: 
 
 function openEditor(tr) {
   editor.tiles = tr.tiles.map(stripTile); editor.name = tr.name || 'My track'; editor.id = tr.id || null; editor.idx = tr.idx != null ? tr.idx : null;
+  editor.env = envFor(tr); $('ed-env').value = editor.env; world.env = editor.env; applyTheme();
   editor.undo = []; editor.level = 0; editor.erase = false; clearSkids();
   if (!editor.tiles.length) editor.tiles.push({ type: 'start', x: 0, z: 0, l: 0, r: 0 });
   const xs = editor.tiles.map(t => t.x), zs = editor.tiles.map(t => t.z);
@@ -2177,7 +2365,8 @@ function openEditor(tr) {
   world.track = null; world.group.clear(); world.cells.clear();
   setState('editor'); rebuildEditor(); renderPalette();
 }
-function editorTrack() { return { id: editor.id || 'draft', name: editor.name, tiles: editor.tiles.map(stripTile), official: false }; }
+function editorTrack() { return { id: editor.id || 'draft', name: editor.name, env: editor.env, tiles: editor.tiles.map(stripTile), official: false }; }
+$('ed-env').onchange = e => { editor.env = e.target.value; world.env = editor.env; applyTheme(); rebuildEditor(); };
 function rebuildEditor() {
   editor.group.clear();
   for (const t of editor.tiles) editor.group.add(buildTile(t));
@@ -2189,18 +2378,22 @@ function updateEditorStatus() {
   $('ed-status').innerHTML = `Level <b>${editor.level}</b> · ${editor.erase ? '<b>Eraser</b>' : '<b>' + TYPES[editor.type].label + '</b> ' + ['↑', '→', '↓', '←'][editor.rot]} · ${editor.tiles.length} pieces · ${route.ok ? '<b style="color:var(--go)">Route OK</b> ' + (route.length / 1000).toFixed(2) + ' km' : '<span style="color:var(--signal)">' + route.reason + '</span>'}`;
 }
 function renderPalette() {
-  $('ed-bar').innerHTML = PALETTE.map(k => `<button class="piece ${!editor.erase && editor.type === k ? 'sel' : ''}" data-type="${k}"><canvas width="80" height="80" data-icon="${k}"></canvas>${TYPES[k].label}<kbd>${TYPES[k].key}</kbd></button>`).join('');
+  $('ed-bar').innerHTML = PALETTE.map(k => `<button class="piece ${!editor.erase && editor.type === k ? 'sel' : ''}" data-type="${k}"><canvas width="80" height="80" data-icon="${k}"></canvas>${TYPES[k].label}${TYPES[k].key ? `<kbd>${TYPES[k].key}</kbd>` : ''}</button>`).join('');
   for (const c of $('ed-bar').querySelectorAll('canvas')) drawPieceIcon(c, c.dataset.icon);
 }
 function drawPieceIcon(c, type) {
   const g = c.getContext('2d'); g.clearRect(0, 0, 80, 80);
-  const T = TYPES[type]; const fp = T.fp; const cells = Math.max(...fp.map(f => Math.max(f[0], f[1]))) + 1;
-  const sc = 64 / (cells * S); const ox = 8 + 32 / cells, oz = 72 - 32 / cells;
-  g.lineCap = 'butt'; g.lineWidth = W * sc; g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', kicker: '#ff7a7a' }[type] || '#8b97ae';
-  g.beginPath();
-  for (let i = 0; i <= 20; i++) { const p = T.path(i / 20); const x = ox + p[0] * sc, y = oz - p[2] * sc; i ? g.lineTo(x, y) : g.moveTo(x, y); }
-  g.stroke();
-  if (type === 'ramp' || type === 'kicker') { g.fillStyle = '#0b1322'; g.font = '700 26px sans-serif'; g.textAlign = 'center'; g.fillText('▲', ox, oz - 22); }
+  const T = TYPES[type]; const ps = []; for (let i = 0; i <= 40; i++) ps.push(T.path(i / 40));
+  const xs = ps.map(p => p[0]), zs = ps.map(p => p[2]);
+  const minX = Math.min(...xs) - W / 2, maxX = Math.max(...xs) + W / 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
+  const sc = 64 / Math.max(maxX - minX, maxZ - minZ); const ox = 40 - (minX + maxX) / 2 * sc, oz = 40 + (minZ + maxZ) / 2 * sc;
+  g.lineCap = 'butt'; g.lineWidth = W * sc;
+  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
+  g.beginPath(); ps.forEach((p, i) => { const x = ox + p[0] * sc, y = oz - p[2] * sc; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
+  g.fillStyle = '#0b1322'; g.strokeStyle = '#0b1322'; g.lineWidth = 3; g.textAlign = 'center'; g.font = '700 22px sans-serif';
+  if (type === 'ramp' || type === 'kicker' || type === 'longramp') g.fillText('▲', 40, 48);
+  if (type === 'loop' || type === 'loopr') { g.beginPath(); g.arc(40, 40, 13, 0, Math.PI * 2); g.stroke(); }
+  for (const o of T.obstacles || []) { g.fillStyle = '#ffb020'; if (o.kind === 'cyl') { g.beginPath(); g.arc(ox + o.x * sc, oz - o.z * sc, Math.max(3, o.r * sc), 0, Math.PI * 2); g.fill(); } else g.fillRect(ox + (o.x - o.hx) * sc, oz - (o.z + o.hz) * sc, o.hx * 2 * sc, o.hz * 2 * sc); }
 }
 $('ed-bar').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) selectPiece(b.dataset.type); });
 function selectPiece(type) { editor.type = type; editor.erase = false; renderPalette(); updateEditorStatus(); editor.dirty = true; }
@@ -2236,7 +2429,7 @@ function editorSave(cb) {
   $('m-name').select();
   const go = () => {
     editor.name = $('m-name').value.trim() || 'My track';
-    const list = customTracks(); const tr = { id: editor.id || newId(), name: editor.name, tiles: editor.tiles.map(stripTile) };
+    const list = customTracks(); const tr = { id: editor.id || newId(), name: editor.name, env: editor.env, tiles: editor.tiles.map(stripTile) };
     editor.id = tr.id;
     const i = list.findIndex(o => o.id === tr.id); if (i >= 0) list[i] = tr; else list.push(tr);
     closeModal();
@@ -2273,6 +2466,7 @@ function editorCamera(dt) {
   if (k('KeyD') || k('ArrowRight')) { editor.target.x -= fz * sp; editor.target.z += fx * sp; }
   editor.target.y += (editor.level * H - editor.target.y) * (1 - Math.exp(-8 * dt));
   const cp = Math.cos(editor.pitch), spn = Math.sin(editor.pitch);
+  camera.up.set(0, 1, 0);
   camera.position.set(editor.target.x + Math.sin(editor.yaw) * cp * editor.dist, editor.target.y + spn * editor.dist, editor.target.z + Math.cos(editor.yaw) * cp * editor.dist);
   camera.lookAt(editor.target);
   if (Math.abs(camera.fov - 55) > 0.1) { camera.fov = 55; camera.updateProjectionMatrix(); }
@@ -2486,7 +2680,7 @@ function frame(now) {
     // Showroom: the car sits still while the camera circles it.
     game.orbit += dt * 0.35; car.syncMesh(0);
     const c = car.pos; const wide = window.innerWidth > 760;
-    const rad = wide ? 9 : 13;
+    const rad = wide ? 9 : 13; camera.up.set(0, 1, 0);
     camera.position.set(c.x + Math.sin(game.orbit) * rad, c.y + (wide ? 2.3 : 3.2), c.z + Math.cos(game.orbit) * rad);
     const look = c.clone(); look.y -= 0.3;
     if (wide) { const r = new V3(); camera.getWorldDirection(r); look.addScaledVector(new V3(-r.z, 0, r.x).normalize(), 3.4); } else look.y -= 2.4;
@@ -2512,7 +2706,7 @@ function start() {
   requestAnimationFrame(t => { last = t; frame(t); });
 }
 // Debug/test hooks.
-window.__mt = { game, world, OFFICIAL, selectCar, events, CARS, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack };
+window.__mt = { game, world, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack };
 start();
 </script>
 </body>
