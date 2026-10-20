@@ -765,9 +765,9 @@ function routeSpeeds(route, spec) {
 function medalTimes(route) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 16.9, bigturn: 33, ramp: 32, kicker: 32, longramp: 36, boost: 70, gap: 46, bankturn: 58, wallturn: 80, loop: 58, loopr: 58, pillar: 24, chicane: 11, tunnel: 55 };
+  const pace = { turn: 16.4, bigturn: 32, ramp: 31, kicker: 31, longramp: 35, boost: 68, gap: 45, bankturn: 56, wallturn: 78, loop: 56, loopr: 56, pillar: 23, chicane: 10.7, tunnel: 53 };
   let t = 1.2;
-  for (const g of route.segs) t += g.len / (pace[g.type] || 55);
+  for (const g of route.segs) t += g.len / (pace[g.type] || 52);
   const author = t * 1000;
   return { author: Math.round(author), gold: Math.round(author * 1.08), silver: Math.round(author * 1.25), bronze: Math.round(author * 1.5) };
 }
@@ -1124,19 +1124,19 @@ function loadTrack(track) {
 // · hb = how loose the handbrake makes the rear (lower = looser) · comY = centre of mass above ground.
 // ============================================================================
 const CARS = [
-  { id: 'street', name: 'Street GT', cls: 'Sports coupé', model: 'street', color: '#ff5a36', accent: '#1d2129', comY: 0.75, height: 1.55, vmax: 66, accel: 27, grip: 1.95, rear: 1.04, drive: 1, steer: 0.55, steerFall: 22, df: 0.15, brake: 52, hb: 0.30, grassGrip: 0.5, grassV: 22 },
-  { id: 'rosso', name: 'Rosso Veloce', cls: 'Italian supercar', model: 'rosso', color: '#d4121c', accent: '#ffd23f', comY: 0.66, height: 1.25, vmax: 76, accel: 32, grip: 2.0, rear: 1.02, drive: 1, steer: 0.52, steerFall: 24, df: 0.3, brake: 58, hb: 0.30, grassGrip: 0.45, grassV: 20 },
-  { id: 'flat6', name: 'Stuttgart Six', cls: 'Rear-engine GT', model: 'flat6', color: '#c9ced6', accent: '#1d2129', comY: 0.72, height: 1.45, vmax: 72, accel: 30, grip: 2.05, rear: 1.07, drive: 0.75, steer: 0.56, steerFall: 24, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.5, grassV: 22 },
-  { id: 'formula', name: 'Formula Racer', cls: 'Open-wheel single-seater', model: 'formula', color: '#e8102a', accent: '#f4f4f4', comY: 0.55, height: 1.15, vmax: 88, accel: 35, grip: 2.15, rear: 1.08, drive: 1, steer: 0.5, steerFall: 26, df: 0.9, brake: 66, hb: 0.38, grassGrip: 0.4, grassV: 18 },
-  { id: 'lmp', name: 'Endurance Prototype', cls: 'Le Mans-style prototype', model: 'lmp', color: '#1c63d8', accent: '#ffd23f', comY: 0.62, height: 1.3, vmax: 84, accel: 31, grip: 2.05, rear: 1.06, drive: 0.6, steer: 0.5, steerFall: 25, df: 0.7, brake: 62, hb: 0.36, grassGrip: 0.45, grassV: 20 },
-  { id: 'hyper', name: 'Apex Hyper', cls: 'Hypercar', model: 'hyper', color: '#121418', accent: '#ff7a1a', comY: 0.66, height: 1.3, vmax: 86, accel: 34, grip: 1.95, rear: 1.03, drive: 0.6, steer: 0.52, steerFall: 25, df: 0.4, brake: 60, hb: 0.32, grassGrip: 0.45, grassV: 20 },
-  { id: 'volt', name: 'Volt EV', cls: 'Electric hypercar', model: 'volt', color: '#f2f4f8', accent: '#24d8ff', comY: 0.7, height: 1.45, vmax: 74, accel: 40, grip: 1.9, rear: 1.03, drive: 0.5, steer: 0.54, steerFall: 23, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.55, grassV: 24 },
-  { id: 'stock', name: 'Oval Stock Car', cls: 'Stock car', model: 'stock', color: '#ffd23f', accent: '#1c63d8', comY: 0.76, height: 1.5, vmax: 78, accel: 28, grip: 1.8, rear: 1.0, drive: 1, steer: 0.5, steerFall: 22, df: 0.2, brake: 50, hb: 0.30, grassGrip: 0.5, grassV: 22 },
-  { id: 'muscle', name: 'Big Block', cls: 'Muscle car', model: 'muscle', color: '#2a6b3f', accent: '#f4f4f4', comY: 0.8, height: 1.6, vmax: 70, accel: 31, grip: 1.7, rear: 0.97, drive: 1, steer: 0.55, steerFall: 21, df: 0.05, brake: 46, hb: 0.26, grassGrip: 0.5, grassV: 22 },
-  { id: 'drift', name: 'Kanjo Drift', cls: 'Drift coupé', model: 'drift', color: '#ff7ad9', accent: '#20242c', comY: 0.72, height: 1.5, vmax: 64, accel: 28, grip: 1.8, rear: 0.94, drive: 1, steer: 0.62, steerFall: 22, df: 0.1, brake: 50, hb: 0.20, grassGrip: 0.5, grassV: 22 },
-  { id: 'rally', name: 'Gravel Hatch', cls: 'Rally hatchback', model: 'rally', color: '#3fa7ff', accent: '#ffd23f', comY: 0.82, height: 1.75, vmax: 62, accel: 29, grip: 1.85, rear: 0.97, drive: 0.5, steer: 0.6, steerFall: 22, df: 0.1, brake: 52, hb: 0.24, grassGrip: 0.9, grassV: 42 },
-  { id: 'truck', name: 'Trail Pickup', cls: 'Off-road pickup', model: 'truck', color: '#b06bff', accent: '#20242c', comY: 1.1, height: 2.45, vmax: 56, accel: 23, grip: 1.7, rear: 1.0, drive: 0.5, steer: 0.55, steerFall: 20, df: 0, brake: 44, hb: 0.30, grassGrip: 1.0, grassV: 46 },
-  { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 58, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
+  { id: 'street', name: 'Street GT', cls: 'Sports coupé', model: 'street', color: '#ff5a36', accent: '#1d2129', comY: 0.75, height: 1.55, vmax: 57, accel: 27, grip: 1.95, rear: 1.04, drive: 1, steer: 0.55, steerFall: 22, df: 0.15, brake: 52, hb: 0.30, grassGrip: 0.5, grassV: 22 },
+  { id: 'rosso', name: 'Rosso Veloce', cls: 'Italian supercar', model: 'rosso', color: '#d4121c', accent: '#ffd23f', comY: 0.66, height: 1.25, vmax: 62, accel: 32, grip: 2.0, rear: 1.02, drive: 1, steer: 0.52, steerFall: 24, df: 0.3, brake: 58, hb: 0.30, grassGrip: 0.45, grassV: 20 },
+  { id: 'flat6', name: 'Stuttgart Six', cls: 'Rear-engine GT', model: 'flat6', color: '#c9ced6', accent: '#1d2129', comY: 0.72, height: 1.45, vmax: 60, accel: 30, grip: 2.05, rear: 1.07, drive: 0.75, steer: 0.56, steerFall: 24, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.5, grassV: 22 },
+  { id: 'formula', name: 'Formula Racer', cls: 'Open-wheel single-seater', model: 'formula', color: '#e8102a', accent: '#f4f4f4', comY: 0.55, height: 1.15, vmax: 69, accel: 35, grip: 2.15, rear: 1.08, drive: 1, steer: 0.5, steerFall: 26, df: 0.9, brake: 66, hb: 0.38, grassGrip: 0.4, grassV: 18 },
+  { id: 'lmp', name: 'Endurance Prototype', cls: 'Le Mans-style prototype', model: 'lmp', color: '#1c63d8', accent: '#ffd23f', comY: 0.62, height: 1.3, vmax: 67, accel: 31, grip: 2.05, rear: 1.06, drive: 0.6, steer: 0.5, steerFall: 25, df: 0.7, brake: 62, hb: 0.36, grassGrip: 0.45, grassV: 20 },
+  { id: 'hyper', name: 'Apex Hyper', cls: 'Hypercar', model: 'hyper', color: '#121418', accent: '#ff7a1a', comY: 0.66, height: 1.3, vmax: 68, accel: 34, grip: 1.95, rear: 1.03, drive: 0.6, steer: 0.52, steerFall: 25, df: 0.4, brake: 60, hb: 0.32, grassGrip: 0.45, grassV: 20 },
+  { id: 'volt', name: 'Volt EV', cls: 'Electric hypercar', model: 'volt', color: '#f2f4f8', accent: '#24d8ff', comY: 0.7, height: 1.45, vmax: 61, accel: 40, grip: 1.9, rear: 1.03, drive: 0.5, steer: 0.54, steerFall: 23, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.55, grassV: 24 },
+  { id: 'stock', name: 'Oval Stock Car', cls: 'Stock car', model: 'stock', color: '#ffd23f', accent: '#1c63d8', comY: 0.76, height: 1.5, vmax: 64, accel: 28, grip: 1.8, rear: 1.0, drive: 1, steer: 0.5, steerFall: 22, df: 0.2, brake: 50, hb: 0.30, grassGrip: 0.5, grassV: 22 },
+  { id: 'muscle', name: 'Big Block', cls: 'Muscle car', model: 'muscle', color: '#2a6b3f', accent: '#f4f4f4', comY: 0.8, height: 1.6, vmax: 59, accel: 31, grip: 1.7, rear: 0.97, drive: 1, steer: 0.55, steerFall: 21, df: 0.05, brake: 46, hb: 0.26, grassGrip: 0.5, grassV: 22 },
+  { id: 'drift', name: 'Kanjo Drift', cls: 'Drift coupé', model: 'drift', color: '#ff7ad9', accent: '#20242c', comY: 0.72, height: 1.5, vmax: 56, accel: 28, grip: 1.8, rear: 0.94, drive: 1, steer: 0.62, steerFall: 22, df: 0.1, brake: 50, hb: 0.20, grassGrip: 0.5, grassV: 22 },
+  { id: 'rally', name: 'Gravel Hatch', cls: 'Rally hatchback', model: 'rally', color: '#3fa7ff', accent: '#ffd23f', comY: 0.82, height: 1.75, vmax: 55, accel: 29, grip: 1.85, rear: 0.97, drive: 0.5, steer: 0.6, steerFall: 22, df: 0.1, brake: 52, hb: 0.24, grassGrip: 0.9, grassV: 42 },
+  { id: 'truck', name: 'Trail Pickup', cls: 'Off-road pickup', model: 'truck', color: '#b06bff', accent: '#20242c', comY: 1.1, height: 2.45, vmax: 52, accel: 23, grip: 1.7, rear: 1.0, drive: 0.5, steer: 0.55, steerFall: 20, df: 0, brake: 44, hb: 0.30, grassGrip: 1.0, grassV: 46 },
+  { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 53, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
   { id: 'kart', name: 'Kart', cls: 'Go-kart', model: 'kart', color: '#3ee38a', accent: '#20242c', comY: 0.38, height: 1.2, vmax: 46, accel: 30, grip: 2.25, rear: 1.0, drive: 1, steer: 0.68, steerFall: 32, df: 0, brake: 50, hb: 0.14, grassGrip: 0.6, grassV: 22 },
 ];
 const CAR_BY_ID = Object.fromEntries(CARS.map(c => [c.id, c]));
@@ -1415,10 +1415,11 @@ function surfaceAt(tiles, p, maxAbove, maxBelow) {
 }
 
 // ============================================================================
-// Physics engine: Ammo.js (Bullet). The road and barriers are static triangle
-// meshes, pillars and blocks are static shapes, and each car is a Bullet
-// raycast vehicle: a rigid chassis on four raycast wheels with sprung
-// suspension. The tyres (grip, engine, brakes) are a friction-circle model fed
+// Physics engine: Ammo.js (Bullet). The road, ground and tunnel roofs are
+// static triangle meshes, and each car is a Bullet raycast vehicle: a rigid
+// chassis on four raycast wheels with sprung suspension. Barriers, pillars and
+// blocks are handled by the car itself, so touching one slides you along it
+// instead of spinning you round. The tyres (grip, engine, brakes) are a friction-circle model fed
 // by each wheel's suspension load from Bullet, and a small handling layer on
 // top adds the drift, boost, air-control and loop/wall-ride assists.
 // ============================================================================
@@ -1451,9 +1452,8 @@ function initPhysics(lib) {
   const plane = new A.btStaticPlaneShape(new A.btVector3(0, 1, 0), -60);
   addStatic(plane, 0, 0, 0, 0.8, false);
 }
-// Collision groups. Barriers, pillars and blocks only collide with car bodies, so
-// the wheels' suspension rays (Bullet's default group) pass through them and a
-// car can't drive up onto a barrier's top.
+// Collision groups. Tunnel roofs only collide with car bodies, so the wheels'
+// suspension rays (Bullet's default group) pass through them.
 const GROUP = { car: 32, barrier: 64 };
 function addStatic(shape, x, y, z, friction, perTrack, barrier) {
   const tr = new A.btTransform(); tr.setIdentity(); phys.v1.setValue(x, y, z); tr.setOrigin(phys.v1);
@@ -1469,7 +1469,7 @@ function buildTrackPhysics(tiles, landings) {
   if (!A) return;
   for (const b of phys.bodies) { phys.world.removeRigidBody(b.body); free(b.body, b.info, b.ms, b.tr, b.shape, b.mesh); }
   phys.bodies = [];
-  const meshes = { road: new A.btTriangleMesh(true, false), wall: new A.btTriangleMesh(true, false), ground: new A.btTriangleMesh(true, false) }; const count = { road: 0, wall: 0, ground: 0 };
+  const meshes = { road: new A.btTriangleMesh(true, false), roof: new A.btTriangleMesh(true, false), ground: new A.btTriangleMesh(true, false) }; const count = { road: 0, roof: 0, ground: 0 };
   // Ground: a quad per grid cell around the track, with holes where a banked
   // piece's low edge dips below grade, so the road there stays drivable.
   const holes = new Set(); let minX = 0, maxX = 0, minZ = 0, maxZ = 0;
@@ -1486,8 +1486,8 @@ function buildTrackPhysics(tiles, landings) {
   for (let x = minX - m; x <= maxX + m; x++) for (let z = minZ - m; z <= maxZ + m; z++) if (!holes.has(x + ',' + z)) quad((x - 0.5) * S, (z - 0.5) * S, (x + 0.5) * S, (z + 0.5) * S);
   quad(-far, -far, far, gz0); quad(-far, gz1, far, far); quad(-far, gz0, gx0, gz1); quad(gx1, gz0, far, gz1);
   // Collision comes straight from each piece's centre-line frames: the drivable
-  // top surface, and the barriers' inner face, top and outer face. No end caps
-  // or undersides, so wheels never catch a seam between two pieces.
+  // top surface (and a tunnel's roof). No end caps or undersides, so wheels never
+  // catch a seam between two pieces.
   const tri = (kind, a, b, c) => { phys.v1.setValue(a.x, a.y, a.z); phys.v2.setValue(b.x, b.y, b.z); phys.v3.setValue(c.x, c.y, c.z); meshes[kind].addTriangle(phys.v1, phys.v2, phys.v3, false); count[kind]++; };
   const quadK = (kind, a, b, c, d) => { tri(kind, a, b, c); tri(kind, a, c, d); };
   const at = (cl, i, lat, up) => cl.pts[i].clone().addScaledVector(cl.side[i], lat).addScaledVector(cl.nrm[i], up);
@@ -1502,15 +1502,7 @@ function buildTrackPhysics(tiles, landings) {
         const l0 = -W / 2 + W * k / strips, l1 = -W / 2 + W * (k + 1) / strips;
         quadK('road', at(cl, i, l0, 0), at(cl, i, l1, 0), at(cl, i + 1, l1, 0), at(cl, i + 1, l0, 0));
       }
-      for (const sg of [-1, 1]) {
-        // The inner face stands a little taller than the barrier you see, so a car
-        // sliding into it is stopped flat instead of riding up over its top edge.
-        const inX = sg * WALL_IN, outX = sg * W / 2, faceH = TYPES[t.type].wallH ? wallH : wallH + 0.4;
-        quadK('wall', at(cl, i, inX, 0), at(cl, i, inX, faceH), at(cl, i + 1, inX, faceH), at(cl, i + 1, inX, 0));
-        quadK('wall', at(cl, i, inX, wallH), at(cl, i, outX, wallH), at(cl, i + 1, outX, wallH), at(cl, i + 1, inX, wallH));
-        quadK('wall', at(cl, i, outX, wallH), at(cl, i, outX, -TH), at(cl, i + 1, outX, -TH), at(cl, i + 1, outX, wallH));
-      }
-      if (t.type === 'tunnel') quadK('wall', at(cl, i, -W / 2, wallH + 0.01), at(cl, i, W / 2, wallH + 0.01), at(cl, i + 1, W / 2, wallH + 0.01), at(cl, i + 1, -W / 2, wallH + 0.01));
+      if (t.type === 'tunnel') quadK('roof', at(cl, i, -W / 2, wallH + 0.01), at(cl, i, W / 2, wallH + 0.01), at(cl, i + 1, W / 2, wallH + 0.01), at(cl, i + 1, -W / 2, wallH + 0.01));
     }
     // The road end you land on after a gap gets a short bevel underneath, so a
     // car that lands a little short rides up onto the road instead of stopping
@@ -1522,17 +1514,11 @@ function buildTrackPhysics(tiles, landings) {
       const a = at(cl, i, -W / 2, 0), b = at(cl, i, W / 2, 0);
       quadK('road', a, b, b.clone().add(drop), a.clone().add(drop));
     }
-    for (const o of t.obs || []) {
-      const h = (o.y1 - o.y0) / 2;
-      phys.v3.setValue(o.kind === 'cyl' ? o.r : o.hx, h, o.kind === 'cyl' ? o.r : o.hz);
-      const shape = o.kind === 'cyl' ? new A.btCylinderShape(phys.v3) : new A.btBoxShape(phys.v3);
-      addStatic(shape, o.x, o.y0 + h, o.z, 0.1, true, true);
-    }
   }
-  for (const kind of ['road', 'wall', 'ground']) {
+  for (const kind of ['road', 'roof', 'ground']) {
     if (!count[kind]) { free(meshes[kind]); continue; }
     const shape = new A.btBvhTriangleMeshShape(meshes[kind], true, true);
-    addStatic(shape, 0, 0, 0, kind === 'wall' ? 0 : 0.5, true, kind === 'wall');
+    addStatic(shape, 0, 0, 0, kind === 'roof' ? 0 : 0.5, true, kind === 'roof');
     Object.assign(phys.bodies[phys.bodies.length - 1], { mesh: meshes[kind], kind });
   }
 }
@@ -1628,6 +1614,12 @@ class Car {
     for (let i = 0; i < this.wheels.length; i++) { this.vehicle.setSteeringValue(0, i); this.vehicle.applyEngineForce(0, i); this.vehicle.setBrake(0, i); this.vehicle.updateWheelTransform(i, true); }
     this.n.copy(UP); this.visUp.copy(UP); this.clearState(speed);
     this.syncMesh(0);
+  }
+  pushTransform() {
+    const tr = phys.tr; tr.setIdentity(); phys.v1.setValue(this.pos.x, this.pos.y, this.pos.z); tr.setOrigin(phys.v1);
+    phys.q.setValue(this.q.x, this.q.y, this.q.z, this.q.w); tr.setRotation(phys.q);
+    this.body.setWorldTransform(tr); this.body.getMotionState().setWorldTransform(tr);
+    this.pushVelocities();
   }
   pushVelocities() {
     phys.v1.setValue(this.vel.x, this.vel.y, this.vel.z); this.body.setLinearVelocity(phys.v1);
@@ -1736,8 +1728,8 @@ class Car {
       T.add(r.addScaledVector(up, -r.dot(up) * 0.85).cross(tire));
     }
     const boostOn = this.wheels.some(w => w.contact && w.surf === 'boost');
-    if (boostOn && fs < Math.max(sp.vmax * 1.3, 62)) F.addScaledVector(fwd, 60);
-    if (this.boostT > 0) { this.boostT -= dt; if (fs < sp.vmax * 1.3) F.addScaledVector(fwd, this.boostAmt / 0.5); }
+    if (boostOn && fs < Math.max(sp.vmax * 1.15, 62)) F.addScaledVector(fwd, 60);
+    if (this.boostT > 0) { this.boostT -= dt; if (fs < sp.vmax * 1.15) F.addScaledVector(fwd, this.boostAmt / 0.5); }
     if (fs > sp.vmax && contacts) F.addScaledVector(fwd, -(fs - sp.vmax) * 0.5);
     F.addScaledVector(this.vel, -0.00006 * speed);
 
@@ -1823,6 +1815,8 @@ class Car {
     phys.world.stepSimulation(dt, 0);
 
     this.readState();
+    const near = this.nearbyTiles();
+    if (this.collideWalls(near, dt) | this.collideObstacles(near)) this.pushTransform();
     this.readWheels(hand);
     // Hitting a barrier, pillar or block shows up as a sudden loss of speed.
     const hit = before.sub(this.vel).length() - GRAV * dt * 1.5;
@@ -1855,6 +1849,67 @@ class Car {
     const upNow = new V3(0, 1, 0).applyQuaternion(this.q);
     this.flipT = upNow.y < 0.25 && this.vel.length() < 7 ? this.flipT + dt : 0;
     if (this.flipT > 1.4 || this.pos.y < -20) { this.flipT = 0; events.flipped = true; }
+  }
+  // Barriers: keep the car between them unless it is high enough to clear them.
+  // A car that touches one slides along it, nose swung round to follow it.
+  collideWalls(tiles, dt) {
+    const p = this.pos; let hit = false;
+    for (const t of tiles) {
+      if (!t.cl.box.containsPoint(p)) continue;
+      const c = nearestOnCentreline(t.cl, p);
+      if (Math.abs(c.along) > 0.05) continue;
+      const wallH = TYPES[t.type].wallH || WALL_H;
+      if (c.h - this.spec.comY + 0.25 > wallH || c.h < -2.5) continue;
+      const al = Math.abs(c.lat), sg = Math.sign(c.lat) || 1;
+      const inner = WALL_IN - this.hw, mid = WALL_IN + 0.25, outer = W / 2 + this.hw;
+      let push = 0, nrm = null;
+      if (al > inner && al < mid) { push = inner - al; nrm = c.B.clone().multiplyScalar(-sg); }
+      else if (al >= mid && al < outer) { push = outer - al; nrm = c.B.clone().multiplyScalar(sg); }
+      if (!nrm) continue;
+      hit = true;
+      p.addScaledVector(c.B, sg * push);
+      const vn = this.vel.dot(nrm);
+      if (vn < 0) {
+        this.vel.addScaledVector(nrm, -vn * 1.2);
+        this.vel.multiplyScalar(1 - clamp(-vn / 90, 0, 0.18));
+        if (vn < -5) events.wall = Math.max(events.wall, -vn);
+      }
+      // Scrape: swing the nose (about the road's normal) to run along the wall.
+      const f = new V3(0, 0, 1).applyQuaternion(this.q);
+      if (f.dot(nrm) < 0) {
+        const tg = t.cl.pts[c.i + 1].clone().sub(t.cl.pts[c.i]).normalize(); if (tg.dot(f) < 0) tg.negate();
+        const fp = f.clone().addScaledVector(c.N, -f.dot(c.N));
+        const d = Math.atan2(new V3().crossVectors(fp, tg).dot(c.N), fp.dot(tg));
+        this.q.premultiply(new THREE.Quaternion().setFromAxisAngle(c.N, d * Math.min(1, 6 * dt)));
+        this.w.addScaledVector(c.N, -this.w.dot(c.N) * 0.4);
+      }
+    }
+    return hit;
+  }
+  // Pillars and blocks standing on the road.
+  collideObstacles(tiles) {
+    const f = new V3(0, 0, 1).applyQuaternion(this.q); const r = this.hw; const base = this.pos.y - this.spec.comY; let hit = false;
+    for (const t of tiles) for (const o of t.obs || []) {
+      if (base > o.y1 || this.pos.y < o.y0 - 1) continue;
+      for (const k of [-1, 0, 1]) {
+        const cx = this.pos.x + f.x * k * (this.hl - 1.1), cz = this.pos.z + f.z * k * (this.hl - 1.1);
+        let nx, nz, pen;
+        if (o.kind === 'cyl') {
+          const dx = cx - o.x, dz = cz - o.z, d = Math.hypot(dx, dz); pen = o.r + r - d; if (pen <= 0) continue;
+          nx = d > 1e-4 ? dx / d : 1; nz = d > 1e-4 ? dz / d : 0;
+        } else {
+          const px = clamp(cx, o.x - o.hx, o.x + o.hx), pz = clamp(cz, o.z - o.hz, o.z + o.hz);
+          const dx = cx - px, dz = cz - pz, d = Math.hypot(dx, dz);
+          if (d > 1e-4) { pen = r - d; if (pen <= 0) continue; nx = dx / d; nz = dz / d; }
+          else { const ex = o.hx - Math.abs(cx - o.x), ez = o.hz - Math.abs(cz - o.z); if (ex < ez) { nx = Math.sign(cx - o.x) || 1; nz = 0; pen = ex + r; } else { nx = 0; nz = Math.sign(cz - o.z) || 1; pen = ez + r; } }
+        }
+        hit = true;
+        this.pos.x += nx * pen; this.pos.z += nz * pen;
+        const vn = this.vel.x * nx + this.vel.z * nz;
+        if (vn < 0) { this.vel.x -= nx * vn * 1.3; this.vel.z -= nz * vn * 1.3; this.vel.multiplyScalar(0.92); this.w.y *= 0.5; if (vn < -4) events.wall = Math.max(events.wall, -vn); }
+      }
+    }
+    return hit;
   }
   // Wheel contacts from Bullet, plus what each wheel is standing on.
   readWheels(hand) {
@@ -2252,7 +2307,7 @@ function updateHud() {
   $('hud-time').textContent = fmtTime(game.time);
   const kmh = game.car.speedKmh();
   $('spd').textContent = Math.round(kmh);
-  $('spd-bar').style.width = clamp(kmh / (game.car.spec.vmax * 3.6 * 1.3) * 100, 0, 100) + '%';
+  $('spd-bar').style.width = clamp(kmh / (game.car.spec.vmax * 3.6 * 1.15) * 100, 0, 100) + '%';
   drawMinimap();
 }
 let mmBase = null, mmXform = null;
