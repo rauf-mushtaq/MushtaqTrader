@@ -185,6 +185,10 @@
   .lb.world td.t { text-align: right; }
   .lb.world tr.me td { color: var(--signal); }
   .lb.world tr.gap td { border-bottom: 0; padding: 0; line-height: 1; text-align: center; color: var(--muted); }
+  .lb.world td.gh { padding-left: 8px; width: 1px; }
+  .lb.world td.gh button { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
+  .lb.world td.gh button:hover { color: var(--text); border-color: var(--text); }
+  .lb.world td.gh button.on { color: #062a30; background: #62f0ff; border-color: #62f0ff; }
   .lb.world td.x { padding-left: 8px; }
   .lb.world td.x button { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .lb.world td.x button:hover { color: var(--stop); border-color: var(--stop); }
@@ -2120,7 +2124,7 @@ function releaseTouch() { touchPointers.clear(); refreshTouch(); }
 const game = {
   state: 'menu',         // menu | race | paused | finished | editor
   fromEditor: false,
-  car: null, ghost: null, ghostData: null,
+  car: null, ghost: null, ghostData: null, rivals: [],
   started: false, time: 0, acc: 0,
   cpHit: new Set(), splits: [], lastCp: null,
   rec: [], recTick: 0,
@@ -2160,7 +2164,7 @@ function restartRace() {
   game.pb = loadPB(world.track);
   game.ghostData = settings.ghost && game.pb && game.pb.ghost ? game.pb.ghost : null;
   setGhostCar(game.pb && game.pb.car ? game.pb.car : settings.car);
-  game.ghost.visible = false;
+  game.ghost.visible = false; syncRivals();
   game.camPos.copy(p).addScaledVector(game.car.forward(), -8).add(new V3(0, 3.5, 0));
   $('hud-delta').hidden = true; $('hud-hint').hidden = false; game.offTrack = 0;
   $('hud-hint').innerHTML = touchUI() ? 'Press <b>Gas</b> to launch' : 'Press <b>W</b> or <b>↑</b> to launch';
@@ -2223,7 +2227,7 @@ function onFinish() {
     const saved = store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice(), ghost: compressGhost(game.rec) });
     if (!saved) store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice() });
   }
-  if (!game.fromEditor) postTime(world.track, time, game.car.spec.id);
+  if (!game.fromEditor) postTime(world.track, time, game.car.spec.id, game.rec);
   blip(660, 0.2); setTimeout(() => blip(990, 0.25), 140); setTimeout(() => blip(1320, 0.4), 300);
   setState('finished');
   showFinish(time, prev ? prev.time : null, isPB, board);
@@ -2361,6 +2365,7 @@ function drawMinimap() {
   g.save(); g.beginPath(); g.arc(150, 150, 148, 0, Math.PI * 2); g.clip(); g.drawImage(mmBase, 0, 0); g.restore();
   const dot = (p, col, r) => { const [x, y] = mmXform(p.x, p.z); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = col; g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke(); };
   if (game.ghost.visible) dot(game.ghost.position, 'rgba(255,255,255,0.75)', 6);
+  for (const r of game.rivals) if (r.mesh.visible) dot(r.mesh.position, r.color, 6);
   dot(game.car.pos, paintFor(game.car.spec), 8);
 }
 
@@ -2382,7 +2387,7 @@ function setState(s) {
   editor.cursor.visible = s === 'editor';
   editor.grid.visible = s === 'editor';
   game.car.mesh.visible = s !== 'editor';
-  if (s !== 'race') game.ghost.visible = false;
+  if (s !== 'race') { game.ghost.visible = false; for (const r of game.rivals) r.mesh.visible = r.tag.visible = false; }
   if (s === 'menu') renderMenu();
 }
 function togglePause() {
@@ -2472,7 +2477,7 @@ function watchTimes(db) {
       for (const k in best) {
         const e = best[k]; if (!e || !Number.isFinite(e.t)) continue;
         if (!boards.has(k)) boards.set(k, []);
-        boards.get(k).push({ uid: d.id, t: Math.round(e.t), c: String(e.c || ''), a: +e.a || 0 });
+        boards.get(k).push({ uid: d.id, t: Math.round(e.t), c: String(e.c || ''), a: +e.a || 0, g: !!e.g });
       }
     }
     for (const rows of boards.values()) rows.sort((x, y) => x.t - y.t || x.a - y.a);
@@ -2493,20 +2498,30 @@ function boardFor(tr, medals) {
   return rows;
 }
 function canPostTimes() { return !!(times.on && community.me && community.canWrite !== false && times.canPost); }
-// Post a finished run if it beats your best on the board.
-function postTime(tr, t, car) {
+// Post a finished run if it beats your best on the board. A run that makes the
+// top ten goes up with its ghost.
+function postTime(tr, t, car, rec) {
   if (!canPostTimes() || !world.medals) return;
-  const key = boardKey(tr), cur = boardFor(tr, world.medals).find(r => r.uid === community.me);
+  const key = boardKey(tr), rows = boardFor(tr, world.medals), cur = rows.find(r => r.uid === community.me);
   if (cur && cur.t <= t) return;
-  const entry = { t, c: car, a: Date.now() }, ref = community.db.doc('times/' + community.me);
+  const top = rows.filter(r => r.uid !== community.me && r.t <= t).length < GHOST_TOP && rec.length > 1;
+  const ghost = top ? { t, c: car, ...packGhost(rec) } : null;
+  const entry = { t, c: car, a: Date.now(), ...(ghost ? { g: 1 } : {}) }, ref = community.db.doc('times/' + community.me);
   times.pending.set(key, entry);
   times.queue = times.queue.catch(() => {}).then(async () => {
     const snap = await ref.get();
     const best = { ...((snap.exists && snap.data().best) || {}) };
     if (best[key] && best[key].t <= t) return;
+    if (ghost) {
+      try { await ghostRef(community.me, key).set(ghost); }
+      catch (e) { delete entry.g; if (e && e.code === 'quota_exceeded') toast('Your time is on the board, but there was no room for its ghost.'); }
+    } else if (best[key] && best[key].g) await ghostRef(community.me, key).delete().catch(() => {});
     best[key] = entry;
     const keys = Object.keys(best);
-    if (keys.length > MAX_TIMES) keys.sort((x, y) => (best[y].a || 0) - (best[x].a || 0)).slice(MAX_TIMES).forEach(k => delete best[k]);
+    if (keys.length > MAX_TIMES) for (const k of keys.sort((x, y) => (best[y].a || 0) - (best[x].a || 0)).slice(MAX_TIMES)) {
+      if (best[k] && best[k].g) ghostRef(community.me, k).delete().catch(() => {});
+      delete best[k];
+    }
     await ref.set({ best, updated: Date.now() });
   }).catch(e => {
     times.pending.delete(key);
@@ -2521,8 +2536,9 @@ function removeTime(uid, key) {
   if (uid === community.me) times.pending.delete(key);
   times.queue = times.queue.catch(() => {}).then(async () => {
     const snap = await ref.get(); if (!snap.exists) return;
-    const best = { ...(snap.data().best || {}) }; delete best[key];
+    const best = { ...(snap.data().best || {}) }, had = best[key] && best[key].g; delete best[key];
     await ref.set({ best, updated: Date.now() });
+    if (had) await ghostRef(uid, key).delete();
   });
   times.queue.then(() => toast('Time removed'), () => toast('Could not remove that time.'));
 }
@@ -2533,32 +2549,42 @@ function refreshTimes() {
   if (times.modal && !$('modal').hidden && $('m-lb')) renderBoardModal();
 }
 function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
-// Board rows: the top n, plus your own place if you're further down.
-function boardHtml(rows, n, removable) {
-  const row = (r, i) => `<tr class="${r.uid === community.me ? 'me' : ''}"><td class="rk">${i + 1}</td><td class="who" data-uid="${escapeHtml(r.uid)}">${r.uid === community.me ? 'You' : ''}</td><td class="car">${CAR_BY_ID[r.c] ? CAR_BY_ID[r.c].name : ''}</td><td class="t">${fmtTime(r.t)}</td>${removable ? `<td class="x"><button data-rm="${escapeHtml(r.uid)}" aria-label="Remove this time">Remove</button></td>` : ''}</tr>`;
+// Board rows: the top n, plus your own place if you're further down. Other
+// players' runs with a ghost get a Ghost switch.
+function boardHtml(rows, n, removable, key) {
+  const picked = pickedFor(key);
+  const gh = r => r.g && r.uid !== community.me ? `<button class="${picked.has(r.uid) ? 'on' : ''}" data-ghost="${escapeHtml(r.uid)}" aria-pressed="${picked.has(r.uid)}">Ghost</button>` : '';
+  const row = (r, i) => `<tr class="${r.uid === community.me ? 'me' : ''}"><td class="rk">${i + 1}</td><td class="who" data-uid="${escapeHtml(r.uid)}">${r.uid === community.me ? 'You' : ''}</td><td class="car">${CAR_BY_ID[r.c] ? CAR_BY_ID[r.c].name : ''}</td><td class="t">${fmtTime(r.t)}</td><td class="gh">${gh(r)}</td>${removable ? `<td class="x"><button data-rm="${escapeHtml(r.uid)}" aria-label="Remove this time">Remove</button></td>` : ''}</tr>`;
   const mine = rows.findIndex(r => r.uid === community.me);
-  return rows.slice(0, n).map(row).join('') + (mine >= n ? `<tr class="gap"><td colspan="${removable ? 5 : 4}">⋯</td></tr>` + row(rows[mine], mine) : '');
+  return rows.slice(0, n).map(row).join('') + (mine >= n ? `<tr class="gap"><td colspan="${removable ? 6 : 5}">⋯</td></tr>` + row(rows[mine], mine) : '');
 }
 function boardSummary(rows) {
   const place = rows.findIndex(r => r.uid === community.me);
   return place >= 0 ? ordinal(place + 1) + ' of ' + rows.length : rows.length + (rows.length === 1 ? ' player' : ' players');
 }
 function showBoard(tr) {
+  const key = boardKey(tr), rows = boardFor(tr, trackInfo(tr).medals) || [];
+  // The first time you open a board, the record's ghost is switched on for you.
+  if (!ghosts.seen.has(key)) { ghosts.seen.add(key); if (rows[0] && rows[0].g && rows[0].uid !== community.me && !pickedFor(key).size) toggleGhost(key, rows[0].uid); }
   times.modal = tr;
   openModal(`<div class="eyebrow">${escapeHtml(tr.name)}</div><h2>Leaderboard</h2><div class="lb-head" id="m-lb-head"></div><table class="lb world" id="m-lb"></table>
+    <p class="lb-note" id="m-lb-note" hidden>Switch on Ghost next to a time to race against it (up to ${MAX_RIVALS} at once).</p>
     <div class="row"><button class="btn primary" id="m-race">Race</button><button class="btn" id="m-done">Close</button></div>`);
   renderBoardModal();
   $('m-race').onclick = () => { closeModal(); startTrack(tr); }; $('m-done').onclick = closeModal; $('m-race').focus();
   $('m-lb').onclick = e => {
+    const g = e.target.closest('[data-ghost]'); if (g) { toggleGhost(key, g.dataset.ghost); return; }
     const b = e.target.closest('[data-rm]'); if (!b) return;
     if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Sure?'; return; }
-    removeTime(b.dataset.rm, boardKey(tr));
+    removeTime(b.dataset.rm, key);
   };
 }
 function renderBoardModal() {
-  const tr = times.modal, rows = boardFor(tr, trackInfo(tr).medals) || [];
+  const tr = times.modal, key = boardKey(tr), rows = boardFor(tr, trackInfo(tr).medals) || [];
   $('m-lb-head').innerHTML = `<span>Fastest players</span><span>${rows.length ? boardSummary(rows) : ''}</span>`;
-  $('m-lb').innerHTML = rows.length ? boardHtml(rows, 20, community.owner) : '<tr><td class="who">No times yet. Set the first one.</td></tr>';
+  $('m-lb').innerHTML = rows.length ? boardHtml(rows, 20, community.owner, key) : '<tr><td class="who">No times yet. Set the first one.</td></tr>';
+  $('m-lb-note').hidden = !rows.some(r => r.g && r.uid !== community.me);
+  const n = pickedFor(key).size; $('m-race').textContent = n ? `Race ${n} ghost${n > 1 ? 's' : ''}` : 'Race';
   fillNames($('m-lb'));
 }
 // The finish screen's table: the shared board when there is one, otherwise
@@ -2567,13 +2593,107 @@ function renderFinishBoard() {
   const { time, board } = game.finish, rows = boardFor(world.track, world.medals), lb = $('fin-lb');
   if (rows && rows.length) {
     $('fin-lb-head').innerHTML = `<span>Leaderboard</span><span>${boardSummary(rows)}</span>`;
-    lb.className = 'lb world'; lb.innerHTML = boardHtml(rows, 8, false); fillNames(lb);
+    lb.className = 'lb world'; lb.innerHTML = boardHtml(rows, 8, false, boardKey(world.track)); fillNames(lb);
   } else {
     $('fin-lb-head').innerHTML = '<span>Your best runs</span>';
     let marked = false; lb.className = 'lb';
     lb.innerHTML = board.map((b, i) => { const me = !marked && b.t === time; if (me) marked = true; return `<tr class="${me ? 'me' : ''}"><td>${i + 1}. ${fmtTime(b.t)}</td><td>${b.c ? carById(b.c).name + ' · ' : ''}${new Date(b.d).toLocaleDateString()}</td></tr>`; }).join('');
   }
   $('fin-lb-note').hidden = !(times.on && community.me && !canPostTimes() && !game.fromEditor);
+}
+$('fin-lb').addEventListener('click', e => { const g = e.target.closest('[data-ghost]'); if (g) toggleGhost(boardKey(world.track), g.dataset.ghost); });
+
+// Ghosts of other players' runs. A top-ten run's ghost sits in its own
+// document, times/<id>/ghosts/<board key>, and is only fetched when someone
+// switches it on. Picks last for the visit, per track.
+const GHOST_TOP = 10, MAX_RIVALS = 5;
+const ghosts = { picked: new Map(), cache: new Map(), ready: new Map(), seen: new Set() };
+function ghostRef(uid, key) { return community.db.doc('times/' + uid + '/ghosts/' + key); }
+function pickedFor(key) { if (!ghosts.picked.has(key)) ghosts.picked.set(key, new Set()); return ghosts.picked.get(key); }
+// Packed small: 30 frames a second as 16-bit numbers in base64 (time steps in
+// ms, position steps in cm, rotations in 1/32767). Jumps too big for a step
+// (a respawn) are kept whole in j. Very long runs drop frames to fit.
+function packGhost(rec) {
+  for (let step = 1; ; step *= 2) {
+    const fr = rec.filter((f, i) => i % step === 0 || i === rec.length - 1);
+    const dv = new DataView(new ArrayBuffer(fr.length * 16)), j = [];
+    let pt = 0, px = 0, py = 0, pz = 0;
+    fr.forEach((f, i) => {
+      const t = Math.round(f[0]), x = Math.round(f[1] * 100), y = Math.round(f[2] * 100), z = Math.round(f[3] * 100);
+      let d = [x - px, y - py, z - pz];
+      if (!i || d.some(v => Math.abs(v) > 32767)) { j.push([i, x, y, z]); d = [0, 0, 0]; }
+      [Math.min(32767, t - pt), ...d, ...f.slice(4, 8).map(v => Math.round(clamp(v, -1, 1) * 32767))].forEach((v, k) => dv.setInt16(i * 16 + k * 2, v, true));
+      pt = t; px = x; py = y; pz = z;
+    });
+    const u8 = new Uint8Array(dv.buffer); let bin = '';
+    for (let i = 0; i < u8.length; i += 8192) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
+    const d = btoa(bin);
+    if (d.length < 160000) return { j, d };
+  }
+}
+function unpackGhost(g) {
+  if (!g || typeof g.d !== 'string' || g.d.length > 400000 || !Array.isArray(g.j)) return null;
+  let u8; try { u8 = Uint8Array.from(atob(g.d), c => c.charCodeAt(0)); } catch (e) { return null; }
+  const n = u8.length >> 4; if (n < 2) return null;
+  const dv = new DataView(u8.buffer), v = (i, k) => dv.getInt16(i * 16 + k * 2, true);
+  const jumps = new Map(g.j.filter(a => Array.isArray(a) && a.length === 4 && a.every(Number.isFinite)).map(a => [a[0], a]));
+  const out = []; let t = 0, x = 0, y = 0, z = 0;
+  for (let i = 0; i < n; i++) {
+    t += v(i, 0); x += v(i, 1); y += v(i, 2); z += v(i, 3);
+    const jp = jumps.get(i); if (jp) { x = jp[1]; y = jp[2]; z = jp[3]; }
+    out.push([t, x / 100, y / 100, z / 100, v(i, 4) / 32767, v(i, 5) / 32767, v(i, 6) / 32767, v(i, 7) / 32767]);
+  }
+  return out;
+}
+// Fetch a ghost once per board time (a player who improves gets fetched again).
+function loadGhost(uid, key, t) {
+  const id = uid + '/' + key + '/' + t;
+  if (ghosts.cache.has(id)) return;
+  ghosts.cache.set(id, true);
+  Promise.all([ghostRef(uid, key).get(), community.user ? community.user.profiles([uid]) : {}]).then(([snap, ps]) => {
+    const g = snap.exists ? snap.data() : null, frames = unpackGhost(g); if (!frames) throw new Error('no ghost');
+    ghosts.ready.set(id, { uid, frames, car: CAR_BY_ID[g.c] ? g.c : 'street', name: (ps[uid] && ps[uid].name) || 'Player' });
+    syncRivals();
+  }).catch(() => {
+    ghosts.cache.delete(id); pickedFor(key).delete(uid); toast('That ghost could not be loaded.'); refreshTimes();
+  });
+}
+function toggleGhost(key, uid) {
+  const set = pickedFor(key);
+  if (set.has(uid)) set.delete(uid);
+  else if (set.size >= MAX_RIVALS) { toast(`You can race up to ${MAX_RIVALS} ghosts at once.`); return; }
+  else { set.add(uid); const r = (times.boards.get(key) || []).find(x => x.uid === uid); if (r) loadGhost(uid, key, r.t); }
+  syncRivals(); refreshTimes();
+}
+// Show the switched-on ghosts for the track being raced, fetching any not here yet.
+function syncRivals() {
+  const key = world.track && boardKey(world.track), set = key && ghosts.picked.get(key), rows = (set && boardFor(world.track, world.medals)) || [];
+  const want = [];
+  if (set) for (const uid of set) {
+    const r = rows.find(x => x.uid === uid); if (!r) continue;
+    const g = ghosts.ready.get(uid + '/' + key + '/' + r.t);
+    if (g) want.push(g); else loadGhost(uid, key, r.t);
+  }
+  if (want.length === game.rivals.length && want.every((g, i) => game.rivals[i].g === g)) return;
+  for (const r of game.rivals) { scene.remove(r.mesh, r.tag); disposeTree(r.mesh); r.tag.material.map.dispose(); r.tag.material.dispose(); }
+  game.rivals = want.map(g => {
+    const spec = carById(g.car), mesh = buildCarModel(spec, { ghost: true, color: spec.color }), tag = nameTag(g.name, spec.color);
+    mesh.visible = tag.visible = false; scene.add(mesh, tag);
+    return { g, mesh, tag, color: spec.color };
+  });
+}
+// A name label that floats over a ghost.
+function nameTag(name, color) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 96; const g = c.getContext('2d');
+  g.font = '600 44px system-ui, sans-serif'; let s = name;
+  while (g.measureText(s).width > 400 && s.length > 2) s = s.slice(0, -2) + '…';
+  const w = g.measureText(s).width + 80, x0 = (512 - w) / 2;
+  g.fillStyle = 'rgba(8,14,26,0.6)'; g.beginPath(); g.moveTo(x0 + 24, 12); g.arcTo(x0 + w, 12, x0 + w, 84, 24); g.arcTo(x0 + w, 84, x0, 84, 24); g.arcTo(x0, 84, x0, 12, 24); g.arcTo(x0, 12, x0 + w, 12, 24); g.fill();
+  g.fillStyle = color; g.beginPath(); g.arc(x0 + 34, 48, 12, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#fff'; g.textBaseline = 'middle'; g.fillText(s, x0 + 58, 50);
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  tag.scale.set(5.6, 1.05, 1); tag.renderOrder = 10;
+  return tag;
 }
 
 const routeCache = new Map();
@@ -2769,6 +2889,7 @@ function showHelp() {
       <kbd>Drifting</kbd><span>Hold the handbrake as you turn in to slide the tail out. Keep steering into the slide to hold it, then straighten up for a small boost (the meter turns blue, yellow, then pink).</span>
       <kbd>Space / Shift</kbd><span>Handbrake. In the air it's an air brake that stops the car spinning.</span>
       <kbd>In the air</kbd><span>Steer to turn the car, W / ↑ dips the nose, S / ↓ lifts it. Line up your landing.</span>
+      ${times.on ? `<kbd>Ghosts</kbd><span>Open a track's leaderboard (the Record line on its card) or look at the finish screen, and switch on Ghost next to other players' times to race against them.</span>` : ''}
       <kbd>R</kbd><span>Instant restart</span>
       <kbd>Enter</kbd><span>Back to last checkpoint (the clock keeps running)</span>
       <kbd>C</kbd><span>Switch camera</span>
@@ -3113,17 +3234,25 @@ function physicsTick(input, racing) {
   if ((car.drifting || car.slip > 7) && game.recTick % 5 === 0) puff(car);
 }
 
-function updateGhost() {
-  const gd = game.ghostData;
-  if (!gd || !gd.length || !game.started || game.state !== 'race') { game.ghost.visible = false; return; }
-  const t = game.time; let lo = 0, hi = gd.length - 1;
-  if (t >= gd[hi][0]) { game.ghost.visible = false; return; }
+// Put a ghost where its run was at time t; false once that run has finished.
+function placeGhost(mesh, gd, t) {
+  if (!gd || !gd.length) return false;
+  let lo = 0, hi = gd.length - 1;
+  if (t >= gd[hi][0]) return false;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (gd[mid][0] <= t) lo = mid; else hi = mid; }
   const a = gd[lo], b = gd[hi]; const k = clamp((t - a[0]) / Math.max(1, b[0] - a[0]), 0, 1);
-  game.ghost.position.set(a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k);
+  mesh.position.set(a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k);
   const qa = new THREE.Quaternion(a[4], a[5], a[6], a[7]), qb = new THREE.Quaternion(b[4], b[5], b[6], b[7]);
-  game.ghost.quaternion.copy(qa.slerp(qb, k)).normalize();
-  game.ghost.visible = true;
+  mesh.quaternion.copy(qa.slerp(qb, k)).normalize();
+  return true;
+}
+function updateGhost() {
+  const racing = game.started && game.state === 'race';
+  game.ghost.visible = racing && placeGhost(game.ghost, game.ghostData, game.time);
+  for (const r of game.rivals) {
+    r.mesh.visible = r.tag.visible = racing && placeGhost(r.mesh, r.g.frames, game.time);
+    if (r.mesh.visible) r.tag.position.set(r.mesh.position.x, r.mesh.position.y + 2.6, r.mesh.position.z);
+  }
 }
 
 let last = performance.now();
@@ -3198,7 +3327,7 @@ function start() {
   initCommunity();
 }
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
