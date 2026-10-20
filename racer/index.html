@@ -1682,7 +1682,7 @@ class Car {
     const holding = this.drifting && flat && Math.abs(input.steer) > 0.25 && Math.sign(input.steer) === Math.sign(betaNow) && fs > 10;
     // Turning in hard at speed lets the tail step out on its own (no button needed).
     const hardTurn = !this.drifting && flat && Math.abs(input.steer) > 0.85 && fs > 30;
-    this.driftGrip += ((holding ? 0.88 : hardTurn ? 0.86 : 1) - this.driftGrip) * Math.min(1, (holding || hardTurn ? 6 : 3) * dt);
+    this.driftGrip += ((holding ? 0.93 : hardTurn ? 0.94 : 1) - this.driftGrip) * Math.min(1, (holding || hardTurn ? 5 : 4) * dt);
     this.holding = holding;
 
     // Bullet does the suspension: a progressive spring (a bump stop) that stiffens
@@ -1744,9 +1744,9 @@ class Car {
 
     const latV = this.vel.dot(left); const beta = Math.atan2(latV, Math.max(1, Math.abs(fs)));
     if (contacts >= 2 && this.holding) {
-      // Drift controller: settle at 15–26° of slide (more steer, more angle)
+      // Drift controller: settle at 10–17° of slide (more steer, more angle)
       // and turn sideways scrub into forward drive so the slide keeps its pace.
-      const target = Math.sign(input.steer) * (0.26 + 0.2 * Math.min(1, Math.abs(input.steer)));
+      const target = Math.sign(input.steer) * (0.17 + 0.12 * Math.min(1, Math.abs(input.steer)));
       const dBeta = (beta - (this.prevBeta ?? beta)) / dt;
       T.addScaledVector(up, -(target - beta) * 34 + dBeta * 5);
       if (fs < sp.vmax) F.addScaledVector(fwd, Math.min(26, Math.abs(latV) * 2.2));
