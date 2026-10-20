@@ -511,13 +511,13 @@ const TYPES = {
   straight:   { label: 'Road',      key: '1', fp: [[0, 0]], n: 8,  path: straightPath },
   turn:       { label: 'Turn',      key: '2', fp: [[0, 0]], n: 16, path: u => { const a = u * Math.PI / 2; return [S / 2 - S / 2 * Math.cos(a), 0, -S / 2 + S / 2 * Math.sin(a)]; } },
   bigturn:    { label: 'Wide turn', key: '3', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, path: wideTurnPath },
-  ramp:       { label: 'Ramp',      key: '4', fp: [[0, 0]], n: 14, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * S] },
+  ramp:       { label: 'Ramp',      key: '4', fp: [[0, 0]], n: 40, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * S] },
   kicker:     { label: 'Kicker',    key: '5', fp: [[0, 0]], n: 10, path: u => [0, KICK_H * u * u, -S / 2 + u * S] },
   boost:      { label: 'Boost',     key: '6', fp: [[0, 0]], n: 8,  path: straightPath },
   checkpoint: { label: 'Checkpoint', key: '7', fp: [[0, 0]], n: 8, path: straightPath },
   start:      { label: 'Start',     key: '8', fp: [[0, 0]], n: 8,  path: straightPath },
   finish:     { label: 'Finish',    key: '9', fp: [[0, 0]], n: 8,  path: straightPath },
-  longramp:   { label: 'Long slope', key: '0', fp: [[0, 0], [0, 1]], n: 24, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * 2 * S] },
+  longramp:   { label: 'Long slope', key: '0', fp: [[0, 0], [0, 1]], n: 48, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * 2 * S] },
   bankturn:   { label: 'Banked turn', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, levels: 1, below: 1, path: wideTurnPath, nrm: bankedNormal(BANK) },
   wallturn:   { label: 'Wall ride', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 40, levels: 2, below: 2, path: wideTurnPath, nrm: bankedNormal(WALL) },
   loop:       { label: 'Loop', fp: [[0, 0], [0, 1], [1, 0], [1, 1]], n: 90, levels: 4, path: loopPath(1), nrm: loopNormal },
@@ -830,9 +830,9 @@ function routeSpeeds(route, spec) {
 function medalTimes(route) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 16.4, bigturn: 32, ramp: 31, kicker: 31, longramp: 35, boost: 68, gap: 45, bankturn: 56, wallturn: 78, loop: 56, loopr: 56, pillar: 23, chicane: 10.7, tunnel: 53 };
+  const pace = { turn: 18.7, bigturn: 37.5, ramp: 32.4, kicker: 40.5, longramp: 41.2, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6 };
   let t = 1.2;
-  for (const g of route.segs) t += g.len / (pace[g.type] || 52);
+  for (const g of route.segs) t += g.len / (pace[g.type] || 46.3);
   const author = t * 1000;
   return { author: Math.round(author), gold: Math.round(author * 1.08), silver: Math.round(author * 1.25), bronze: Math.round(author * 1.5) };
 }
@@ -1198,26 +1198,26 @@ function loadTrack(track) {
 // · hb = how loose the handbrake makes the rear (lower = looser) · comY = centre of mass above ground.
 // ============================================================================
 const CARS = [
-  { id: 'street', name: 'Street GT', cls: 'Sports coupé', model: 'street', color: '#ff5a36', accent: '#1d2129', comY: 0.75, height: 1.55, vmax: 57, accel: 27, grip: 1.95, rear: 1.04, drive: 1, steer: 0.55, steerFall: 22, df: 0.15, brake: 52, hb: 0.30, grassGrip: 0.5, grassV: 22 },
-  { id: 'rosso', name: 'Rosso Veloce', cls: 'Italian supercar', model: 'rosso', color: '#d4121c', accent: '#ffd23f', comY: 0.66, height: 1.25, vmax: 62, accel: 32, grip: 2.0, rear: 1.02, drive: 1, steer: 0.52, steerFall: 24, df: 0.3, brake: 58, hb: 0.30, grassGrip: 0.45, grassV: 20 },
-  { id: 'flat6', name: 'Stuttgart Six', cls: 'Rear-engine GT', model: 'flat6', color: '#c9ced6', accent: '#1d2129', comY: 0.72, height: 1.45, vmax: 60, accel: 30, grip: 2.05, rear: 1.07, drive: 0.75, steer: 0.56, steerFall: 24, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.5, grassV: 22 },
-  { id: 'formula', name: 'Formula Racer', cls: 'Open-wheel single-seater', model: 'formula', color: '#e8102a', accent: '#f4f4f4', comY: 0.55, height: 1.15, vmax: 69, accel: 35, grip: 2.15, rear: 1.08, drive: 1, steer: 0.5, steerFall: 26, df: 0.9, brake: 66, hb: 0.38, grassGrip: 0.4, grassV: 18 },
-  { id: 'lmp', name: 'Endurance Prototype', cls: 'Le Mans-style prototype', model: 'lmp', color: '#1c63d8', accent: '#ffd23f', comY: 0.62, height: 1.3, vmax: 67, accel: 31, grip: 2.05, rear: 1.06, drive: 0.6, steer: 0.5, steerFall: 25, df: 0.7, brake: 62, hb: 0.36, grassGrip: 0.45, grassV: 20 },
-  { id: 'hyper', name: 'Apex Hyper', cls: 'Hypercar', model: 'hyper', color: '#121418', accent: '#ff7a1a', comY: 0.66, height: 1.3, vmax: 68, accel: 34, grip: 1.95, rear: 1.03, drive: 0.6, steer: 0.52, steerFall: 25, df: 0.4, brake: 60, hb: 0.32, grassGrip: 0.45, grassV: 20 },
-  { id: 'volt', name: 'Volt EV', cls: 'Electric hypercar', model: 'volt', color: '#f2f4f8', accent: '#24d8ff', comY: 0.7, height: 1.45, vmax: 61, accel: 40, grip: 1.9, rear: 1.03, drive: 0.5, steer: 0.54, steerFall: 23, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.55, grassV: 24 },
-  { id: 'stock', name: 'Oval Stock Car', cls: 'Stock car', model: 'stock', color: '#ffd23f', accent: '#1c63d8', comY: 0.76, height: 1.5, vmax: 64, accel: 28, grip: 1.8, rear: 1.0, drive: 1, steer: 0.5, steerFall: 22, df: 0.2, brake: 50, hb: 0.30, grassGrip: 0.5, grassV: 22 },
-  { id: 'muscle', name: 'Big Block', cls: 'Muscle car', model: 'muscle', color: '#2a6b3f', accent: '#f4f4f4', comY: 0.8, height: 1.6, vmax: 59, accel: 31, grip: 1.7, rear: 0.97, drive: 1, steer: 0.55, steerFall: 21, df: 0.05, brake: 46, hb: 0.26, grassGrip: 0.5, grassV: 22 },
-  { id: 'drift', name: 'Kanjo Drift', cls: 'Drift coupé', model: 'drift', color: '#ff7ad9', accent: '#20242c', comY: 0.72, height: 1.5, vmax: 56, accel: 28, grip: 1.8, rear: 0.94, drive: 1, steer: 0.62, steerFall: 22, df: 0.1, brake: 50, hb: 0.20, grassGrip: 0.5, grassV: 22 },
-  { id: 'rally', name: 'Gravel Hatch', cls: 'Rally hatchback', model: 'rally', color: '#3fa7ff', accent: '#ffd23f', comY: 0.82, height: 1.75, vmax: 55, accel: 29, grip: 1.85, rear: 0.97, drive: 0.5, steer: 0.6, steerFall: 22, df: 0.1, brake: 52, hb: 0.24, grassGrip: 0.9, grassV: 42 },
-  { id: 'truck', name: 'Trail Pickup', cls: 'Off-road pickup', model: 'truck', color: '#b06bff', accent: '#20242c', comY: 1.1, height: 2.45, vmax: 52, accel: 23, grip: 1.7, rear: 1.0, drive: 0.5, steer: 0.55, steerFall: 20, df: 0, brake: 44, hb: 0.30, grassGrip: 1.0, grassV: 46 },
-  { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 53, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
+  { id: 'street', name: 'Street GT', cls: 'Sports coupé', model: 'street', color: '#ff5a36', accent: '#1d2129', comY: 0.75, height: 1.55, vmax: 49, accel: 27, grip: 1.95, rear: 1.04, drive: 1, steer: 0.55, steerFall: 22, df: 0.15, brake: 52, hb: 0.30, grassGrip: 0.5, grassV: 22 },
+  { id: 'rosso', name: 'Rosso Veloce', cls: 'Italian supercar', model: 'rosso', color: '#d4121c', accent: '#ffd23f', comY: 0.66, height: 1.25, vmax: 52, accel: 32, grip: 2.0, rear: 1.02, drive: 1, steer: 0.52, steerFall: 24, df: 0.3, brake: 58, hb: 0.30, grassGrip: 0.45, grassV: 20 },
+  { id: 'flat6', name: 'Stuttgart Six', cls: 'Rear-engine GT', model: 'flat6', color: '#c9ced6', accent: '#1d2129', comY: 0.72, height: 1.45, vmax: 51, accel: 30, grip: 2.05, rear: 1.07, drive: 0.75, steer: 0.56, steerFall: 24, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.5, grassV: 22 },
+  { id: 'formula', name: 'Formula Racer', cls: 'Open-wheel single-seater', model: 'formula', color: '#e8102a', accent: '#f4f4f4', comY: 0.55, height: 1.15, vmax: 55, accel: 35, grip: 2.15, rear: 1.08, drive: 1, steer: 0.5, steerFall: 26, df: 0.9, brake: 66, hb: 0.38, grassGrip: 0.4, grassV: 18 },
+  { id: 'lmp', name: 'Endurance Prototype', cls: 'Le Mans-style prototype', model: 'lmp', color: '#1c63d8', accent: '#ffd23f', comY: 0.62, height: 1.3, vmax: 54, accel: 31, grip: 2.05, rear: 1.06, drive: 0.6, steer: 0.5, steerFall: 25, df: 0.7, brake: 62, hb: 0.36, grassGrip: 0.45, grassV: 20 },
+  { id: 'hyper', name: 'Apex Hyper', cls: 'Hypercar', model: 'hyper', color: '#121418', accent: '#ff7a1a', comY: 0.66, height: 1.3, vmax: 55, accel: 34, grip: 1.95, rear: 1.03, drive: 0.6, steer: 0.52, steerFall: 25, df: 0.4, brake: 60, hb: 0.32, grassGrip: 0.45, grassV: 20 },
+  { id: 'volt', name: 'Volt EV', cls: 'Electric hypercar', model: 'volt', color: '#f2f4f8', accent: '#24d8ff', comY: 0.7, height: 1.45, vmax: 52, accel: 40, grip: 1.9, rear: 1.03, drive: 0.5, steer: 0.54, steerFall: 23, df: 0.2, brake: 56, hb: 0.33, grassGrip: 0.55, grassV: 24 },
+  { id: 'stock', name: 'Oval Stock Car', cls: 'Stock car', model: 'stock', color: '#ffd23f', accent: '#1c63d8', comY: 0.76, height: 1.5, vmax: 53, accel: 28, grip: 1.8, rear: 1.0, drive: 1, steer: 0.5, steerFall: 22, df: 0.2, brake: 50, hb: 0.30, grassGrip: 0.5, grassV: 22 },
+  { id: 'muscle', name: 'Big Block', cls: 'Muscle car', model: 'muscle', color: '#2a6b3f', accent: '#f4f4f4', comY: 0.8, height: 1.6, vmax: 50, accel: 31, grip: 1.7, rear: 0.97, drive: 1, steer: 0.55, steerFall: 21, df: 0.05, brake: 46, hb: 0.26, grassGrip: 0.5, grassV: 22 },
+  { id: 'drift', name: 'Kanjo Drift', cls: 'Drift coupé', model: 'drift', color: '#ff7ad9', accent: '#20242c', comY: 0.72, height: 1.5, vmax: 48, accel: 28, grip: 1.8, rear: 0.94, drive: 1, steer: 0.62, steerFall: 22, df: 0.1, brake: 50, hb: 0.20, grassGrip: 0.5, grassV: 22 },
+  { id: 'rally', name: 'Gravel Hatch', cls: 'Rally hatchback', model: 'rally', color: '#3fa7ff', accent: '#ffd23f', comY: 0.82, height: 1.75, vmax: 48, accel: 29, grip: 1.85, rear: 0.97, drive: 0.5, steer: 0.6, steerFall: 22, df: 0.1, brake: 52, hb: 0.24, grassGrip: 0.9, grassV: 42 },
+  { id: 'truck', name: 'Trail Pickup', cls: 'Off-road pickup', model: 'truck', color: '#b06bff', accent: '#20242c', comY: 1.1, height: 2.45, vmax: 47, accel: 23, grip: 1.7, rear: 1.0, drive: 0.5, steer: 0.55, steerFall: 20, df: 0, brake: 44, hb: 0.30, grassGrip: 1.0, grassV: 46 },
+  { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 47, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
   { id: 'kart', name: 'Kart', cls: 'Go-kart', model: 'kart', color: '#3ee38a', accent: '#20242c', comY: 0.38, height: 1.2, vmax: 46, accel: 30, grip: 2.25, rear: 1.0, drive: 1, steer: 0.68, steerFall: 32, df: 0, brake: 50, hb: 0.14, grassGrip: 0.6, grassV: 22 },
 ];
 const CAR_BY_ID = Object.fromEntries(CARS.map(c => [c.id, c]));
 function carById(id) { return CAR_BY_ID[id] || CARS[0]; }
 function carStats(c) {
   return {
-    speed: clamp((c.vmax - 40) / 50, 0.05, 1),
+    speed: clamp((c.vmax - 42) / 15, 0.05, 1),
     accel: clamp((c.accel - 18) / 24, 0.05, 1),
     grip: clamp((c.grip * (1 + c.df * 0.45) - 1.6) / 0.95, 0.05, 1),
     drift: clamp((1.12 - c.rear) / 0.26 * 0.7 + (0.5 - c.hb) * 1.2, 0.05, 1),
@@ -1506,6 +1506,9 @@ const SUSP_BUMP = 3.0, SUSP_REBOUND = 7.5;
 // (with no spring force) so all four stay on twisting road like bank entries.
 const DROOP = 0.12;
 const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr']); // pieces whose road tilts or turns over
+// Pieces the car is held to, following the road's own shape: the twisty ones, and
+// ramps and slopes, which bend up and over too sharply at speed for the suspension alone.
+const GLUED = new Set([...TWISTY, 'ramp', 'longramp']);
 const CAR_MASS = 1000;
 const INERTIA = new V3(3.0, 2.6, 1.7); // pitch, yaw, roll (per unit mass)
 const DRIFT_STAGES = [{ t: 0.6, boost: 3, name: 'Drift boost', color: 'var(--author)' }, { t: 1.4, boost: 5, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.4, boost: 8, name: 'Ultra drift boost', color: '#ff7ad9' }];
@@ -1630,6 +1633,7 @@ class Car {
     const top = sp.height - sp.comY, mountY = Math.max(...this.wheels.map(w => w.m.y)) + 0.04;
     const innerX = Math.min(...this.wheels.map(w => Math.abs(w.m.x))) - 0.35;
     const zF = Math.max(...this.wheels.map(w => w.m.z)), zR = Math.min(...this.wheels.map(w => w.m.z));
+    this.axleZ = [zF, zR];
     const bottom = Math.min(0.44 - sp.comY, mountY - 0.12);
     const mg = 0.1, hx = this.hw - 0.05 - mg, yT = top - mg, yB = mountY + mg, zEnd = this.hl - 0.15 - mg;
     const rise = Math.min(0.2, (yT - yB) * 0.5);
@@ -1675,7 +1679,7 @@ class Car {
   clearState(speed) {
     this.grounded = true; this.surf = 'road'; this.steer = 0; this.steerAng = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
     this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0;
-    this.nPrev = null; this.prevBeta = 0; this.holding = false; this.twisty = false;
+    this.nPrev = null; this.prevBeta = 0; this.holding = false; this.twisty = false; this.glueT = 0;
     for (const w of this.wheels || []) { w.len = SUSP_L - this.c0; w.contact = false; w.slip = 0; w.vLong = speed; }
   }
   setColor(c) { this.mesh.userData.paint.color.set(c); }
@@ -1808,7 +1812,7 @@ class Car {
       T.add(r.addScaledVector(up, -r.dot(up) * 0.85).cross(tire));
     }
     const boostOn = this.wheels.some(w => w.contact && w.surf === 'boost');
-    if (boostOn && fs < Math.max(sp.vmax * 1.15, 62)) F.addScaledVector(fwd, 60);
+    if (boostOn && fs < Math.max(sp.vmax * 1.15, 56)) F.addScaledVector(fwd, 60);
     if (this.boostT > 0) { this.boostT -= dt; if (fs < sp.vmax * 1.15) F.addScaledVector(fwd, this.boostAmt / 0.5); }
     if (fs > sp.vmax && contacts) F.addScaledVector(fwd, -(fs - sp.vmax) * 0.5);
     F.addScaledVector(this.vel, -0.00006 * speed);
@@ -1858,10 +1862,20 @@ class Car {
     // road's "up" comes from the track itself and holds even if a wheel lifts for a
     // moment, so they stay glued; elsewhere it comes from the wheels, so a car going
     // over a crest leaves it with its own attitude. Yaw, grip and slides are left to the tyres.
-    const road = surfaceAt(this.nearbyTiles(), this.pos, 2.6, 0.6);
-    const twisty = road && road.surf !== 'grass' && TWISTY.has(road.type) && (contacts >= 1 || this.airTime < 0.25);
+    const around = this.nearbyTiles(), road = surfaceAt(around, this.pos, 2.6, 0.6);
+    // The road under the front and rear axles: on a slope the car takes the angle
+    // between them, so the nose lifts as soon as the front wheels reach a ramp.
+    const under = this.axleZ.map(z => surfaceAt(around, this.pos.clone().addScaledVector(fwd, z), 2.6, 0.6));
+    const isSlope = r => r && (r.type === 'ramp' || r.type === 'longramp');
+    const onSlope = isSlope(road) || under.some(isSlope);
+    // The hold fades out for a moment after a held piece, so rolling off a ramp or
+    // bank onto flat road, still squashed into the suspension, isn't a jolt.
+    const held = road && road.surf !== 'grass' && (GLUED.has(road.type) || onSlope);
+    this.glueT = held ? 0.25 : Math.max(0, this.glueT - dt);
+    const twisty = road && road.surf !== 'grass' && (held || this.glueT > 0) && (contacts >= 1 || this.airTime < 0.25);
     this.twisty = twisty;
-    const nFollow = twisty ? road.n : contacts >= 2 ? this.n : null;
+    let nFollow = twisty ? road.n : contacts >= 2 ? this.n : null;
+    if (twisty && onSlope && under.every(r => r && r.surf !== 'grass')) nFollow = under[0].n.clone().add(under[1].n).normalize();
     if (nFollow) {
       const target = new V3().crossVectors(up, nFollow).multiplyScalar(9);
       if (this.nPrev) target.add(new V3().crossVectors(this.nPrev, nFollow).divideScalar(dt));
@@ -1875,19 +1889,24 @@ class Car {
       if (contacts === 1) { const wy = this.w.dot(up); this.w.addScaledVector(up, -wy).multiplyScalar(Math.exp(-8 * dt)).addScaledVector(up, wy); }
       this.nPrev = null;
     }
-    // Banked turns and wall rides: the road's edges rise and fall fast as the bank
-    // comes in and out, so on these pieces the car is held down onto the surface
-    // (where it will be next tick) instead of being flung off it.
+    // Banked turns, wall rides and ramps: the road rises and falls fast as the bank
+    // comes in and out or over the top of a slope, so on these pieces the car is
+    // held down onto the surface (where it will be next tick) instead of being flung off it.
     // In loops and banks the car is pressed hard into the road; past what the
     // suspension can hold it rides on the track itself rather than scraping its body.
     if (twisty) {
       const gap = road.h - (sp.comY - SUSP_L + 0.14), vn = this.vel.dot(road.n);
       if (gap < 0 && vn < -gap * 0.5 / dt) this.vel.addScaledVector(road.n, -gap * 0.5 / dt - vn);
     }
-    if (road && (road.type === 'bankturn' || road.type === 'wallturn') && !this.fromKicker && this.airTime < 0.4) {
-      const ahead = surfaceAt(this.nearbyTiles(), this.pos.clone().addScaledVector(this.vel, dt), 2.6, 0.6);
-      const gap = ahead && ahead.surf !== 'grass' ? ahead.h - sp.comY - 0.04 : 0;
-      if (gap > 0) this.vel.addScaledVector(ahead.n, -Math.min(gap * 0.4 / dt, 300 * dt));
+    // On ramps and slopes the car is also held up at the bottom, where the road
+    // bends up into it, so the springs don't slam to full compression: it rides the
+    // slope at its normal height.
+    const ramp = road && onSlope;
+    if (road && (road.type === 'bankturn' || road.type === 'wallturn' || ramp) && !this.fromKicker && this.airTime < 0.4) {
+      const ahead = surfaceAt(around, this.pos.clone().addScaledVector(this.vel, dt), 2.6, 0.6);
+      const h = ahead && ahead.surf !== 'grass' ? ahead.h - sp.comY : 0;
+      if (h > 0.04) this.vel.addScaledVector(ahead.n, -Math.min((h - 0.04) * 0.4 / dt, 300 * dt));
+      else if (ramp && h < -0.04 && contacts >= 1) this.vel.addScaledVector(ahead.n, Math.min((-0.04 - h) * 0.4 / dt, 300 * dt));
     }
     this.pushVelocities();
     const before = this.vel.clone();
@@ -2201,8 +2220,8 @@ function selectCar(id) {
   game.demo.idx = 0;
 }
 
-// v3 keys: physics and the track list changed, so older times no longer compare.
-function trackKey(track) { return 'mt3.pb.' + track.id; }
+// v4 keys: the cars got slower, so older times no longer compare.
+function trackKey(track) { return 'mt4.pb.' + track.id; }
 function loadPB(track) { return store.get(trackKey(track), null); }
 
 function spawnPoint() {
@@ -2279,9 +2298,9 @@ function onFinish() {
   const key = trackKey(world.track);
   const prev = store.get(key, null);
   const isPB = !prev || time < prev.time;
-  const board = store.get('mt3.lb.' + world.track.id, []);
+  const board = store.get('mt4.lb.' + world.track.id, []);
   board.push({ t: time, d: Date.now(), c: game.car.spec.id }); board.sort((a, b) => a.t - b.t); board.length = Math.min(board.length, 8);
-  store.set('mt3.lb.' + world.track.id, board);
+  store.set('mt4.lb.' + world.track.id, board);
   if (isPB) {
     const saved = store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice(), ghost: compressGhost(game.rec) });
     if (!saved) store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice() });
@@ -2584,7 +2603,7 @@ function askName(first) {
 const MAX_TIMES = 400; // tracks kept per player; the oldest drop off
 const times = { on: false, boards: new Map(), pending: new Map(), canPost: true, queue: Promise.resolve(), modal: null };
 function boardKey(tr) {
-  const s = '3|' + tr.tiles.map(t => [t.type, t.x, t.z, t.l, t.r].join(',')).sort().join(';');
+  const s = '4|' + tr.tiles.map(t => [t.type, t.x, t.z, t.l, t.r].join(',')).sort().join(';');
   return 'L' + hashStr(s).toString(36) + hashStr(s + '#').toString(36);
 }
 function watchTimes(db) {
