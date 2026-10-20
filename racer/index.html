@@ -70,6 +70,11 @@
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
   .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.community { color: #62f0ff; }
   .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-card .rec { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-align: left; min-width: 0; }
+  .track-card .rec .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-card .rec > span:last-child { flex: 0 0 auto; }
+  .track-card .rec b { font-family: var(--mono); font-weight: 500; color: var(--text); }
+  .track-card .rec:hover { color: var(--text); }
   .medal-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
   .m-author { background: var(--author); } .m-gold { background: var(--gold); } .m-silver { background: var(--silver); } .m-bronze { background: var(--bronze); } .m-none { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); }
   .empty-note { color: var(--muted); font-size: 14px; margin: 0; }
@@ -172,6 +177,19 @@
   .lb td { padding: 3px 0; border-bottom: 1px solid var(--line); }
   .lb td:last-child { text-align: right; color: var(--muted); }
   .lb tr.me td { color: var(--signal); }
+  .lb-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: -8px; font-family: var(--display); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .lb.world td { color: var(--text); text-align: left; }
+  .lb.world .rk { padding-right: 10px; white-space: nowrap; color: var(--muted); }
+  .lb.world .who { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--body); }
+  .lb.world .car { padding: 3px 10px; white-space: nowrap; color: var(--muted); font-family: var(--body); font-size: 12px; }
+  .lb.world td.t { text-align: right; }
+  .lb.world tr.me td { color: var(--signal); }
+  .lb.world tr.gap td { border-bottom: 0; padding: 0; line-height: 1; text-align: center; color: var(--muted); }
+  .lb.world td.x { padding-left: 8px; }
+  .lb.world td.x button { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
+  .lb.world td.x button:hover { color: var(--stop); border-color: var(--stop); }
+  .lb-note { color: var(--muted); font-size: 13px; margin: -6px 0 0; }
+  @media (max-width: 420px) { .lb.world .car { display: none; } }
   .field { display: flex; flex-direction: column; gap: 5px; }
   .field label { font-family: var(--display); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
   .field input, .field select, .field textarea { background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 4px; color: var(--text); padding: 8px 10px; font: inherit; }
@@ -311,7 +329,9 @@
     <div class="big-time" id="fin-time">0:00.000</div>
     <div class="result-line"><span>Personal best</span><b id="fin-pb">–</b></div>
     <div class="medal-row" id="fin-medals"></div>
+    <div class="lb-head" id="fin-lb-head"></div>
     <table class="lb" id="fin-lb"></table>
+    <p class="lb-note" id="fin-lb-note" hidden>Your times stay on this device: posting to the leaderboard needs Contributor access to this game.</p>
     <div class="row">
       <button class="btn primary" id="btn-again">Race again <kbd>R</kbd></button>
       <button class="btn" id="btn-next">Next track</button>
@@ -2203,6 +2223,7 @@ function onFinish() {
     const saved = store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice(), ghost: compressGhost(game.rec) });
     if (!saved) store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice() });
   }
+  if (!game.fromEditor) postTime(world.track, time, game.car.spec.id);
   blip(660, 0.2); setTimeout(() => blip(990, 0.25), 140); setTimeout(() => blip(1320, 0.4), 300);
   setState('finished');
   showFinish(time, prev ? prev.time : null, isPB, board);
@@ -2293,8 +2314,9 @@ function updateHudStatic() {
   const m = world.medals; const pbT = game.pb ? game.pb.time : null;
   const el = $('hud-medals');
   if (!m) { el.innerHTML = '<div class="miss">Route incomplete</div>'; return; }
+  const rows = boardFor(world.track, m);
   el.innerHTML = ['author', 'gold', 'silver', 'bronze'].map(k => `<div class="${pbT != null && pbT <= m[k] ? 'got' : 'miss'}"><span class="medal-dot m-${k}"></span>${fmtTime(m[k])}</div>`).join('') +
-    `<div class="got" style="margin-top:3px">PB&nbsp;${fmtTime(pbT)}</div>`;
+    `<div class="got" style="margin-top:3px">PB&nbsp;${fmtTime(pbT)}</div>` + (rows && rows.length ? `<div class="got">Record&nbsp;${fmtTime(rows[0].t)}</div>` : '');
 }
 function updateDriftHud(car) {
   const el = $('hud-drift');
@@ -2388,6 +2410,7 @@ async function initCommunity() {
     community.docs = snap.docs.filter(d => d.exists).map(d => { const b = d.data(); return { author: d.id, tracks: Array.isArray(b.tracks) ? b.tracks.slice(0, MAX_PUBLISHED) : [] }; });
     refreshCommunity();
   }, () => { community.db = null; refreshCommunity(); });
+  watchTimes(db);
   refreshCommunity();
 }
 function refreshCommunity() { if (game.state === 'menu') renderTrackList(); }
@@ -2430,6 +2453,129 @@ async function unpublishTrack(author, pid, name) {
   try { await writeCommunity(author, d.tracks.filter(p => p && String(p.id) !== pid)); toast('Removed “' + name + '” from Community'); } catch (e) { communityFailed(e); }
 }
 
+// Leaderboards, shared the same way: each player keeps one document,
+// times/<their id>, holding their best run on every track they've finished.
+// Boards are keyed by the track's layout, so a track has one board wherever it
+// comes from: an official track, the daily, a seed, a community track or a
+// code a friend sent.
+const MAX_TIMES = 400; // tracks kept per player; the oldest drop off
+const times = { on: false, boards: new Map(), pending: new Map(), canPost: true, queue: Promise.resolve(), modal: null };
+function boardKey(tr) {
+  const s = '3|' + tr.tiles.map(t => [t.type, t.x, t.z, t.l, t.r].join(',')).sort().join(';');
+  return 'L' + hashStr(s).toString(36) + hashStr(s + '#').toString(36);
+}
+function watchTimes(db) {
+  db.collection('times').onSnapshot(snap => {
+    const boards = new Map();
+    for (const d of snap.docs) {
+      const best = d.exists && d.data().best; if (!best || typeof best !== 'object') continue;
+      for (const k in best) {
+        const e = best[k]; if (!e || !Number.isFinite(e.t)) continue;
+        if (!boards.has(k)) boards.set(k, []);
+        boards.get(k).push({ uid: d.id, t: Math.round(e.t), c: String(e.c || ''), a: +e.a || 0 });
+      }
+    }
+    for (const rows of boards.values()) rows.sort((x, y) => x.t - y.t || x.a - y.a);
+    times.boards = boards; times.on = true;
+    // A run you just posted shows straight away; drop it once the board has it.
+    for (const [k, p] of times.pending) { const mine = (boards.get(k) || []).find(r => r.uid === community.me); if (mine && mine.t <= p.t) times.pending.delete(k); }
+    refreshTimes();
+  }, () => { times.on = false; refreshTimes(); });
+}
+// One track's board, fastest first, one row per player. Shared data is
+// untrusted, so times far quicker than the author medal are left out.
+function boardFor(tr, medals) {
+  if (!times.on || !medals) return null;
+  const key = boardKey(tr), floor = medals.author * 0.4;
+  let rows = (times.boards.get(key) || []).filter(r => r.t >= floor && r.t < 3600000);
+  const p = times.pending.get(key);
+  if (p && community.me) { rows = rows.filter(r => r.uid !== community.me); rows.push({ uid: community.me, ...p }); rows.sort((x, y) => x.t - y.t || x.a - y.a); }
+  return rows;
+}
+function canPostTimes() { return !!(times.on && community.me && community.canWrite !== false && times.canPost); }
+// Post a finished run if it beats your best on the board.
+function postTime(tr, t, car) {
+  if (!canPostTimes() || !world.medals) return;
+  const key = boardKey(tr), cur = boardFor(tr, world.medals).find(r => r.uid === community.me);
+  if (cur && cur.t <= t) return;
+  const entry = { t, c: car, a: Date.now() }, ref = community.db.doc('times/' + community.me);
+  times.pending.set(key, entry);
+  times.queue = times.queue.catch(() => {}).then(async () => {
+    const snap = await ref.get();
+    const best = { ...((snap.exists && snap.data().best) || {}) };
+    if (best[key] && best[key].t <= t) return;
+    best[key] = entry;
+    const keys = Object.keys(best);
+    if (keys.length > MAX_TIMES) keys.sort((x, y) => (best[y].a || 0) - (best[x].a || 0)).slice(MAX_TIMES).forEach(k => delete best[k]);
+    await ref.set({ best, updated: Date.now() });
+  }).catch(e => {
+    times.pending.delete(key);
+    if (e && e.code === 'invalid_argument') times.canPost = false;
+    else toast('Could not post your time to the leaderboard.');
+    refreshTimes();
+  });
+}
+// The game's owner can take a time off a board.
+function removeTime(uid, key) {
+  const ref = community.db.doc('times/' + uid);
+  if (uid === community.me) times.pending.delete(key);
+  times.queue = times.queue.catch(() => {}).then(async () => {
+    const snap = await ref.get(); if (!snap.exists) return;
+    const best = { ...(snap.data().best || {}) }; delete best[key];
+    await ref.set({ best, updated: Date.now() });
+  });
+  times.queue.then(() => toast('Time removed'), () => toast('Could not remove that time.'));
+}
+function refreshTimes() {
+  if (game.state === 'menu') { renderTrackList(); renderDailyCard(); }
+  else if (game.state === 'finished') renderFinishBoard();
+  else if (game.state === 'race' || game.state === 'paused') updateHudStatic();
+  if (times.modal && !$('modal').hidden && $('m-lb')) renderBoardModal();
+}
+function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+// Board rows: the top n, plus your own place if you're further down.
+function boardHtml(rows, n, removable) {
+  const row = (r, i) => `<tr class="${r.uid === community.me ? 'me' : ''}"><td class="rk">${i + 1}</td><td class="who" data-uid="${escapeHtml(r.uid)}">${r.uid === community.me ? 'You' : ''}</td><td class="car">${CAR_BY_ID[r.c] ? CAR_BY_ID[r.c].name : ''}</td><td class="t">${fmtTime(r.t)}</td>${removable ? `<td class="x"><button data-rm="${escapeHtml(r.uid)}" aria-label="Remove this time">Remove</button></td>` : ''}</tr>`;
+  const mine = rows.findIndex(r => r.uid === community.me);
+  return rows.slice(0, n).map(row).join('') + (mine >= n ? `<tr class="gap"><td colspan="${removable ? 5 : 4}">⋯</td></tr>` + row(rows[mine], mine) : '');
+}
+function boardSummary(rows) {
+  const place = rows.findIndex(r => r.uid === community.me);
+  return place >= 0 ? ordinal(place + 1) + ' of ' + rows.length : rows.length + (rows.length === 1 ? ' player' : ' players');
+}
+function showBoard(tr) {
+  times.modal = tr;
+  openModal(`<div class="eyebrow">${escapeHtml(tr.name)}</div><h2>Leaderboard</h2><div class="lb-head" id="m-lb-head"></div><table class="lb world" id="m-lb"></table>
+    <div class="row"><button class="btn primary" id="m-race">Race</button><button class="btn" id="m-done">Close</button></div>`);
+  renderBoardModal();
+  $('m-race').onclick = () => { closeModal(); startTrack(tr); }; $('m-done').onclick = closeModal; $('m-race').focus();
+  $('m-lb').onclick = e => {
+    const b = e.target.closest('[data-rm]'); if (!b) return;
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Sure?'; return; }
+    removeTime(b.dataset.rm, boardKey(tr));
+  };
+}
+function renderBoardModal() {
+  const tr = times.modal, rows = boardFor(tr, trackInfo(tr).medals) || [];
+  $('m-lb-head').innerHTML = `<span>Fastest players</span><span>${rows.length ? boardSummary(rows) : ''}</span>`;
+  $('m-lb').innerHTML = rows.length ? boardHtml(rows, 20, community.owner) : '<tr><td class="who">No times yet. Set the first one.</td></tr>';
+  fillNames($('m-lb'));
+}
+// The finish screen's table: the shared board when there is one, otherwise
+// your own best runs on this device.
+function renderFinishBoard() {
+  const { time, board } = game.finish, rows = boardFor(world.track, world.medals), lb = $('fin-lb');
+  if (rows && rows.length) {
+    $('fin-lb-head').innerHTML = `<span>Leaderboard</span><span>${boardSummary(rows)}</span>`;
+    lb.className = 'lb world'; lb.innerHTML = boardHtml(rows, 8, false); fillNames(lb);
+  } else {
+    $('fin-lb-head').innerHTML = '<span>Your best runs</span>';
+    let marked = false; lb.className = 'lb';
+    lb.innerHTML = board.map((b, i) => { const me = !marked && b.t === time; if (me) marked = true; return `<tr class="${me ? 'me' : ''}"><td>${i + 1}. ${fmtTime(b.t)}</td><td>${b.c ? carById(b.c).name + ' · ' : ''}${new Date(b.d).toLocaleDateString()}</td></tr>`; }).join('');
+  }
+  $('fin-lb-note').hidden = !(times.on && community.me && !canPostTimes() && !game.fromEditor);
+}
+
 const routeCache = new Map();
 function trackInfo(tr) {
   const key = tr.id + ':' + tr.tiles.length;
@@ -2440,10 +2586,12 @@ function trackCard(tr, ref, actions) {
   const pb = store.get(trackKey(tr), null); const { route, medals } = trackInfo(tr);
   const medal = pb ? medalFor(pb.time, medals) : 'none';
   const diff = tr.official || tr.generated ? tr.diff : tr.community ? 'Community' : 'Custom';
+  const rows = boardFor(tr, medals);
   return `<div class="track-card" role="button" tabindex="0" data-play="${ref}">
     <div class="meta"><span class="diff ${diff.toLowerCase()}">${diff}</span><span>${ENVS[envFor(tr)].label} · ${(route.length ? (route.length / 1000).toFixed(2) + ' km' : 'unfinished')}</span></div>
-    <div class="name">${escapeHtml(tr.name)}</div>${tr.community ? `<div class="by" data-author="${escapeHtml(tr.author)}">${tr.author === community.me ? 'by you' : ''}</div>` : ''}
+    <div class="name">${escapeHtml(tr.name)}</div>${tr.community ? `<div class="by" data-uid="${escapeHtml(tr.author)}" data-pre="by ">${tr.author === community.me ? 'by you' : ''}</div>` : ''}
     <div class="meta"><span class="best"><span class="medal-dot m-${medal}"></span>${pb ? fmtTime(pb.time) : 'No time yet'}</span><span>${MEDAL_NAMES[medal]}</span></div>
+    ${rows && rows.length ? `<button class="rec" data-board="${ref}"><span class="l">Record <b>${fmtTime(rows[0].t)}</b> <span data-uid="${escapeHtml(rows[0].uid)}" data-pre="by "></span></span><span>${boardSummary(rows)} ›</span></button>` : ''}
     <div class="actions">${actions}</div>
   </div>`;
 }
@@ -2451,16 +2599,19 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
+function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
+// Redraw just the daily card (the seed box next to it may be mid-edit).
+function renderDailyCard() { const el = $('grid-special').firstElementChild; if (el) { el.outerHTML = dailyCard(); fillNames($('grid-special')); } }
 function renderMenu() {
   $('menu-car').textContent = carById(settings.car).name;
-  const daily = dailyTrack();
-  $('grid-special').innerHTML = trackCard(daily, 'd:', `<button data-copy="d:">Copy to editor</button>`) +
+  $('grid-special').innerHTML = dailyCard() +
     `<div class="track-card special">
       <div class="meta"><span class="diff custom">Random</span><span>endless</span></div>
       <div class="name">Random track</div>
       <div class="seed-row"><input id="seed-input" aria-label="Track seed" maxlength="12" value="${escapeHtml(lastSeed)}"><button class="btn" data-seed="go" style="padding:4px 10px;font-size:12px">Race</button></div>
       <div class="actions"><button data-seed="new">New track</button><button data-copy="r:">Copy to editor</button></div>
     </div>`;
+  fillNames($('grid-special'));
   renderTrackList();
 }
 // The tabs and track grid (redrawn on their own when community tracks change).
@@ -2480,7 +2631,7 @@ function renderTrackList() {
   }
   else html = OFFICIAL.map((tr, i) => [tr, i]).filter(([tr]) => menuTab === 'All' || tr.diff === menuTab).map(([tr, i]) => trackCard(tr, 'o:' + i, `<button data-copy="o:${i}">Copy to editor</button>`)).join('');
   $('grid-tracks').innerHTML = html;
-  if (menuTab === 'Community') nameAuthors();
+  fillNames($('grid-tracks'));
 }
 // Publish, or for a published track Unpublish (plus Update once it's been edited since).
 function publishButtons(tr, i) {
@@ -2488,12 +2639,16 @@ function publishButtons(tr, i) {
   if (!p) return `<button data-pub="${i}">Publish</button>`;
   return (p.code !== encodeTrack(tr) ? `<button data-pub="${i}">Update</button>` : '') + `<button data-unpub="${i}">Unpublish</button>`;
 }
-// Fill in who made each community track (names are resolved, never stored).
-async function nameAuthors() {
-  const els = [...document.querySelectorAll('#grid-tracks .by[data-author]')], ids = [...new Set(els.map(el => el.dataset.author))];
+// Fill in players' names from their ids (names are resolved, never stored).
+// An element with data-pre reads as part of a sentence ("by you").
+async function fillNames(root) {
+  const els = [...root.querySelectorAll('[data-uid]')], ids = [...new Set(els.map(el => el.dataset.uid))];
   if (!ids.length || !community.user) return;
   const ps = await community.user.profiles(ids);
-  for (const el of els) if (el.isConnected) el.textContent = el.dataset.author === community.me ? 'by you' : 'by ' + ((ps[el.dataset.author] && ps[el.dataset.author].name) || 'another player');
+  for (const el of els) if (el.isConnected) {
+    const pre = el.dataset.pre, p = ps[el.dataset.uid];
+    el.textContent = (pre || '') + (el.dataset.uid === community.me ? (pre ? 'you' : 'You') : (p && p.name) || (pre ? 'another player' : 'Player'));
+  }
 }
 function trackFromRef(ref) {
   const [kind, i] = ref.split(':');
@@ -2514,6 +2669,7 @@ document.querySelector('#menu .tracks').addEventListener('click', e => {
     else if (btn.dataset.copy) { const tr = trackFromRef(btn.dataset.copy); openEditor({ id: null, name: tr.name + ' (copy)', tiles: tr.tiles.map(stripTile) }); }
     else if (btn.dataset.edit) { const i = +btn.dataset.edit; openEditor({ ...list[i], idx: i }); }
     else if (btn.dataset.share) showShare(list[+btn.dataset.share]);
+    else if (btn.dataset.board) { const tr = trackFromRef(btn.dataset.board); if (tr) showBoard(tr); }
     else if (btn.dataset.pub) publishTrack(list[+btn.dataset.pub]);
     else if (btn.dataset.unpub) { const tr = list[+btn.dataset.unpub]; unpublishTrack(community.me, tr.id, tr.name); }
     else if (btn.dataset.remove) {
@@ -2567,8 +2723,7 @@ function showFinish(time, prevPB, isPB, board) {
   $('fin-title').textContent = isPB ? (prevPB ? 'New personal best' : 'First finish') : 'Finished';
   $('fin-pb').textContent = isPB ? (prevPB ? fmtTime(time) + '  (' + fmtDelta(time - prevPB) + ')' : fmtTime(time)) : fmtTime(prevPB) + '  (' + fmtDelta(time - prevPB) + ')';
   $('fin-medals').innerHTML = m ? ['author', 'gold', 'silver', 'bronze'].map(k => `<div class="${time <= m[k] ? 'got' : ''}" style="color:var(--${k})"><span class="t">${MEDAL_NAMES[k]}</span>${fmtTime(m[k])}</div>`).join('') : '';
-  let marked = false;
-  $('fin-lb').innerHTML = board.map((b, i) => { const me = !marked && b.t === time; if (me) marked = true; return `<tr class="${me ? 'me' : ''}"><td>${i + 1}. ${fmtTime(b.t)}</td><td>${b.c ? carById(b.c).name + ' · ' : ''}${new Date(b.d).toLocaleDateString()}</td></tr>`; }).join('');
+  game.finish = { time, board }; renderFinishBoard();
   $('btn-fin-edit').hidden = !game.fromEditor;
   $('btn-next').hidden = !world.track.official;
   if (medal !== 'none') flash(MEDAL_NAMES[medal] + ' medal', `var(--${medal})`);
@@ -2600,7 +2755,7 @@ function showSettings() {
   $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
-  $('m-reset').onclick = () => confirmModal('Delete every saved time and ghost?', 'Delete times', () => {
+  $('m-reset').onclick = () => confirmModal('Delete every time and ghost saved on this device?' + (times.on ? ' Your times on the leaderboard stay.' : ''), 'Delete times', () => {
     try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
     toast('All times cleared'); if (game.state === 'menu') renderMenu();
   });
@@ -2611,8 +2766,8 @@ function showHelp() {
       <kbd>W / ↑</kbd><span>Accelerate (the clock starts on your first input)</span>
       <kbd>S / ↓</kbd><span>Brake, then reverse</span>
       <kbd>A D / ← →</kbd><span>Steer</span>
-      <kbd>Drifting</kbd><span>Turn in hard at speed and the tail steps out on its own. Keep steering into the slide to hold it, then straighten up for a speed boost (the meter turns blue, yellow, then pink).</span>
-      <kbd>Space / Shift</kbd><span>Handbrake for a sharper slide. In the air it's an air brake that stops the car spinning.</span>
+      <kbd>Drifting</kbd><span>Hold the handbrake as you turn in to slide the tail out. Keep steering into the slide to hold it, then straighten up for a small boost (the meter turns blue, yellow, then pink).</span>
+      <kbd>Space / Shift</kbd><span>Handbrake. In the air it's an air brake that stops the car spinning.</span>
       <kbd>In the air</kbd><span>Steer to turn the car, W / ↑ dips the nose, S / ↓ lifts it. Line up your landing.</span>
       <kbd>R</kbd><span>Instant restart</span>
       <kbd>Enter</kbd><span>Back to last checkpoint (the clock keeps running)</span>
@@ -3043,7 +3198,7 @@ function start() {
   initCommunity();
 }
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>

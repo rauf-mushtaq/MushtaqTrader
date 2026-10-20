@@ -12,13 +12,14 @@ A low-poly time-trial racer in the style of PolyTrack, in a single HTML file (`r
 - **Environments**: Summer, Winter (snowy pines) and Desert (cacti and mesas), combined with time of day.
 - **14 cars** in the garage, each with its own model and handling: an open-wheel formula car, an Italian-style supercar, a rear-engine German-style GT, a Le Mans-style prototype, a hypercar, an electric hypercar, a stock car, a muscle car, a drift coupé, a rally hatch, an off-road pickup, a classic roadster and a go-kart. You can repaint any of them. The names are made up and there are no real brand logos.
 - **34 official tracks** across Easy, Medium, Hard and Expert, plus a **daily track** and **endless random tracks** from a seed you can share. The generator uses every piece type.
-- **Medals** (Bronze, Silver, Gold, Author), a **ghost of your best run** with live split deltas, and a local leaderboard that records which car you used.
+- **Medals** (Bronze, Silver, Gold, Author), and a **ghost of your best run** with live split deltas.
 - **Track editor** with 17 piece types, height levels, an environment picker, undo, a route check, and `MT1.` share codes.
 - **Community tracks** (on the hosted page): press Publish on a track under Yours and everyone who plays the game sees it in the Community tab, with its maker's name. They can race it or copy it into their own editor. You can update or unpublish your own tracks, and the game's owner can remove any track. Publishing needs Contributor access or higher to the page; people with view-only access can still race community tracks. A copy of the game opened as a local file has no Community tab.
+- **Leaderboards** (on the hosted page): every player's best time on each track goes on a shared board, showing their name and car. Each track card shows the record and your place, and you can click it to see the full board. The finish screen shows the top eight and where you placed, and the HUD shows the record while you race. A board belongs to the track's layout, so the daily, a random seed, a community track or an imported code all have boards too. Times from editor test drives aren't posted. Posting needs Contributor access or higher; view-only players can still see the boards. The game's owner can remove a time. A local copy shows only your own best runs.
 - Red/white barriers on every edge (you can clear them when airborne), skid marks, tyre smoke, engine sound, three cameras (the chase camera rolls with the car through loops), a minimap, and keyboard, gamepad and large touch controls.
 - An autopilot drives the menu background. It was used to test all 14 cars on all 34 official tracks, and to set the medal times.
 
-Times, ghosts, custom tracks and settings are saved in the browser's local storage.
+Your times, ghosts, custom tracks and settings are saved in the browser's local storage.
 
 | Key | Action |
 | --- | --- |
