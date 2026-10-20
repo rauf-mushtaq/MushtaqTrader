@@ -207,6 +207,13 @@
   #hud-mp div { display: flex; justify-content: space-between; gap: 10px; }
   #hud-mp div span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
   #hud-mp .me { color: var(--signal); }
+  .mp-chat { min-height: 44px; max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.25); font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; margin-top: -6px; }
+  .mp-chat b { font-family: var(--display); font-weight: 600; color: var(--muted); margin-right: 6px; }
+  .mp-chat .me b { color: var(--signal); }
+  .mp-chat .empty-note { font-size: 13px; }
+  .mp-say { display: flex; gap: 6px; margin-top: -6px; }
+  .mp-say input { flex: 1; min-width: 0; background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 4px; color: var(--text); padding: 8px 10px; font: inherit; font-size: 14px; }
+  .mp-say .btn { padding: 8px 14px; font-size: 13px; }
   #hud-hint.count { font-size: 64px; font-family: var(--mono); font-weight: 700; padding: 6px 26px; }
   @media (max-width: 420px) { .lb.world .car { display: none; } }
   .field { display: flex; flex-direction: column; gap: 5px; }
@@ -2632,6 +2639,7 @@ function renderFinishBoard() {
     lb.className = 'lb world';
     lb.innerHTML = st.map((r, i) => `<tr class="${r.me ? 'me' : ''}"><td class="rk">${i + 1}</td><td class="who">${escapeHtml(r.name)}</td><td class="car">${CAR_BY_ID[r.car] ? CAR_BY_ID[r.car].name : ''}</td><td class="st">${mpRaceCell(r, cps)}</td></tr>`).join('');
     $('fin-lb-note').hidden = true;
+    $('btn-fin-room').textContent = mp.unread ? `Back to room · ${mp.unread} new message${mp.unread > 1 ? 's' : ''}` : 'Back to room';
     return;
   }
   if (rows && rows.length) {
@@ -2754,6 +2762,7 @@ const mp = {
   race: null, status: 'room', fin: null, pi: 0, prog: 0, // this page's own race
   cars: new Map(), names: new Map(), tracks: new Map(), commOpts: [],
   sentAt: 0, sent: '', ad: '', hudAt: 0, view: '',
+  chat: [], chatSeen: new Set(), chatVer: 0, myMsgs: [], msgN: 0, saidAt: 0, unread: 0, // the room's chat
 };
 async function initOnline() {
   if (!window.claude || !window.claude.use) return;
@@ -2835,7 +2844,7 @@ function mpNames() {
   for (const id of ids) mp.names.set(id, null);
   community.user.profiles(ids).then(ps => {
     for (const id of ids) mp.names.set(id, (ps[id] && ps[id].name) || 'Player');
-    mpSyncCars(true); if (game.state === 'online') mpRender();
+    mp.chatVer++; mpSyncCars(true); if (game.state === 'online') mpRender();
   });
 }
 
@@ -2846,7 +2855,7 @@ async function mpJoin(name, hosting) {
   catch (e) { toast(e && e.code === 'not_permitted' ? 'Live races aren’t available to you here.' : 'Could not join that race. Try again.'); return; }
   finally { mp.joining = false; }
   Object.assign(mp, { r, name, peers: r.peers(), joinedAt: Date.now(), hs: hosting ? Date.now() : 0, sel: hosting ? { k: 'o', id: OFFICIAL[0].id } : null,
-    go: null, lastN: 0, synced: hosting, race: null, status: 'room', fin: null, sent: '' });
+    go: null, lastN: 0, synced: hosting, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
   mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mpPeersChanged(); }, () => {
     if (mp.r !== r) return;
     toast('Lost the connection to the race.'); mpLeave(); if (game.state === 'online') mpRender();
@@ -2856,7 +2865,7 @@ async function mpJoin(name, hosting) {
 }
 function mpLeave() {
   const r = mp.r; if (mp.unsub) mp.unsub();
-  Object.assign(mp, { r: null, name: '', peers: [], unsub: null, hs: 0, sel: null, go: null, lastN: 0, synced: false, race: null, status: 'room', fin: null, sent: '' });
+  Object.assign(mp, { r: null, name: '', peers: [], unsub: null, hs: 0, sel: null, go: null, lastN: 0, synced: false, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
   game.lockUntil = 0; $('hud-mp').hidden = true;
   mpSyncCars(); mpAdvertise();
   if (r) r.leave().catch(() => {});
@@ -2874,7 +2883,7 @@ function mpPeersChanged() {
     else if (go && go.n > mp.lastN) { mp.lastN = go.n; mpStartRace(go); }
     if (go) mp.go = go;
   }
-  mpNames(); mpSend(false); mpAdvertise(); mpSyncCars();
+  mpNames(); mpReadChat(); mpSend(false); mpAdvertise(); mpSyncCars();
   if (game.state === 'online') mpRender();
   else if (game.state === 'finished' && mp.race) renderFinishBoard();
 }
@@ -2893,7 +2902,8 @@ function mpSend(force) {
   if (!force && now - mp.sentAt < MP_SEND_MS) { if (!mp.trail) mp.trail = setTimeout(() => { mp.trail = 0; mpSend(false); }, MP_SEND_MS); return; }
   const c = game.car, racing = mp.status === 'race' && (game.state === 'race' || game.state === 'paused');
   const pr = { v: 1, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
-    cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null };
+    cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null,
+    m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP) };
   if (racing) { const q = c.q, m = new V3(0, -c.spec.comY, 0).applyQuaternion(q).add(c.pos); pr.s = [m.x, m.y, m.z, q.x, q.y, q.z, q.w].map((v, i) => Math.round(v * (i < 3 ? 100 : 1000)) / (i < 3 ? 100 : 1000)); }
   const s = JSON.stringify(pr); if (s === mp.sent) return;
   mp.sent = s; mp.sentAt = now; mp.r.presence(pr).catch(() => {});
@@ -2910,6 +2920,7 @@ function mpStartRace(go) {
   const tr = mpTrack(go.tr);
   if (!tr) { toast('Could not load the race track.'); return; }
   mp.race = { n: go.n, tr: go.tr }; mp.status = 'race'; mp.fin = null; mp.pi = 0; mp.prog = 0;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // the keys go to the car, not the chat box
   closeModal(); startTrack(tr);
   game.lockUntil = performance.now() + MP_COUNT; game.cdShown = 0; $('hud-hint').hidden = true;
   mpSyncCars(); mpSend(true);
@@ -2994,6 +3005,51 @@ function mpTick() {
   mpSend(false); mpUpdateCars(); mpHud();
 }
 
+// Chat. Each player keeps their last few messages in their presence for a
+// couple of minutes, so view-only players can talk too and someone who joins
+// sees what was just said. Every page builds the log from those.
+const CHAT_KEEP = 120000, CHAT_MAX = 160;
+function cleanChat(s) { return Array.from(String(s).replace(/[\p{Co}\p{Cs}]|(?!‍)\p{Cf}/gu, '').replace(/[\s\p{Cc}]+/gu, ' ').trim()).slice(0, CHAT_MAX).join(''); }
+function mpSay(text) {
+  text = cleanChat(text); if (!text || !mp.r) return false;
+  const now = Date.now(); if (now - mp.saidAt < 700) { toast('Slow down a little.'); return false; }
+  mp.saidAt = now; mp.msgN++;
+  mp.myMsgs = [...mp.myMsgs, [mp.msgN, text, now]].slice(-3);
+  mp.chat.push({ by: community.me, me: true, text }); mpChatChanged(false);
+  const el = $('mp-chat'); if (el) el.scrollTop = el.scrollHeight;
+  mpSend(true); return true;
+}
+function mpReadChat() {
+  const fresh = [];
+  for (const p of mp.peers) {
+    if (p.sameTab || !Array.isArray(p.presence.m)) continue;
+    for (const m of p.presence.m.slice(-3)) {
+      if (!Array.isArray(m) || typeof m[1] !== 'string') continue;
+      const key = p.peer + ':' + m[0]; if (mp.chatSeen.has(key)) continue;
+      mp.chatSeen.add(key);
+      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, me: p.isMe, text, ts: +m[2] || 0 });
+    }
+  }
+  if (!fresh.length) return;
+  fresh.sort((a, b) => a.ts - b.ts); mp.chat.push(...fresh);
+  mpChatChanged(true, fresh.length);
+}
+function mpChatChanged(incoming, n = 0) {
+  mp.chat = mp.chat.slice(-60); mp.chatVer++;
+  const inRoom = game.state === 'online' && mp.view !== 'lobby';
+  if (incoming && !inRoom) mp.unread += n;
+  if (incoming && inRoom) blip(760, 0.06);
+  if (inRoom) mpRenderChat(); else if (game.state === 'finished' && mp.race) renderFinishBoard();
+}
+function mpRenderChat() {
+  const el = $('mp-chat'); if (!el || +el.dataset.ver === mp.chatVer) return;
+  const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(c.me ? 'You' : (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('')
+    : '<p class="empty-note">No messages yet. Say hello.</p>';
+  el.dataset.ver = mp.chatVer;
+  if (atEnd || !el.dataset.seen) { el.scrollTop = el.scrollHeight; el.dataset.seen = '1'; }
+}
+
 // The live race screen: the lobby's open races, or the room you're in.
 function showOnline() {
   if (game.state !== 'online') { setState('online'); loadDemo(); }
@@ -3002,6 +3058,8 @@ function showOnline() {
 function mpRender() {
   const view = mp.r ? (mpIsHost() ? 'host' : 'room') : 'lobby';
   if (view !== mp.view) {
+    // Keep a half-typed message when the panel is rebuilt (say, on becoming the host).
+    const draft = $('mp-msg') ? $('mp-msg').value : '', typing = document.activeElement === $('mp-msg');
     mp.view = view;
     $('online-body').innerHTML = view === 'lobby' ? `<div class="eyebrow">Live race</div><h2>Race other players</h2>
       <p class="mp-sub">Race the same track at the same time as other people who have the game open.</p>
@@ -3012,7 +3070,11 @@ function mpRender() {
       <div class="field"><label for="mp-car">Your car</label><select id="mp-car">${CARS.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
       <div class="lb-head"><span>Players</span><span id="mp-count"></span></div><table class="lb world" id="mp-players"></table>
       <p class="lb-note" id="mp-status"></p>
+      <div class="lb-head"><span>Chat</span></div>
+      <div class="mp-chat" id="mp-chat" role="log" aria-live="polite"></div>
+      <form class="mp-say" id="mp-say"><input id="mp-msg" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" aria-label="Chat message"><button class="btn" type="submit">Send</button></form>
       <div class="row">${view === 'host' ? '<button class="btn primary" id="mp-start">Start race</button>' : ''}<button class="btn" id="mp-leave">Leave</button></div>`;
+    if ($('mp-msg')) { $('mp-msg').value = draft; if (typing) $('mp-msg').focus(); }
     const on = (id, fn, ev = 'onclick') => { const el = $(id); if (el) el[ev] = fn; };
     on('mp-host', () => mpJoin('race-' + Array.from({ length: 6 }, () => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)]).join(''), true));
     on('mp-back', () => { setState('menu'); loadDemo(); });
@@ -3021,6 +3083,7 @@ function mpRender() {
     on('mp-track', e => { const s = mpSpecFromValue(e.target.value); if (s) { mp.sel = s; mpSend(true); mpAdvertise(); mpRender(); } }, 'onchange');
     on('mp-car', e => { selectCar(e.target.value); mpSend(true); }, 'onchange');
     on('mp-list', e => { const b = e.target.closest('[data-join]'); if (b) mpJoin(b.dataset.join, false); });
+    on('mp-say', e => { e.preventDefault(); if (mpSay($('mp-msg').value)) $('mp-msg').value = ''; }, 'onsubmit');
   }
   if (view === 'lobby') {
     const races = mpOpenRaces(), el = $('mp-list');
@@ -3030,6 +3093,7 @@ function mpRender() {
   }
   const tr = mpTrack(mp.sel), host = mpHost(), live = mpLive();
   if (tr && world.track !== tr) loadDemo();
+  mp.unread = 0; mpRenderChat();
   $('mp-trackname').textContent = tr ? tr.name : 'Waiting for the host…';
   $('mp-eyebrow').textContent = 'Live race · ' + (view === 'host' ? 'you’re the host' : host ? mpName(host) + ' is the host' : 'finding the host…');
   const sel = $('mp-track'); if (sel && document.activeElement !== sel) sel.value = mpSpecValue(mp.sel);
