@@ -42,7 +42,7 @@ COVER = {
     'fight-club': '2024/05/Instructors-training_Honbu-Dojo-Epping.jpg',
     'coronavirus-online-karate-training': '2024/05/image-1.png', 'yoga-karate': '2024/05/Yoga-Studio.jpg',
     'virtual-dojo': '2024/05/EHTEAMS-1.jpg', 'chi': '2024/05/yinyang.png',
-    'trainee-instructors': '2024/04/SimritBlogPic_EH3-683x1024-1.jpg',
+    'trainee-instructors': '2024/05/eh-students_q.jpg',
     'bodhidharma-founder-of-martial-arts': '2024/05/bodhidharma.jpg', 'clinic': '2024/05/kidney27.jpg',
     'warm-up': '2025/08/homekarate.jpg', 'sotai-master-class-with-rex-lassalle': '2024/05/image-1-1.png',
     'workshop-with-shihan-chris-rowen': '2024/02/azeem-mushtaq-sensei.jpg',

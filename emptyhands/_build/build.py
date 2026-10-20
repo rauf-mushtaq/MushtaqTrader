@@ -524,7 +524,7 @@ def build_home():
 %(cta)s
 ''' % {
         'img_main': img('azeem-mushtaq-sensei.webp', 'Sensei Azeem leading a training session in the dojo hall', 'main'),
-        'img_inset': img('simritblogpic-eh2-683x1024-1.webp', 'A student in a red belt performing kata', 'inset'),
+        'img_inset': img('reet.webp', 'Reet performing a high kick', 'inset'),
         'cards': ''.join(cards), 'kun': kun, 'timetable': timetable(), 'calendar': DOCS['calendar'],
         'azeem': img('amushtaqsensei.webp', 'Azeem Mushtaq Sensei', '', 724, 1048), 'play': ICON['play'],
         'quotes': quotes, 'faces': faces, 'posts': posts, 'locations': locations(), 'cta': cta_band(),
@@ -604,7 +604,7 @@ def build_disciplines():
         [('fist', 'f.ist', 'hand and fingers clenched, a gesture'), ('learn', 'le.arn', 'to gain or acquire knowledge or skill'),
          ('develop', 'de.vel.op', 'to grow or transform into a new state'), ('empower', 'em.pow.er', 'to give ability, freedom — to enable'),
          ('inspire', 'in.spire', 'to fill with an animating, quickening, or exalting influence')],
-        [('homekarate.webp', 'Kicks, kata and line work at the dojo'), ('leila2-edited.webp', 'Leila in a deep stance'), ('simritblogpic-eh3-683x1024-1.webp', 'A smiling young karateka in her gi')],
+        [('homekarate.webp', 'Kicks, kata and line work at the dojo'), ('leila2-edited.webp', 'Leila in a deep stance'), ('eh-students-q.webp', 'Students in red and orange belts practising together')],
         {'Karate', 'History'}, karate_extra)
     page('karate.html', 'Karate classes in Ilford & Epping', 'Traditional Shotokan Karate classes for children and adults in Ilford (Thursdays 6–9pm) and Epping. Founded 2006 on the ideals of Gichin Funakoshi.', body, 'karate', over_hero=True)
 
@@ -985,10 +985,10 @@ def build_join():
 GALLERY = [
     ('homekarate.webp', 'Students training at EmptyHands'), ('azeem-mushtaq-sensei.webp', 'Sensei Azeem leading the class'),
     ('eh-students-q.webp', 'Students practising in pairs'), ('shotokan-tigers.webp', 'EmptyHands students outdoors'),
-    ('simritblogpic-eh2-683x1024-1.webp', 'A red belt student performing kata'), ('instructors-training-honbu-dojo-epping.webp', 'Instructor training at the Epping Honbu Dojo'),
+    ('instructors-training-honbu-dojo-epping.webp', 'Instructor training at the Epping Honbu Dojo'),
     ('leila2-edited.webp', 'Leila in a low stance'), ('image-1.webp', 'Students in the dojo hall'),
     ('reet.webp', 'Reet performing a high kick'), ('taichi-school.webp', 'Tai Chi practice'),
-    ('simritblogpic-eh3-683x1024-1.webp', 'A young karateka smiling'), ('image-1-1.webp', 'A workshop on the mats'),
+    ('image-1-1.webp', 'A workshop on the mats'),
     ('amarah.webp', 'Amarah in kata'), ('adwaitha.webp', 'Adwaitha in a fighting stance'),
     ('dhillon.webp', 'Dhillon in a stance'), ('leila.webp', 'Leila training'),
     ('amushtaqsensei.webp', 'Azeem Sensei teaching a seminar'), ('azeem-mushtaq.webp', 'Azeem Sensei'),
