@@ -1091,7 +1091,8 @@ function obstaclesFor(t) {
 }
 function place(g, t) { g.position.set(t.x * S, t.l * H, t.z * S); g.rotation.y = t.r * Math.PI / 2; }
 
-// Scenery: trees, rocks and clouds kept clear of the road.
+// Scenery: trees, rocks and clouds kept clear of the road. Kept sparse so slower
+// phones and tablets have less to draw (and to cast shadows for).
 const treeMatA = new THREE.MeshStandardMaterial({ color: 0x2f8a4f, flatShading: true, roughness: 1 });
 const treeMatB = new THREE.MeshStandardMaterial({ color: 0x3fa35a, flatShading: true, roughness: 1 });
 const trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a5236, flatShading: true });
@@ -1113,11 +1114,11 @@ function buildScenery(tiles) {
   const coneGeo = env === 'desert' ? new THREE.CylinderGeometry(0.55, 0.65, 6.5, 7) : new THREE.ConeGeometry(2.4, 6.5, 6);
   const trunkGeo = env === 'desert' ? new THREE.CylinderGeometry(0.35, 0.4, 2.2, 6) : new THREE.CylinderGeometry(0.4, 0.5, 2, 5);
   const rockGeo = new THREE.DodecahedronGeometry(1.6, 0);
-  const pad = 9; const count = 260;
+  const pad = 9; const count = 80, ROCKS = 30;
   const cones = [new THREE.InstancedMesh(coneGeo, treeMatA, count), new THREE.InstancedMesh(coneGeo, treeMatB, count)];
   const trunks = new THREE.InstancedMesh(trunkGeo, env === 'desert' ? treeMatA : trunkMat, count * 2);
   const snow = new THREE.InstancedMesh(new THREE.ConeGeometry(2.4, 2.6, 6), snowMat, count * 2); let si = 0;
-  const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 80);
+  const rocks = new THREE.InstancedMesh(rockGeo, rockMat, ROCKS);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new V3(), p = new V3();
   let ci = [0, 0], ti = 0, ri = 0;
   for (let i = 0; i < count * 3 && (ci[0] + ci[1]) < count * 2; i++) {
@@ -1125,7 +1126,7 @@ function buildScenery(tiles) {
     if (occ.has(cx + ',' + cz)) continue;
     const x = cx * S + (rand() - 0.5) * S, z = cz * S + (rand() - 0.5) * S;
     const sc = 0.7 + rand() * 0.9; const k = rand() < 0.5 ? 0 : 1;
-    if (rand() < (env === 'desert' ? 0.3 : 0.12) && ri < 80) {
+    if (rand() < (env === 'desert' ? 0.3 : 0.12) && ri < ROCKS) {
       const big = env === 'desert' && rand() < 0.4 ? 3.5 : 1;
       q.setFromEuler(new THREE.Euler(rand() * 3, rand() * 3, 0)); s.set(sc * 1.4 * big, sc * big, sc * 1.2 * big); p.set(x, -0.2, z);
       rocks.setMatrixAt(ri++, m.compose(p, q, s)); continue;
@@ -1145,7 +1146,7 @@ function buildScenery(tiles) {
   cones[0].count = ci[0]; cones[1].count = ci[1]; trunks.count = ti; rocks.count = ri; snow.count = si;
   for (const im of [...cones, trunks, rocks, snow]) { im.castShadow = true; im.receiveShadow = true; scenery.add(im); }
   const cx = (minX + maxX) / 2 * S, cz = (minZ + maxZ) / 2 * S;
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 6; i++) {
     const cl = new THREE.Group();
     for (let j = 0; j < 4; j++) {
       const b = new THREE.Mesh(new THREE.IcosahedronGeometry(6 + rand() * 6, 0), cloudMat);
@@ -2413,10 +2414,12 @@ function updateDriftHud(car) {
   $('drift-label').textContent = st ? st.name.replace(' boost', '') + ' ready' : 'Drift';
   $('drift-label').style.color = st ? st.color : 'var(--text)';
 }
+// The speed readout (and the garage's top speeds) show 70% of the true speed.
+const SPEEDO = 0.7;
 function updateHud() {
   $('hud-time').textContent = fmtTime(game.time);
   const kmh = game.car.speedKmh();
-  $('spd').textContent = Math.round(kmh);
+  $('spd').textContent = Math.round(kmh * SPEEDO);
   $('spd-bar').style.width = clamp(kmh / (game.car.spec.vmax * 3.6 * 1.15) * 100, 0, 100) + '%';
   drawMinimap();
 }
@@ -3343,12 +3346,12 @@ function renderGarage() {
   $('g-name').textContent = c.name; $('g-cls').textContent = c.cls;
   const drive = c.drive >= 0.9 ? 'Rear-wheel drive' : c.drive <= 0.1 ? 'Front-wheel drive' : 'All-wheel drive';
   const row = (label, v, txt) => `<span>${label}</span><div class="bar"><b style="width:${Math.round(v * 100)}%"></b></div><span class="v">${txt}</span>`;
-  $('g-stats').innerHTML = row('Top speed', st.speed, Math.round(c.vmax * 3.6) + ' km/h') + row('Acceleration', st.accel, c.accel >= 34 ? 'explosive' : c.accel >= 29 ? 'quick' : c.accel >= 25 ? 'brisk' : 'gentle') +
+  $('g-stats').innerHTML = row('Top speed', st.speed, Math.round(c.vmax * 3.6 * SPEEDO) + ' km/h') + row('Acceleration', st.accel, c.accel >= 34 ? 'explosive' : c.accel >= 29 ? 'quick' : c.accel >= 25 ? 'brisk' : 'gentle') +
     row('Grip', st.grip, c.df >= 0.5 ? 'downforce' : c.grip >= 2 ? 'sticky' : 'road') + row('Drift', st.drift, c.rear < 0.95 ? 'loose' : c.rear > 1.05 ? 'planted' : 'balanced') +
     `<span>Drive</span><span style="grid-column: span 2; color: var(--muted)">${drive}</span>`;
   $('g-paint').innerHTML = CAR_COLORS.map(col => `<button class="${col === 'factory' ? 'factory' : ''} ${col === (settings.paint || 'factory') ? 'sel' : ''}" ${col === 'factory' ? '' : `style="background:${col}"`} data-paint="${col}" aria-label="${col === 'factory' ? 'Factory paint' : 'Paint ' + col}" title="${col === 'factory' ? 'Factory paint' : col}"></button>`).join('');
   $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car); return `<button class="car-card ${car.id === c.id ? 'sel' : ''}" data-car="${car.id}">
-    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${car.cls} · ${Math.round(car.vmax * 3.6)} km/h</span>
+    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
     <span class="mini" title="Speed, acceleration, grip, drift">${['speed', 'accel', 'grip', 'drift'].map(k => `<i><b style="width:${Math.round(s2[k] * 100)}%"></b></i>`).join('')}</span></button>`; }).join('');
 }
 function openGarage() {
@@ -3880,7 +3883,7 @@ function start() {
 }
 $('btn-name').onclick = () => askName(false);
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
