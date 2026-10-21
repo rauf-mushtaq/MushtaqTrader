@@ -85,16 +85,71 @@
     setIcon();
   }
 
-  /* Dojo film: click to play with sound */
+  /* Dojo film: plays with its music when scrolled into view. Browsers only allow sound
+     after the visitor has tapped or clicked the page, so until then it plays muted
+     with a "tap for sound" button. */
+  var userGestured = false;
   $$('.film').forEach(function (film) {
-    var btn = $('.film-play', film), v = $('video', film);
-    if (!btn || !v) return;
-    btn.addEventListener('click', function () {
-      v.setAttribute('controls', '');
-      v.play();
-      btn.remove();
-      var meta = $('.film-meta', film); if (meta) meta.remove();
+    var btn = $('.film-play', film), v = $('video', film), meta = $('.film-meta', film);
+    if (!v) return;
+    var started = false, userPaused = false, autoPausing = false;
+    var sound = document.createElement('button');
+    sound.className = 'film-sound';
+    sound.type = 'button';
+    sound.hidden = true;
+    sound.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>Tap for sound';
+    film.appendChild(sound);
+
+    var unmute = function () { v.muted = false; sound.hidden = true; };
+    var start = function (withSound) {
+      if (!started) {
+        started = true;
+        v.setAttribute('controls', '');
+        if (btn) btn.remove();
+        if (meta) meta.remove();
+      }
+      v.muted = !(withSound || userGestured);
+      var p = v.play();
+      if (p && p.catch) {
+        p.then(function () { sound.hidden = !v.muted; }).catch(function (err) {
+          // Only fall back to muted for the browser's autoplay block, not a pause mid-start
+          if (!err || err.name !== 'NotAllowedError') return;
+          v.muted = true;
+          sound.hidden = false;
+          v.play().catch(function () {});
+        });
+      } else {
+        sound.hidden = !v.muted;
+      }
+    };
+
+    if (btn) btn.addEventListener('click', function () { userGestured = true; userPaused = false; start(true); });
+    sound.addEventListener('click', function () { userGestured = true; unmute(); });
+    v.addEventListener('volumechange', function () { if (!v.muted) sound.hidden = true; });
+    v.addEventListener('pause', function () {
+      if (autoPausing) autoPausing = false;
+      else if (!v.ended) userPaused = true;
     });
+    v.addEventListener('play', function () { userPaused = false; });
+
+    if ('IntersectionObserver' in window && !reduceMotion) {
+      new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting && en.intersectionRatio >= 0.5) {
+            if (!userPaused && v.paused && !v.ended) start(false);
+          } else if (!v.paused) {
+            autoPausing = true; v.pause();
+          }
+        });
+      }, { threshold: [0, 0.5] }).observe(film);
+    }
+
+    /* The first tap or key press anywhere on the page unlocks sound for a muted film */
+    var unlock = function () {
+      userGestured = true;
+      if (started && v.muted && !v.paused) unmute();
+    };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, unlock, { passive: true }); });
   });
 
   /* Testimonial carousel arrows */
