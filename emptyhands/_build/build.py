@@ -41,7 +41,7 @@ DOJOS = [
         'name': 'Epping Dojo (invite only)', 'k': '本部', 'address': 'Jack Silley Pavilion, Epping (invite only)',
         'map': 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2472.6607334141377!2d0.1160950876519874!3d51.70265332387034!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47d89896bb52877f%3A0x84ade7537c849d8f!2sJack%20Silley%20Pavilion!5e0!3m2!1sen!2s!4v1714126428360!5m2!1sen!2s',
         'directions': 'https://www.google.com/maps/dir/?api=1&destination=Jack+Silley+Pavilion+Epping',
-        'classes': ['Advanced Karate — for developed students', 'Tai Chi — Tuesdays 6:30pm–8:30pm', 'Shiatsu clinic — by appointment'],
+        'classes': ['Advanced Karate — for developed students', 'Shiatsu clinic — by appointment'],
     },
 ]
 
@@ -184,6 +184,8 @@ def page(path, title, description, body, active='', over_hero=False, extra_head=
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src 'self'; frame-src https://www.google.com; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' mailto:; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>%(title)s</title>
 <meta name="description" content="%(desc)s">
 <meta name="theme-color" content="#14120f">
@@ -193,9 +195,7 @@ def page(path, title, description, body, active='', over_hero=False, extra_head=
 <meta property="og:image" content="%(p)sassets/img/hero-poster.jpg">
 <link rel="icon" href="%(p)sassets/img/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="%(p)sassets/img/favicon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Karla:wght@400;500;700&family=Shippori+Mincho:wght@500;600;700&display=swap">
+<link rel="preload" href="%(p)sassets/fonts/karla.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="%(p)sassets/css/style.css">
 %(extra)s</head>
 <body>
@@ -290,9 +290,7 @@ TIMETABLE = [
     ('Thursday', 'karate', 'Karate-Dō', 'All grades, children & adults', '7:00pm – 9:00pm', 'Ilford', 'Weekly'),
     ('Thursday', 'taichi', 'Tai Chi Chuan', 'Yang family style', '6:00pm – 7:00pm', 'Ilford', 'Book ahead'),
     ('Thursday', 'yoga', 'Yoga', 'Himalayan Hatha — drop-in', '8:00pm – 9:00pm', 'Ilford', 'Drop-in'),
-    ('Tuesday', 'taichi', 'Tai Chi Chuan', 'Yang family style', '6:30pm – 8:30pm', 'Epping (invite only)', 'Book ahead'),
-    ('Advanced', 'karate', 'Advanced Karate', 'For our more developed students', 'By invitation', 'Epping (invite only)', 'Senior'),
-    ('Any day', 'shiatsu', 'Shiatsu & Coaching', 'One-to-one sessions & workshops', 'By appointment', 'Epping (invite only) / Teams', 'Free 15-min consult'),
+    ('Any day', 'shiatsu', 'Shiatsu & Coaching', 'One-to-one sessions & workshops', 'By appointment', '', 'Free 15-min consult'),
 ]
 
 
@@ -325,9 +323,9 @@ def locations():
     out = []
     for d in DOJOS:
         out.append('''<article class="location reveal">
-  <iframe src="%s" title="Map of %s" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+  <div class="map-consent"><button class="map-load" type="button" data-src="%s" data-title="Map of %s">Show map</button><p>Loads Google Maps, which may set cookies.</p></div>
   <div class="body"><h3>%s <span class="k kanji">%s</span></h3><p class="muted">%s</p><ul>%s</ul>
-  <a class="link-arrow" href="%s" target="_blank" rel="noopener">Get directions</a></div>
+  <a class="link-arrow" href="%s" target="_blank" rel="noopener noreferrer">Get directions</a></div>
 </article>''' % (d['map'], d['name'], d['name'], d['k'], d['address'], ''.join('<li>%s</li>' % c for c in d['classes']), d['directions']))
     return '<div class="locations">%s</div>' % ''.join(out)
 
@@ -612,19 +610,19 @@ def build_disciplines():
     page('yoga.html', 'Yoga classes in Ilford', 'Himalayan Hatha Yoga drop-in classes in Ilford every Thursday 8–9pm, blending Karate, Tai Chi and Shiatsu teachings.', body, 'yoga', over_hero=True)
 
     body = discipline_page(
-        'tai-chi', '太極拳', 'Tai Chi Chuan', 'Internal martial arts · Ilford &amp; Epping (invite only)',
+        'tai-chi', '太極拳', 'Tai Chi Chuan', 'Internal martial arts · Ilford',
         'Traditional Yang family Tai Chi Chuan — for relaxation, mindfulness, balance and physical fitness.',
         ('video', 'taichi.mp4', 'taichi-poster.jpg'),
         '''<span class="eyebrow">Information</span>
 <h2>Softness that overcomes hardness.</h2>
 <p class="lead">We teach traditional Yang family Tai Chi Chuan based on the principles and teachings of Master Ding Academy.</p>
 <p>Tai Chi Chuan is an internal martial art designed to enhance flexibility, balance and mindfulness, which makes it suitable for students of all ages and fitness levels. Azeem Sensei began studying the internal arts with Master John Ding at the International Academy of Tai Chi Chuan in 1999.</p>
-<p>Our classes run every week in Ilford (Thursday, 6pm–7pm) and Epping (invite only) (Tuesday, 6:30pm–8:30pm). These classes require advance booking to ensure a personalised experience for all participants.</p>''',
-        [('Ilford', 'Thursdays, 6pm – 7pm'), ('Epping (invite only)', 'Tuesdays, 6:30pm – 8:30pm'), ('Style', 'Traditional Yang family'), ('Lineage', 'Master Ding Academy'), ('Booking', 'Advance booking required'), ('Fees', '£10 per class or £30 per month')],
+<p>Our classes run every week in Ilford (Thursday, 6pm–7pm). These classes require advance booking to ensure a personalised experience for all participants.</p>''',
+        [('Ilford', 'Thursdays, 6pm – 7pm'), ('Style', 'Traditional Yang family'), ('Lineage', 'Master Ding Academy'), ('Booking', 'Advance booking required'), ('Fees', '£10 per class or £30 per month')],
         [('grand', 'gr.and', 'magnificent and imposing'), ('ultimate', 'ulti.mate', 'the best or most extreme'), ('energise', 'ener.gise', 'achieving vitality and enthusiasm')],
         [('taichi-school.webp', 'Students practising Tai Chi in a sports hall'), ('wuchi.webp', 'Wu Chi — ink brush circle')],
         {'Wellbeing'})
-    page('tai-chi.html', 'Tai Chi Chuan in Ilford & Epping (invite only)', 'Traditional Yang family Tai Chi Chuan classes in Ilford (Thursdays) and Epping (invite only) (Tuesdays), in the lineage of Master Ding Academy.', body, 'tai-chi', over_hero=True)
+    page('tai-chi.html', 'Tai Chi Chuan in Ilford', 'Traditional Yang family Tai Chi Chuan classes in Ilford (Thursdays), in the lineage of Master Ding Academy.', body, 'tai-chi', over_hero=True)
 
     body = discipline_page(
         'shiatsu', '指圧', 'Shiatsu', 'Japanese healing therapy · Epping clinic (invite only)',

@@ -333,5 +333,17 @@
     });
   });
 
+  /* Google Maps only loads when the visitor asks for it */
+  $$('.map-load').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var f = document.createElement('iframe');
+      f.src = b.dataset.src;
+      f.title = b.dataset.title;
+      f.loading = 'lazy';
+      f.referrerPolicy = 'strict-origin-when-cross-origin';
+      b.parentNode.replaceWith(f);
+    });
+  });
+
   var y = $('#year'); if (y) y.textContent = new Date().getFullYear();
 })();
