@@ -1003,7 +1003,7 @@ def build_gallery():
     <div class="film reveal">
       <video preload="metadata" playsinline poster="assets/img/dojo-film-poster.jpg"><source src="assets/video/dojo-film.mp4" type="video/mp4"></video>
       <button class="film-play" aria-label="Play the EmptyHands dojo film"><span>%s</span></button>
-      <div class="film-meta">EmptyHands Karate School<strong>Trailers 1 &amp; 2 · with music · 3 min 40</strong></div>
+      <div class="film-meta">EmptyHands Karate School<strong>Trailers 1 &amp; 2 mixed · with music · 1 min 44</strong></div>
     </div>
   </div>
 </section>
