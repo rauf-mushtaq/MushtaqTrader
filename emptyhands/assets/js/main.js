@@ -85,6 +85,44 @@
     setIcon();
   }
 
+  /* Home hero dojo film: starts playing as soon as the page opens. It tries with sound
+     first; browsers that block that get it muted, and the first tap or key press anywhere
+     (or the sound button) turns the music on. */
+  var hf = $('.hero video[data-film]'), hs = $('.hero-sound');
+  if (hf && hs) {
+    var soundChosen = false;
+    var label = function () {
+      hs.classList.toggle('is-on', !hf.muted);
+      $('span', hs).textContent = hf.muted ? 'Tap for sound' : 'Mute';
+      hs.setAttribute('aria-label', hf.muted ? 'Turn sound on' : 'Mute');
+    };
+    var playFilm = function () { var p = hf.play(); if (p && p.catch) p.catch(function () {}); };
+    if (!reduceMotion) {
+      hf.muted = false;
+      var first = hf.play();
+      if (first && first.catch) {
+        first.catch(function (err) {
+          if (err && err.name === 'NotAllowedError') { hf.muted = true; playFilm(); }
+          label();
+        });
+      }
+    }
+    hf.addEventListener('volumechange', label);
+    hs.addEventListener('click', function () {
+      soundChosen = true;
+      hf.muted = !hf.muted;
+      if (hf.paused) { delete hf.dataset.userPaused; playFilm(); }
+      label();
+    });
+    var unlockHero = function (e) {
+      if (soundChosen || (e.target.closest && e.target.closest('.hero-sound, .video-toggle'))) return;
+      soundChosen = true;
+      if (hf.muted) { hf.muted = false; if (hf.paused && !hf.dataset.userPaused) playFilm(); }
+    };
+    ['click', 'touchend', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockHero, { passive: true }); });
+    label();
+  }
+
   /* Dojo film: plays with its music when scrolled into view. Browsers only allow sound
      after the visitor has tapped or clicked the page, so until then it plays muted
      with a "tap for sound" button. */

@@ -370,9 +370,9 @@ def build_home():
     kun = ''.join('<li><span class="jp">%s</span><span class="en">%s</span></li>' % (jp, en) for jp, en in DOJO_KUN)
 
     body = '''
-<section class="hero">
-  <video data-bg autoplay muted loop playsinline preload="auto" poster="assets/img/hero-poster.jpg"><source src="assets/video/hero.mp4" type="video/mp4"></video>
-  <div class="hero-kanji" aria-hidden="true">空手道<small>Karate-Dō</small></div>
+<section class="hero has-film">
+  <video data-bg data-film autoplay muted loop playsinline preload="auto" poster="assets/img/dojo-film-poster.jpg"><source src="assets/video/dojo-film.mp4" type="video/mp4"></video>
+  <button class="hero-sound" type="button" aria-label="Turn sound on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/><path class="cross" d="m16 9 6 6m0-6-6 6"/></svg><span>Tap for sound</span></button>
   <div class="wrap">
     <span class="eyebrow">Traditional Karate School · Est. 2006</span>
     <h1>The way of the <em>empty hand</em>.</h1>
@@ -385,7 +385,7 @@ def build_home():
       <div><strong>2</strong><span>Dojos</span></div>
     </div>
   </div>
-  <button class="video-toggle" aria-label="Pause background video"></button>
+  <button class="video-toggle" aria-label="Pause video"></button>
 </section>
 
 <section class="section">
@@ -469,19 +469,6 @@ def build_home():
   </div>
 </section>
 
-<section class="section section--dark">
-  <div class="wrap">
-    <div class="section-head reveal">
-      <div><span class="eyebrow">Inside the dojo</span><h2>Watch the dojo in action</h2></div>
-      <p class="lead">Both EmptyHands trailers back to back — kihon, kata, kumite and gradings, set to music.</p>
-    </div>
-    <div class="film reveal">
-      <video preload="metadata" playsinline poster="assets/img/dojo-film-poster.jpg"><source src="assets/video/dojo-film.mp4" type="video/mp4"></video>
-      <button class="film-play" aria-label="Play the EmptyHands dojo film"><span>%(play)s</span></button>
-      <div class="film-meta">EmptyHands Karate School<strong>Trailers 1 &amp; 2 · with music · 3 min 40</strong></div>
-    </div>
-  </div>
-</section>
 
 <section class="section section--dark" style="padding-top:0">
   <div class="wrap quotes">
@@ -606,7 +593,7 @@ def build_disciplines():
          ('inspire', 'in.spire', 'to fill with an animating, quickening, or exalting influence')],
         [('homekarate.webp', 'Kicks, kata and line work at the dojo'), ('leila2-edited.webp', 'Leila in a deep stance'), ('eh-students-q.webp', 'Students in red and orange belts practising together')],
         {'Karate', 'History'}, karate_extra)
-    page('karate.html', 'Karate classes in Ilford & Epping (invite only)', 'Traditional Shotokan Karate classes for children and adults in Ilford (Thursdays 6–9pm) and Epping (invite only). Founded 2006 on the ideals of Gichin Funakoshi.', body, 'karate', over_hero=True)
+    page('karate.html', 'Karate classes in Ilford & Epping (invite only)', 'Traditional Shotokan Karate classes for children and adults in Ilford (Thursdays 7–9pm) and Epping (invite only). Founded 2006 on the ideals of Gichin Funakoshi.', body, 'karate', over_hero=True)
 
     body = discipline_page(
         'yoga', 'ヨガ', 'Yoga', 'Himalayan Hatha Yoga · Ilford',
