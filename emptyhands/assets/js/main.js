@@ -108,18 +108,40 @@
       }
     }
     hf.addEventListener('volumechange', label);
-    hs.addEventListener('click', function () {
-      soundChosen = true;
-      hf.muted = !hf.muted;
-      if (hf.paused) { delete hf.dataset.userPaused; playFilm(); }
+    hf.addEventListener('play', label);
+
+    /* Must run inside a real tap, click or key press: Safari refuses sound otherwise. If it
+       still refuses, fall back to muted playback so the next tap can try again. */
+    var soundOn = function () {
+      hf.muted = false;
+      hf.volume = 1;
+      delete hf.dataset.userPaused;
+      var p = hf.play();
+      if (p && p.catch) p.catch(function () { hf.muted = true; playFilm(); label(); });
       label();
-    });
-    var unlockHero = function (e) {
-      if (soundChosen || (e.target.closest && e.target.closest('.hero-sound, .video-toggle'))) return;
-      soundChosen = true;
-      if (hf.muted) { hf.muted = false; if (hf.paused && !hf.dataset.userPaused) playFilm(); }
     };
-    ['click', 'touchend', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockHero, { passive: true }); });
+    hs.addEventListener('click', function () {
+      if (hf.muted || hf.paused) { soundChosen = false; soundOn(); }
+      else { soundChosen = true; hf.muted = true; label(); }
+    });
+
+    /* Any tap on the page turns the music on until it works, unless the visitor muted it.
+       A finger that scrolls is not a tap (Safari won't allow sound from it), so taps are
+       detected by how little the finger moved. */
+    var unlockHero = function (e) {
+      if (soundChosen || (e && e.target && e.target.closest && e.target.closest('.hero-sound, .video-toggle'))) return;
+      if (hf.muted || (hf.paused && !hf.dataset.userPaused)) soundOn();
+    };
+    var touchX = 0, touchY = 0, touchT = 0;
+    document.addEventListener('touchstart', function (e) {
+      var t = e.touches[0]; touchX = t.clientX; touchY = t.clientY; touchT = Date.now();
+    }, { passive: true });
+    document.addEventListener('touchend', function (e) {
+      var t = e.changedTouches[0];
+      if (Math.abs(t.clientX - touchX) < 12 && Math.abs(t.clientY - touchY) < 12 && Date.now() - touchT < 600) unlockHero(e);
+    }, { passive: true });
+    document.addEventListener('click', unlockHero);
+    document.addEventListener('keydown', unlockHero);
     label();
   }
 
