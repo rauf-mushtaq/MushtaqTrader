@@ -74,7 +74,7 @@
   .track-card .actions button { font-size: 11px; padding: 3px 7px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .track-card .actions button:hover { color: var(--text); border-color: var(--text); }
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.community { color: #62f0ff; }
+  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.community { color: #62f0ff; }
   .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track-card .rec { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-align: left; min-width: 0; }
   .track-card .rec .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -488,28 +488,31 @@ const BANK = bankAngle(0.62, true), WALL = bankAngle(1.1, true);
 // Loop: a teardrop with spiral (clothoid-style) transitions. Curvature rises
 // smoothly from zero, peaks at the top, and falls back to zero, so the car
 // is eased into it. It shifts one lane sideways so the exit clears the entry.
-const LOOP_SPIRAL = 80, LOOP_IN = 2.4;
-const LOOP_TAB = (() => {
-  const n = 400, k = 4 * Math.PI / LOOP_SPIRAL, ds = LOOP_SPIRAL / n; let th = 0, y = 0, z = 0; const t = [[0, 0, 0]];
-  for (let i = 0; i < n; i++) { const s = (i + 0.5) * ds; th += k * Math.sin(Math.PI * s / LOOP_SPIRAL) ** 2 * ds; y += Math.sin(th) * ds; z += Math.cos(th) * ds; t.push([th, y, z]); }
-  return t;
-})();
-const LOOP_START = -S / 2 + LOOP_IN, LOOP_ZEND = LOOP_TAB[LOOP_TAB.length - 1][2];
-const LOOP_LEN = LOOP_IN + LOOP_SPIRAL + (S * 1.5 - (LOOP_START + LOOP_ZEND));
-function loopSample(s) {
-  const f = clamp(s / LOOP_SPIRAL, 0, 1) * (LOOP_TAB.length - 1), i = Math.min(LOOP_TAB.length - 2, Math.floor(f)), k = f - i;
-  const a = LOOP_TAB[i], b = LOOP_TAB[i + 1]; return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+// A loop of spiral length L is about 0.22·L tall and fits in `tiles` tiles.
+const LOOP_IN = 2.4;
+function loopShape(spiral, tiles) {
+  const tab = [[0, 0, 0]], n = 400, kk = 4 * Math.PI / spiral, ds = spiral / n; let th = 0, y = 0, z = 0;
+  for (let i = 0; i < n; i++) { const s = (i + 0.5) * ds; th += kk * Math.sin(Math.PI * s / spiral) ** 2 * ds; y += Math.sin(th) * ds; z += Math.cos(th) * ds; tab.push([th, y, z]); }
+  const start = -S / 2 + LOOP_IN, zEnd = tab[tab.length - 1][2], len = LOOP_IN + spiral + (S * (tiles - 0.5) - (start + zEnd));
+  const sample = s => {
+    const f = clamp(s / spiral, 0, 1) * (tab.length - 1), i = Math.min(tab.length - 2, Math.floor(f)), k = f - i;
+    const a = tab[i], b = tab[i + 1]; return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  };
+  return {
+    path: side => u => {
+      const s = u * len;
+      if (s <= LOOP_IN) return [0, 0, -S / 2 + s];
+      if (s >= LOOP_IN + spiral) return [20 * side, 0, start + zEnd + s - LOOP_IN - spiral];
+      // The sideways shift bends hardest a quarter and three quarters of the way
+      // round, where the loop presses the car into the road (not at the entry).
+      const k = (s - LOOP_IN) / spiral, [, y, z] = sample(s - LOOP_IN);
+      return [20 * side * (k - Math.sin(2 * Math.PI * k) / (2 * Math.PI)), y, start + z];
+    },
+    nrm: u => { const s = u * len - LOOP_IN; if (s <= 0 || s >= spiral) return [0, 1, 0]; const th = sample(s)[0]; return [0, Math.cos(th), -Math.sin(th)]; },
+  };
 }
-const loopPath = side => u => {
-  const s = u * LOOP_LEN;
-  if (s <= LOOP_IN) return [0, 0, -S / 2 + s];
-  if (s >= LOOP_IN + LOOP_SPIRAL) return [20 * side, 0, LOOP_START + LOOP_ZEND + s - LOOP_IN - LOOP_SPIRAL];
-  // The sideways shift bends hardest a quarter and three quarters of the way
-  // round, where the loop presses the car into the road (not at the entry).
-  const k = (s - LOOP_IN) / LOOP_SPIRAL, [, y, z] = loopSample(s - LOOP_IN);
-  return [20 * side * (k - Math.sin(2 * Math.PI * k) / (2 * Math.PI)), y, LOOP_START + z];
-};
-const loopNormal = u => { const s = u * LOOP_LEN - LOOP_IN; if (s <= 0 || s >= LOOP_SPIRAL) return [0, 1, 0]; const th = loopSample(s)[0]; return [0, Math.cos(th), -Math.sin(th)]; };
+// The loop is 17.5 m tall; the massive loop is twice the size (35 m) and four tiles long.
+const LOOP = loopShape(80, 2), MEGA = loopShape(160, 4);
 // Steep ramp: climbs two levels in one tile. It shapes its ends to what joins
 // them (see shapeSteep): from flat road it curves up into the slope, steep ramps
 // in a row make one straight climb, and with nothing after it the top is a lip
@@ -539,15 +542,17 @@ const TYPES = {
   longramp:   { label: 'Long slope', key: '0', fp: [[0, 0], [0, 1]], n: 48, levels: 1, path: u => [0, H * smooth(u), -S / 2 + u * 2 * S] },
   bankturn:   { label: 'Banked turn', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 34, levels: 1, below: 1, path: wideTurnPath, nrm: bankedNormal(BANK) },
   wallturn:   { label: 'Wall ride', fp: [[0, 0], [1, 0], [0, 1], [1, 1]], n: 40, levels: 2, below: 2, path: wideTurnPath, nrm: bankedNormal(WALL) },
-  loop:       { label: 'Loop', fp: [[0, 0], [0, 1], [1, 0], [1, 1]], n: 90, levels: 4, path: loopPath(1), nrm: loopNormal },
-  loopr:      { label: 'Loop (right)', fp: [[0, 0], [0, 1], [-1, 0], [-1, 1]], n: 90, levels: 4, path: loopPath(-1), nrm: loopNormal },
+  loop:       { label: 'Loop', fp: [[0, 0], [0, 1], [1, 0], [1, 1]], n: 90, levels: 4, path: LOOP.path(1), nrm: LOOP.nrm },
+  loopr:      { label: 'Loop (right)', fp: [[0, 0], [0, 1], [-1, 0], [-1, 1]], n: 90, levels: 4, path: LOOP.path(-1), nrm: LOOP.nrm },
   pillar:     { label: 'Pillar', fp: [[0, 0]], n: 8, path: straightPath, line: u => 4 * Math.sin(Math.PI * u), obstacles: [{ kind: 'cyl', x: 0, z: 0, r: 1.4, h: 6 }] },
   chicane:    { label: 'Chicane', fp: [[0, 0]], n: 8, path: straightPath, line: u => -3.6 * Math.sin(2 * Math.PI * u), obstacles: [{ kind: 'box', x: 3.6, z: -6.2, hx: 2.9, hz: 1.0, h: 2.2 }, { kind: 'box', x: -3.6, z: 6.2, hx: 2.9, hz: 1.0, h: 2.2 }] },
   tunnel:     { label: 'Tunnel', fp: [[0, 0]], n: 8, path: straightPath, wallH: 5.2 },
+  mloop:      { label: 'Massive loop', fp: [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 1], [1, 2], [1, 3]], n: 170, levels: 8, path: MEGA.path(1), nrm: MEGA.nrm },
+  mloopr:     { label: 'Massive loop (right)', fp: [[0, 0], [0, 1], [0, 2], [0, 3], [-1, 0], [-1, 1], [-1, 2], [-1, 3]], n: 170, levels: 8, path: MEGA.path(-1), nrm: MEGA.nrm },
   steep:      { label: 'Steep ramp', fp: [[0, 0]], n: 40, levels: 2, path: (u, t) => [0, steepRise(u, t ? t.si : 0, t ? t.so : 0), -S / 2 + u * S] },
 };
 // New pieces go on the end: share codes store a piece as its place in this list.
-const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep'];
+const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep', 'mloop', 'mloopr'];
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // world (x,z) heading for rotation r
 
 function rotXZ(x, z, r) { const a = r * Math.PI / 2, c = Math.cos(a), s = Math.sin(a); return [x * c + z * s, -x * s + z * c]; }
@@ -587,7 +592,7 @@ function tileLength(t) {
 // ST start, S road, B boost, C checkpoint, F finish, K kicker, G gap,
 // U/D ramp up/down, LU/LD long slope up/down, V/VD steep ramp up/down, L/R
 // tight turn, BL/BR wide turn, QL/QR banked turn, WL/WR wall ride, OL/OR loop
-// (exits one lane left/right), P pillar, X chicane, T tunnel, and Z drops a
+// (exits one lane left/right), ML/MR massive loop, P pillar, X chicane, T tunnel, and Z drops a
 // level with no piece (to land lower after a gap). A number repeats.
 function turtle(seq) {
   let x = 0, z = 0, l = 0, d = 0; const tiles = []; const gaps = [];
@@ -612,6 +617,7 @@ function turtle(seq) {
       else if (c === 'LU') { add('longramp', x, z, l, d); l++; x += 2 * DIRS[d][0]; z += 2 * DIRS[d][1]; }
       else if (c === 'LD') { l--; add('longramp', x + DIRS[d][0], z + DIRS[d][1], l, (d + 2) % 4); x += 2 * DIRS[d][0]; z += 2 * DIRS[d][1]; }
       else if (c === 'OL' || c === 'OR') { const sd = c === 'OL' ? 1 : -1, X = DIRS[(d + 1) % 4], F = DIRS[d]; add(c === 'OL' ? 'loop' : 'loopr', x, z, l, d); x += sd * X[0] + 2 * F[0]; z += sd * X[1] + 2 * F[1]; }
+      else if (c === 'ML' || c === 'MR') { const sd = c === 'ML' ? 1 : -1, X = DIRS[(d + 1) % 4], F = DIRS[d]; add(c === 'ML' ? 'mloop' : 'mloopr', x, z, l, d); x += sd * X[0] + 4 * F[0]; z += sd * X[1] + 4 * F[1]; }
     }
   }
   tiles.end = { x, z, l, d }; tiles.gaps = gaps;
@@ -667,7 +673,7 @@ function generateSeq(seed) {
       add(['B', 'S'], 3);
       if (jumps < 2) add(['B', 'S', 'K', 'G', 'S', 'S', 'S'], 4);
       if (jumps < 2 && e.l <= 1) add(['B', 'S', 'V', 'G', 'G', 'Z', 'S', 'S', 'S'], 3);
-      if (loops < 2) { add(['B', 'S', 'OL', 'S', 'S'], 3); add(['B', 'S', 'OR', 'S', 'S'], 3); }
+      if (loops < 2) { add(['B', 'S', 'OL', 'S', 'S'], 3); add(['B', 'S', 'OR', 'S', 'S'], 3); add(['B', 'S', 'ML', 'S', 'S'], 2); add(['B', 'S', 'MR', 'S', 'S'], 2); }
       add(['P', 'S'], 2); add(['X', 'S'], 2); add(['T', 'T'], 2);
       if (sinceCp >= 6) add(['C', 'S'], 15 + sinceCp * 4);
       let placed = false;
@@ -682,7 +688,7 @@ function generateSeq(seed) {
         toks.push(...o.chunk); placed = true;
         if (o.chunk[0] === 'C') { cps++; sinceCp = 0; } else sinceCp += o.chunk.length;
         if (o.chunk.includes('K') || o.chunk.includes('V')) jumps++;
-        if (o.chunk.includes('OL') || o.chunk.includes('OR')) loops++;
+        if (['OL', 'OR', 'ML', 'MR'].some(c => o.chunk.includes(c))) loops++;
         break;
       }
       if (!placed) break;
@@ -740,7 +746,34 @@ const OFFICIAL = [
   { id: 'o35', name: 'Launch Pad', diff: 'Sky', env: 'summer', author: 9000, seq: 'ST S2 B4 S V3 G2 Z S4 F' }, // boosts off the line beat the pace table
   { id: 'o36', name: 'Sky Stairs', diff: 'Sky', env: 'winter', seq: 'ST S2 B3 S V2 G Z S2 C S B3 S V2 G2 Z S3 F' },
   { id: 'o37', name: 'Cloud Nine', diff: 'Sky', env: 'summer', seq: 'ST S B3 S BR S B3 S C S BL S B4 S V4 G2 Z2 S4 F' },
-  { id: 'o38', name: 'Rocket Summit', diff: 'Sky', env: 'desert', seq: 'ST S2 B3 S OL S2 C S B4 S V2 G Z S BR S B3 S V3 G2 Z2 S2 C S BL S B4 S V2 G2 Z S4 F' }
+  { id: 'o38', name: 'Rocket Summit', diff: 'Sky', env: 'desert', seq: 'ST S2 B3 S OL S2 C S B4 S V2 G Z S BR S B3 S V3 G2 Z2 S2 C S BL S B4 S V2 G2 Z S4 F' },
+  // Stunt: loops, massive loops, big jumps and wall rides. Where the pace table is a
+  // second or more off, the author time is the Street GT autopilot's lap.
+  { id: 'o39', name: 'Loop Street', diff: 'Stunt', env: 'summer', seq: 'ST S2 B S OL S2 BR S2 B S OR S3 C S2 BL S2 B S OL S3 F' },
+  { id: 'o40', name: 'The Big O', diff: 'Stunt', env: 'desert', seq: 'ST S2 B2 S ML S3 C S2 BR S3 B S MR S3 F' },
+  { id: 'o41', name: 'Twin Rings', diff: 'Stunt', env: 'winter', seq: 'ST S2 B S OL S OR S3 C S2 BR S2 B S OR S OL S3 F' },
+  { id: 'o42', name: 'Hop Scotch', diff: 'Stunt', env: 'summer', seq: 'ST S2 B S K G S3 C S2 BL S2 B2 S V G2 S3 C S BR S2 B S K G S3 F' },
+  { id: 'o43', name: 'Kicker Canyon', diff: 'Stunt', env: 'desert', seq: 'ST S2 B S K G S2 K G S3 C S BR S2 B S K G S3 BL S2 B S OL S3 F' },
+  { id: 'o44', name: 'Tunnel Loops', diff: 'Stunt', env: 'winter', seq: 'ST S2 T3 B S OL S2 C S BL T3 S B S OR S3 C S2 X S2 P S2 F' },
+  { id: 'o45', name: 'Wall of Death', diff: 'Stunt', env: 'summer', seq: 'ST S2 LU S LU S2 WL S2 C S2 B S OL S3 WR S3 LD S LD S2 F' },
+  { id: 'o46', name: 'Coil Climb', diff: 'Stunt', env: 'winter', seq: 'ST S2 U S2 QL S2 C S B S OL S2 U S2 QR S3 B S OR S2 C S2 D S2 D S2 F' },
+  { id: 'o47', name: 'Rollercoaster', diff: 'Stunt', env: 'summer', author: 19000, seq: 'ST S2 U S D S2 U S D S2 C S2 B S OL S2 U S2 D S2 B S OR S3 F' },
+  { id: 'o48', name: 'Double Massive', diff: 'Stunt', env: 'desert', seq: 'ST S2 B2 S ML S3 C S2 BL S3 B2 S MR S3 C S2 BR S2 F' },
+  { id: 'o49', name: 'Launch Loop', diff: 'Stunt', env: 'summer', seq: 'ST S2 B2 S V G2 S2 B S OL S3 C S2 BR S2 B S MR S3 VD S3 F' },
+  { id: 'o50', name: 'Mega Drop', diff: 'Stunt', env: 'winter', author: 17100, seq: 'ST S2 B3 S V2 G2 Z S2 C S B S OL S3 BR S2 B S VD S3 F' },
+  { id: 'o51', name: 'Loopathon', diff: 'Stunt', env: 'summer', seq: 'ST S2 B S OL S2 B S OR S2 B S OL S2 C S2 BR S2 B S OR S2 B S OL S2 B S OR S3 F' },
+  { id: 'o52', name: 'Loop Jump Loop', diff: 'Stunt', env: 'desert', seq: 'ST S2 B S OL S2 B S K G S3 B S OR S2 C S2 BL S2 B S K G S3 B S OL S3 F' },
+  { id: 'o53', name: 'Velocity', diff: 'Stunt', env: 'summer', author: 22000, seq: 'ST S B2 U S2 QL S2 B2 S QR S2 C S B2 S ML S3 QL S2 B S D S2 F' },
+  { id: 'o54', name: 'Mega Mountain', diff: 'Stunt', env: 'winter', author: 19400, seq: 'ST S2 B S V2 S4 C S2 B2 S ML S3 BR S2 B S VD2 S3 F' },
+  { id: 'o55', name: 'Big Air', diff: 'Stunt', env: 'desert', author: 21800, seq: 'ST S2 B3 S V3 G2 Z S2 C S BL S2 B2 S V G2 S3 C S BR S2 B S K G S3 F' },
+  { id: 'o56', name: 'Spiral Staircase', diff: 'Stunt', env: 'winter', author: 24900, seq: 'ST S2 B S V S3 L S2 B S V S3 L S2 C S B S V S3 L S2 B2 S V G2 Z S3 F' },
+  { id: 'o57', name: 'Crash Course', diff: 'Stunt', env: 'desert', author: 27700, seq: 'ST S2 X S P S2 B S OL S2 C S BR S X S2 B S K G S3 P S2 BL S2 B S OR S3 F' },
+  { id: 'o58', name: 'Ring Master', diff: 'Stunt', env: 'summer', seq: 'ST S2 B2 S ML S2 B S OL S2 C S BR S2 B S OR S2 B2 S MR S3 C S2 BL S2 F' },
+  { id: 'o59', name: 'Daredevil', diff: 'Stunt', env: 'winter', seq: 'ST S2 B S OL S2 C S LU S LU S2 WR S2 B2 S V G2 S3 C S2 WL S2 B S MR S3 LD S LD S2 F' },
+  { id: 'o60', name: 'Air Show', diff: 'Stunt', env: 'summer', seq: 'ST S2 B S K G S3 B2 S V G2 S3 C S BL S2 B S K G S3 B2 S V G2 S3 C S BR S2 B3 S V2 G2 Z S3 F' },
+  { id: 'o61', name: 'Sky Fortress', diff: 'Stunt', env: 'desert', author: 31400, seq: 'ST S2 B3 S V3 G2 Z S2 C S B S OL S2 BR S2 B2 S MR S3 C S2 B2 S V G2 Z S3 BL S2 B S VD S3 F' },
+  { id: 'o62', name: 'Stunt Park', diff: 'Stunt', env: 'summer', author: 33300, seq: 'ST S2 B S OL S2 X S2 B S K G S3 C S2 U S2 QR S2 B2 S V G2 S3 C S BL T3 S B S MR S3 VD S2 D S2 F' },
+  { id: 'o63', name: 'Grand Finale', diff: 'Stunt', env: 'desert', seq: 'ST S2 B S OL S2 B S OR S2 C S LU S LU S2 WL S3 B S2 V G2 S4 C S2 WR S2 B2 S ML S3 C S BR S2 B3 S V2 G2 Z S3 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
 
 // ============================================================================
@@ -887,7 +920,7 @@ function routeSpeeds(route, spec) {
 function medalTimes(route, tr) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6, steep: 17.4 };
+  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, mloop: 45.5, mloopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6, steep: 17.4 };
   let t = 1.2;
   for (const g of route.segs) t += g.len / (pace[g.type] || 46.3);
   const author = tr && tr.official && tr.author ? tr.author : t * 1000;
@@ -1567,7 +1600,7 @@ const SUSP_BUMP = 3.0, SUSP_REBOUND = 7.5;
 // Extra droop: below the static ride height a wheel can hang this much further
 // (with no spring force) so all four stay on twisting road like bank entries.
 const DROOP = 0.12;
-const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr']); // pieces whose road tilts or turns over
+const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr', 'mloop', 'mloopr']); // pieces whose road tilts or turns over
 // Pieces the car is held to, following the road's own shape: the twisty ones, and
 // ramps and slopes, which bend up and over too sharply at speed for the suspension alone.
 const GLUED = new Set([...TWISTY, 'ramp', 'longramp', 'steep']);
@@ -3050,7 +3083,7 @@ function mpTrackOptions() {
   const o = (v, label) => `<option value="${v}">${escapeHtml(label)}</option>`;
   mp.commOpts = community.db ? communityTracks() : [];
   let html = `<optgroup label="Daily &amp; random">${o('d', dailyTrack().name)}${o('r', 'Random track')}</optgroup>`;
-  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
+  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
   if (mp.commOpts.length) html += `<optgroup label="Community">${mp.commOpts.map((t, i) => o('p:' + i, t.name)).join('')}</optgroup>`;
   return html;
 }
@@ -3377,7 +3410,7 @@ function trackCard(tr, ref, actions) {
   </div>`;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Yours'];
+const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
 function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
@@ -3667,12 +3700,13 @@ function drawPieceIcon(c, type) {
   const minX = Math.min(...xs) - W / 2, maxX = Math.max(...xs) + W / 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
   const sc = 64 / Math.max(maxX - minX, maxZ - minZ); const ox = 40 - (minX + maxX) / 2 * sc, oz = 40 + (minZ + maxZ) / 2 * sc;
   g.lineCap = 'butt'; g.lineWidth = W * sc;
-  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
+  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', mloop: '#62f0ff', mloopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
   g.beginPath(); ps.forEach((p, i) => { const x = ox + p[0] * sc, y = oz - p[2] * sc; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
   g.fillStyle = '#0b1322'; g.strokeStyle = '#0b1322'; g.lineWidth = 3; g.textAlign = 'center'; g.font = '700 22px sans-serif';
   if (type === 'ramp' || type === 'kicker' || type === 'longramp') g.fillText('▲', 40, 48);
   if (type === 'steep') { g.fillText('▲', 40, 40); g.fillText('▲', 40, 58); }
   if (type === 'loop' || type === 'loopr') { g.beginPath(); g.arc(40, 40, 13, 0, Math.PI * 2); g.stroke(); }
+  if (type === 'mloop' || type === 'mloopr') { g.lineWidth = 4; g.beginPath(); g.arc(40, 40, 17, 0, Math.PI * 2); g.stroke(); }
   for (const o of T.obstacles || []) { g.fillStyle = '#ffb020'; if (o.kind === 'cyl') { g.beginPath(); g.arc(ox + o.x * sc, oz - o.z * sc, Math.max(3, o.r * sc), 0, Math.PI * 2); g.fill(); } else g.fillRect(ox + (o.x - o.hx) * sc, oz - (o.z + o.hz) * sc, o.hx * 2 * sc, o.hz * 2 * sc); }
 }
 $('ed-bar').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) selectPiece(b.dataset.type); });
