@@ -74,7 +74,7 @@
   .track-card .actions button { font-size: 11px; padding: 3px 7px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .track-card .actions button:hover { color: var(--text); border-color: var(--text); }
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.community { color: #62f0ff; }
+  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.community { color: #62f0ff; }
   .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track-card .rec { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-align: left; min-width: 0; }
   .track-card .rec .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -510,6 +510,22 @@ const loopPath = side => u => {
   return [20 * side * (k - Math.sin(2 * Math.PI * k) / (2 * Math.PI)), y, LOOP_START + z];
 };
 const loopNormal = u => { const s = u * LOOP_LEN - LOOP_IN; if (s <= 0 || s >= LOOP_SPIRAL) return [0, 1, 0]; const th = loopSample(s)[0]; return [0, Math.cos(th), -Math.sin(th)]; };
+// Steep ramp: climbs two levels in one tile. It shapes its ends to what joins
+// them (see shapeSteep): from flat road it curves up into the slope, steep ramps
+// in a row make one straight climb, and with nothing after it the top is a lip
+// that launches the car. si / so: entry / exit on the slope (1) or flat (0).
+const STEEP_R = 2 * H, STEEP_IN = 10;
+function steepIn(u) { // flat entry, sloped exit: curve up past the slope, then ease back onto it
+  const s = STEEP_R / S, pm = s * (1 + STEEP_IN / S), x = u * S, b = S - STEEP_IN;
+  const I = t => t * t * t - t * t * t * t / 2; // integral of smooth()
+  if (x <= STEEP_IN) return pm * STEEP_IN * I(x / STEEP_IN);
+  return pm * STEEP_IN / 2 + pm * (x - STEEP_IN) + (s - pm) * b * I((x - STEEP_IN) / b);
+}
+function steepRise(u, si, so) {
+  if (si && so) return STEEP_R * u;
+  if (!si && !so) return STEEP_R * smooth(u);
+  return si ? STEEP_R - steepIn(1 - u) : steepIn(u);
+}
 const TYPES = {
   straight:   { label: 'Road',      key: '1', fp: [[0, 0]], n: 8,  path: straightPath },
   turn:       { label: 'Turn',      key: '2', fp: [[0, 0]], n: 16, path: u => { const a = u * Math.PI / 2; return [S / 2 - S / 2 * Math.cos(a), 0, -S / 2 + S / 2 * Math.sin(a)]; } },
@@ -528,8 +544,10 @@ const TYPES = {
   pillar:     { label: 'Pillar', fp: [[0, 0]], n: 8, path: straightPath, line: u => 4 * Math.sin(Math.PI * u), obstacles: [{ kind: 'cyl', x: 0, z: 0, r: 1.4, h: 6 }] },
   chicane:    { label: 'Chicane', fp: [[0, 0]], n: 8, path: straightPath, line: u => -3.6 * Math.sin(2 * Math.PI * u), obstacles: [{ kind: 'box', x: 3.6, z: -6.2, hx: 2.9, hz: 1.0, h: 2.2 }, { kind: 'box', x: -3.6, z: 6.2, hx: 2.9, hz: 1.0, h: 2.2 }] },
   tunnel:     { label: 'Tunnel', fp: [[0, 0]], n: 8, path: straightPath, wallH: 5.2 },
+  steep:      { label: 'Steep ramp', fp: [[0, 0]], n: 40, levels: 2, path: (u, t) => [0, steepRise(u, t ? t.si : 0, t ? t.so : 0), -S / 2 + u * S] },
 };
-const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel'];
+// New pieces go on the end: share codes store a piece as its place in this list.
+const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep'];
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // world (x,z) heading for rotation r
 
 function rotXZ(x, z, r) { const a = r * Math.PI / 2, c = Math.cos(a), s = Math.sin(a); return [x * c + z * s, -x * s + z * c]; }
@@ -539,21 +557,22 @@ function footprint(t) {
 }
 function tileLevels(t) { const T = TYPES[t.type], out = []; for (let k = -(T.below || 0); k <= (T.levels || 0); k++) out.push(t.l + k); return out; }
 function tilePoint(t, u, out) {
-  const p = TYPES[t.type].path(u); const [x, z] = rotXZ(p[0], p[2], t.r);
+  const p = TYPES[t.type].path(u, t); const [x, z] = rotXZ(p[0], p[2], t.r);
   return (out || new V3()).set(t.x * S + x, t.l * H + p[1], t.z * S + z);
 }
 // Local frame at u: position, tangent, road normal (up) and side (B = T × N).
-function pieceFrame(type, u) {
-  const T = TYPES[type]; const p = T.path(u); const e = 1e-3;
-  const a = T.path(Math.max(0, u - e)), b = T.path(Math.min(1, u + e));
+// Pass the tile for pieces shaped by their neighbours (the steep ramp).
+function pieceFrame(type, u, t) {
+  const T = TYPES[type]; const p = T.path(u, t); const e = 1e-3;
+  const a = T.path(Math.max(0, u - e), t), b = T.path(Math.min(1, u + e), t);
   const tg = new V3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
   const n0 = T.nrm ? new V3(...T.nrm(u)) : new V3(0, 1, 0);
   const N = n0.addScaledVector(tg, -n0.dot(tg)).normalize();
   return { p: new V3(p[0], p[1], p[2]), T: tg, N, B: new V3().crossVectors(tg, N).normalize() };
 }
-function localFrames(type, us) {
+function localFrames(type, us, t) {
   const f = { pts: [], B: [], N: [] };
-  for (const u of us) { const fr = pieceFrame(type, u); f.pts.push(fr.p); f.B.push(fr.B); f.N.push(fr.N); }
+  for (const u of us) { const fr = pieceFrame(type, u, t); f.pts.push(fr.p); f.B.push(fr.B); f.N.push(fr.N); }
   return f;
 }
 function uSteps(n) { const out = []; for (let i = 0; i <= n; i++) out.push(i / n); return out; }
@@ -566,9 +585,10 @@ function tileLength(t) {
 
 // Turtle notation for the official tracks: every piece connects to the last.
 // ST start, S road, B boost, C checkpoint, F finish, K kicker, G gap,
-// U/D ramp up/down, LU/LD long slope up/down, L/R tight turn, BL/BR wide turn,
-// QL/QR banked turn, WL/WR wall ride, OL/OR loop (exits one lane left/right),
-// P pillar, X chicane, T tunnel. A number repeats.
+// U/D ramp up/down, LU/LD long slope up/down, V/VD steep ramp up/down, L/R
+// tight turn, BL/BR wide turn, QL/QR banked turn, WL/WR wall ride, OL/OR loop
+// (exits one lane left/right), P pillar, X chicane, T tunnel, and Z drops a
+// level with no piece (to land lower after a gap). A number repeats.
 function turtle(seq) {
   let x = 0, z = 0, l = 0, d = 0; const tiles = []; const gaps = [];
   const add = (type, X, Z, L, R) => tiles.push({ type, x: X, z: Z, l: L, r: R });
@@ -582,6 +602,9 @@ function turtle(seq) {
       else if (c === 'G') { gaps.push([x, z, l]); adv(); }
       else if (c === 'U') { add('ramp', x, z, l, d); l++; adv(); }
       else if (c === 'D') { l--; add('ramp', x, z, l, (d + 2) % 4); adv(); }
+      else if (c === 'V') { add('steep', x, z, l, d); l += 2; adv(); }
+      else if (c === 'VD') { l -= 2; add('steep', x, z, l, (d + 2) % 4); adv(); }
+      else if (c === 'Z') l--;
       else if (c === 'L') { add('turn', x, z, l, d); d = (d + 1) % 4; adv(); }
       else if (c === 'R') { add('turn', x, z, l, (d + 1) % 4); d = (d + 3) % 4; adv(); }
       else if (wide[c]) { add(wide[c], x, z, l, d); const X = DIRS[(d + 1) % 4], F = DIRS[d]; x += 2 * X[0] + F[0]; z += 2 * X[1] + F[1]; d = (d + 1) % 4; }
@@ -594,6 +617,19 @@ function turtle(seq) {
   tiles.end = { x, z, l, d }; tiles.gaps = gaps;
   return tiles;
 }
+// Shape each steep ramp's ends: on the slope where another steep ramp carries on
+// in line (or where nothing joins, so the top is a lip), flat where other road joins.
+function shapeSteep(tiles) {
+  if (!tiles.some(t => t.type === 'steep')) return tiles;
+  const at = new Map();
+  for (const t of tiles) for (const [x, z] of footprint(t)) for (const l of tileLevels(t)) at.set(x + ',' + z + ',' + l, t);
+  const end = (t, x, z, l, wantL) => { const o = at.get(x + ',' + z + ',' + l); return !o || (o.type === 'steep' && o.r === t.r && o.l === wantL) ? 1 : 0; };
+  for (const t of tiles) if (t.type === 'steep') {
+    const [dx, dz] = DIRS[t.r];
+    t.si = end(t, t.x - dx, t.z - dz, t.l, t.l - 2); t.so = end(t, t.x + dx, t.z + dz, t.l + 2, t.l + 2);
+  }
+  return tiles;
+}
 
 // ============================================================================
 // Track generator: endless random tracks plus a track of the day, built from
@@ -604,7 +640,8 @@ function hashStr(str) { let h = 2166136261; for (let i = 0; i < str.length; i++)
 function occupied(tiles) {
   const occ = new Set();
   for (const t of tiles) for (const [x, z] of footprint(t)) for (const lv of tileLevels(t)) { const k = x + ',' + z + ',' + lv; if (occ.has(k)) return null; occ.add(k); }
-  for (const [x, z, l] of tiles.gaps || []) { const k = x + ',' + z + ',' + l; if (occ.has(k)) return null; occ.add(k); }
+  // A gap keeps the air above it clear too, for the car's flight.
+  for (const [x, z, l] of tiles.gaps || []) for (let k = l; k <= l + 2; k++) { const key = x + ',' + z + ',' + k; if (occ.has(key)) return null; occ.add(key); }
   return occ;
 }
 function generateSeq(seed) {
@@ -629,6 +666,7 @@ function generateSeq(seed) {
       if (e.l >= 2) { add(['WL', 'S', 'S', 'S'], 4); add(['WR', 'S', 'S', 'S'], 4); }
       add(['B', 'S'], 3);
       if (jumps < 2) add(['B', 'S', 'K', 'G', 'S', 'S', 'S'], 4);
+      if (jumps < 2 && e.l <= 1) add(['B', 'S', 'V', 'G', 'G', 'Z', 'S', 'S', 'S'], 3);
       if (loops < 2) { add(['B', 'S', 'OL', 'S', 'S'], 3); add(['B', 'S', 'OR', 'S', 'S'], 3); }
       add(['P', 'S'], 2); add(['X', 'S'], 2); add(['T', 'T'], 2);
       if (sinceCp >= 6) add(['C', 'S'], 15 + sinceCp * 4);
@@ -643,7 +681,7 @@ function generateSeq(seed) {
         if (occ.has(ce.x + ',' + ce.z + ',' + ce.l) || occ.has((ce.x + f[0]) + ',' + (ce.z + f[1]) + ',' + ce.l)) continue;
         toks.push(...o.chunk); placed = true;
         if (o.chunk[0] === 'C') { cps++; sinceCp = 0; } else sinceCp += o.chunk.length;
-        if (o.chunk.includes('K')) jumps++;
+        if (o.chunk.includes('K') || o.chunk.includes('V')) jumps++;
         if (o.chunk.includes('OL') || o.chunk.includes('OR')) loops++;
         break;
       }
@@ -697,7 +735,12 @@ const OFFICIAL = [
   { id: 'o31', name: 'Endurance', diff: 'Expert', env: 'summer', seq: 'ST S4 BR S3 C S2 BL S4 B S2 BL S3 C S2 U S2 BR S3 D S2 C S2 R S L S3 B S2 K G S3 C S2 BL S4 BR S2 C S5 F' },
   { id: 'o32', name: 'Precision', diff: 'Expert', env: 'winter', seq: 'ST S2 L R L R S C S R L R L S C S2 L L S2 R R S2 C S2 F' },
   { id: 'o33', name: 'Glacier Gauntlet', diff: 'Expert', env: 'winter', seq: 'ST S B S OL S2 LU S2 WL S2 C S2 B S K G S3 LD S2 X S2 P S2 QR S2 C S2 B S OR S3 F' },
-  { id: 'o34', name: 'PolyMax', diff: 'Expert', env: 'desert', seq: 'ST S2 B S OL S3 C S LU S LU S2 WR S2 B S K G S3 C S2 WL S2 LD S2 QR S2 T3 C S2 X S P S2 LD S2 B S OR S3 C S2 F' }
+  { id: 'o34', name: 'PolyMax', diff: 'Expert', env: 'desert', seq: 'ST S2 B S OL S3 C S LU S LU S2 WR S2 B S K G S3 C S2 WL S2 LD S2 QR S2 T3 C S2 X S P S2 LD S2 B S OR S3 C S2 F' },
+  // Sky: rows of boosts, steep ramps up, and a big jump to a platform in the air.
+  { id: 'o35', name: 'Launch Pad', diff: 'Sky', env: 'summer', author: 9000, seq: 'ST S2 B4 S V3 G2 Z S4 F' }, // boosts off the line beat the pace table
+  { id: 'o36', name: 'Sky Stairs', diff: 'Sky', env: 'winter', seq: 'ST S2 B3 S V2 G Z S2 C S B3 S V2 G2 Z S3 F' },
+  { id: 'o37', name: 'Cloud Nine', diff: 'Sky', env: 'summer', seq: 'ST S B3 S BR S B3 S C S BL S B4 S V4 G2 Z2 S4 F' },
+  { id: 'o38', name: 'Rocket Summit', diff: 'Sky', env: 'desert', seq: 'ST S2 B3 S OL S2 C S B4 S V2 G Z S BR S B3 S V3 G2 Z2 S2 C S BL S B4 S V2 G2 Z S4 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
 
 // ============================================================================
@@ -705,6 +748,7 @@ const OFFICIAL = [
 // gaps) to the finish. Gives the minimap, medal estimates and the demo driver.
 // ============================================================================
 function computeRoute(tiles) {
+  shapeSteep(tiles);
   const start = tiles.find(t => t.type === 'start');
   if (!start) return { ok: false, reason: 'Place a Start piece.' };
   if (!tiles.some(t => t.type === 'finish')) return { ok: false, reason: 'Place a Finish piece.' };
@@ -720,7 +764,7 @@ function computeRoute(tiles) {
     const n = TYPES[cur.t.type].n * 2;
     // The racing line: the centre line, or around the obstacles where a piece has them.
     const line = TYPES[cur.t.type].line;
-    for (let i = 0; i <= n; i++) { const u = forward ? i / n : 1 - i / n; const p = tilePoint(cur.t, u); if (line) p.add(rotV(new V3(line(u), 0, 0), cur.t.r)); pts.push(p); nrms.push(rotV(pieceFrame(cur.t.type, u).N, cur.t.r)); }
+    for (let i = 0; i <= n; i++) { const u = forward ? i / n : 1 - i / n; const p = tilePoint(cur.t, u); if (line) p.add(rotV(new V3(line(u), 0, 0), cur.t.r)); pts.push(p); nrms.push(rotV(pieceFrame(cur.t.type, u, cur.t).N, cur.t.r)); }
     segs.push({ type: cur.t.type, len: tileLength(cur.t), tile: cur.t });
     if (cur.t.type === 'finish') return finishRoute(pts, nrms, segs, tiles, used);
     const P = forward ? cur.b : cur.a;
@@ -744,7 +788,7 @@ function computeRoute(tiles) {
           if (along > 4 && along < 100 && lat < 2 && rel.y < 1 && rel.y > -3 * H && along < best) { best = along; next = e; nextFwd = fwd; gap = along; }
         }
       }
-      if (next) segs.push({ type: 'gap', len: gap, P: P.clone(), Q: (nextFwd ? next.a : next.b).clone() });
+      if (next) segs.push({ type: 'gap', len: gap, P: P.clone(), Q: (nextFwd ? next.a : next.b).clone(), lift: dir.y / Math.hypot(dir.x, dir.z) });
     }
     if (!next) return { ok: false, reason: 'The road from Start does not reach the Finish.', pts, segs };
     cur = next; forward = nextFwd;
@@ -779,16 +823,17 @@ function finishRoute(pts, nrms, segs, tiles, used) {
     crest[i] = ((b.y - a.y) / d1 - (c.y - b.y) / d2) / ((d1 + d2) / 2);
   }
   const length = segs.reduce((s, g) => s + g.len, 0);
-  const jumps = segs.filter(g => g.type === 'gap').map(g => ({ P: g.P, Q: g.Q, idx: nearestIdx(out, g.P) }));
+  const jumps = segs.filter(g => g.type === 'gap').map(g => ({ P: g.P, Q: g.Q, lift: g.lift, idx: nearestIdx(out, g.P) }));
   const pads = tiles.filter(t => t.type === 'boost');
   const boost = out.map(p => pads.some(t => Math.abs(p.x - t.x * S) < S / 2 && Math.abs(p.z - t.z * S) < S / 2 && Math.abs(p.y - t.l * H) < 3));
   return { ok: true, pts: out, nrms: outN, curv, rawCurv, crest, jumps, boost, step, speeds: {}, segs, length, missedCheckpoints: missed, cpTotal: cps.length };
 }
 function nearestIdx(pts, p) { let b = Infinity, bi = 0; for (let i = 0; i < pts.length; i++) { const d = pts[i].distanceToSquared(p); if (d < b) { b = d; bi = i; } } return bi; }
-// Take-off speed that carries a car from a kicker lip P to a little past landing point Q.
-function jumpSpeed(P, Q) {
+// Take-off speed that carries a car from a lip P (a kicker's, or a steep ramp's
+// with slope lift) to a little past landing point Q.
+function jumpSpeed(P, Q, lift = 2 * KICK_H / S) {
   const D = Math.hypot(Q.x - P.x, Q.z - P.z) + 16, h = P.y - Q.y;
-  const th = Math.atan(2 * KICK_H / S), sn = Math.sin(th), cs = Math.cos(th);
+  const th = Math.atan(Math.max(0, lift)), sn = Math.sin(th), cs = Math.cos(th);
   for (let v = 10; v < 140; v += 0.5) {
     const t = (v * sn + Math.sqrt((v * sn) ** 2 + 2 * GRAV * Math.max(-0.5, h + 0.5))) / GRAV;
     if (v * cs * t >= D) return v * 1.03;
@@ -809,21 +854,22 @@ function routeSpeeds(route, spec) {
   // Over a crest the car goes light or airborne; ease off if a corner follows soon after.
   for (let i = 0; i < N; i++) {
     if (route.crest[i] < 0.02) continue;
-    let turnAhead = 0, slowest = Infinity, turnAt = -1;
-    for (let j = i; j < Math.min(N, i + 60); j++) {
-      if (turnAt < 0 && route.rawCurv[j] > 0.025) turnAt = j;
-      turnAhead = Math.max(turnAhead, route.rawCurv[j]); slowest = Math.min(slowest, v[j]);
-    }
+    let turnAhead = 0, slowest = Infinity;
+    for (let j = i; j < Math.min(N, i + 60); j++) { turnAhead = Math.max(turnAhead, route.rawCurv[j]); slowest = Math.min(slowest, v[j]); }
     // Brakes do nothing in the air, so be at corner speed before leaving the ground.
     if (turnAhead > 0.025) v[i] = Math.min(v[i], Math.sqrt(GRAV / route.crest[i]) * 1.5, slowest * 1.1);
     // Off the top of a ramp the car flies about 2·v²·slope/g, so it can't steer
-    // for a corner that close; go slow enough to land before it.
+    // for a corner (or stop before the end of the road) that close; go slow
+    // enough to land before it.
     const k = Math.max(0, i - 8), slope = (route.pts[i].y - route.pts[k].y) / ((i - k) * route.step || 1);
-    if (turnAt >= 0 && slope > 0.05) v[i] = Math.min(v[i], Math.max(18, Math.sqrt(GRAV * Math.max(4, (turnAt - i) * route.step - 6) / (2 * slope))));
+    if (slope > 0.05) {
+      let j = i; while (j < N - 1 && route.rawCurv[j] <= 0.025) j++;
+      v[i] = Math.min(v[i], Math.max(18, Math.sqrt(GRAV * Math.max(4, (j - i) * route.step - 6) / (2 * slope))));
+    }
   }
   // Kickers: arrive at the speed that lands the jump.
   for (const j of route.jumps) {
-    const vj = jumpSpeed(j.P, j.Q);
+    const vj = jumpSpeed(j.P, j.Q, j.lift);
     for (let i = Math.max(0, j.idx - 16); i <= j.idx; i++) v[i] = Math.min(v[i], vj);
   }
   // Braking: work back from each corner. A boost pad pushes harder than the
@@ -836,14 +882,15 @@ function routeSpeeds(route, spec) {
   route.speeds[spec.id] = v; return v;
 }
 
-// Medal targets from the route: time per piece at a realistic pace.
-function medalTimes(route) {
+// Medal targets from the route: time per piece at a realistic pace. An official
+// track the pace table doesn't suit sets its own author time (in ms).
+function medalTimes(route, tr) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6 };
+  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6, steep: 17.4 };
   let t = 1.2;
   for (const g of route.segs) t += g.len / (pace[g.type] || 46.3);
-  const author = t * 1000;
+  const author = tr && tr.official && tr.author ? tr.author : t * 1000;
   return { author: Math.round(author), gold: Math.round(author * 1.08), silver: Math.round(author * 1.25), bronze: Math.round(author * 1.5) };
 }
 function medalFor(ms, m) {
@@ -1013,7 +1060,7 @@ function arrowSign(dir) {
 // Build the visual group for one tile (in local space, then placed).
 function buildTile(t, opts = {}) {
   const T = TYPES[t.type]; const g = new THREE.Group();
-  const fr = localFrames(t.type, uSteps(T.n));
+  const fr = localFrames(t.type, uSteps(T.n), t);
   const pts = fr.pts;
   const isBoost = t.type === 'boost';
   const road = new THREE.Mesh(slabGeometry(fr, -W / 2, W / 2, 0, TH, isBoost ? COL.asphaltBoost : COL.asphalt, COL.side), opts.ghostMat || MAT.road);
@@ -1088,7 +1135,7 @@ function buildTile(t, opts = {}) {
 function centreline(t) {
   const n = TYPES[t.type].n; const pts = [], side = [], nrm = [];
   for (let i = 0; i <= n; i++) {
-    const fr = pieceFrame(t.type, i / n);
+    const fr = pieceFrame(t.type, i / n, t);
     pts.push(tilePoint(t, i / n)); side.push(rotV(fr.B, t.r)); nrm.push(rotV(fr.N, t.r));
   }
   let mn = new V3(Infinity, Infinity, Infinity), mx = new V3(-Infinity, -Infinity, -Infinity);
@@ -1185,6 +1232,7 @@ function loadTrack(track) {
   world.track = track; world.tiles = track.tiles.map(t => ({ ...t }));
   const env = envFor(track); if (env !== world.env) { world.env = env; applyTheme(); }
   world.group.clear(); world.cells.clear(); world.cps = []; world.start = null;
+  shapeSteep(world.tiles);
   for (const t of world.tiles) {
     const g = buildTile(t, t.type === 'checkpoint' ? { cpMat: MAT.cpIdle.clone() } : {});
     t.mesh = g; world.group.add(g);
@@ -1199,7 +1247,7 @@ function loadTrack(track) {
   world.group.updateMatrixWorld(true);
   world.route = computeRoute(world.tiles);
   buildTrackPhysics(world.tiles, world.route.ok ? world.route.segs.filter(g => g.type === 'gap').map(g => g.Q) : []);
-  world.medals = medalTimes(world.route);
+  world.medals = medalTimes(world.route, track);
   buildScenery(world.tiles);
   drawMinimapBase();
 }
@@ -1494,7 +1542,7 @@ function surfaceAt(tiles, p, maxAbove, maxBelow) {
     const c = nearestOnCentreline(t.cl, p);
     if (Math.abs(c.along) > 0.05 || Math.abs(c.lat) > W / 2) continue;
     if (c.h > maxAbove || c.h < -maxBelow) continue;
-    if (!best || c.h < best.h) best = { q: c.q, n: c.N, h: c.h, surf: t.type === 'boost' ? 'boost' : 'road', type: t.type };
+    if (!best || c.h < best.h) best = { q: c.q, n: c.N, h: c.h, surf: t.type === 'boost' ? 'boost' : 'road', type: t.type, tile: t };
   }
   // The ground only counts where there's no road (a banked edge can dip below it).
   const gh = p.y - GROUND_Y;
@@ -1522,7 +1570,7 @@ const DROOP = 0.12;
 const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr']); // pieces whose road tilts or turns over
 // Pieces the car is held to, following the road's own shape: the twisty ones, and
 // ramps and slopes, which bend up and over too sharply at speed for the suspension alone.
-const GLUED = new Set([...TWISTY, 'ramp', 'longramp']);
+const GLUED = new Set([...TWISTY, 'ramp', 'longramp', 'steep']);
 const CAR_MASS = 1000;
 const INERTIA = new V3(3.0, 2.6, 1.7); // pitch, yaw, roll (per unit mass)
 const DRIFT_STAGES = [{ t: 0.6, boost: 3, name: 'Drift boost', color: 'var(--author)' }, { t: 1.4, boost: 5, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.4, boost: 8, name: 'Ultra drift boost', color: '#ff7ad9' }];
@@ -1692,7 +1740,7 @@ class Car {
   }
   clearState(speed) {
     this.grounded = true; this.surf = 'road'; this.steer = 0; this.steerAng = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
-    this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0;
+    this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0; this.settleT = 0;
     this.nPrev = null; this.prevBeta = 0; this.holding = false; this.twisty = false; this.glueT = 0;
     for (const w of this.wheels || []) { w.len = SUSP_L - this.c0; w.contact = false; w.slip = 0; w.vLong = speed; }
   }
@@ -1889,7 +1937,7 @@ class Car {
     // The road under the front and rear axles: on a slope the car takes the angle
     // between them, so the nose lifts as soon as the front wheels reach a ramp.
     const under = this.axleZ.map(z => surfaceAt(around, this.pos.clone().addScaledVector(fwd, z), 2.6, 0.6));
-    const isSlope = r => r && (r.type === 'ramp' || r.type === 'longramp');
+    const isSlope = r => r && (r.type === 'ramp' || r.type === 'longramp' || r.type === 'steep');
     const onSlope = isSlope(road) || under.some(isSlope);
     // The hold fades out for a moment after a held piece, so rolling off a ramp or
     // bank onto flat road, still squashed into the suspension, isn't a jolt.
@@ -1940,9 +1988,13 @@ class Car {
     if (road && (road.type === 'bankturn' || road.type === 'wallturn' || ramp) && !this.fromKicker && this.airTime < 0.4) {
       const ahead = surfaceAt(around, this.pos.clone().addScaledVector(this.vel, dt), 2.6, 0.6);
       const h = ahead && ahead.surf !== 'grass' ? ahead.h - sp.comY : 0;
-      if (h > 0.04 && !ramp) this.vel.addScaledVector(ahead.n, -Math.min((h - 0.04) * 0.4 / dt, 300 * dt));
+      // Over the top of a ramp the car flies, except partway up a steep climb that carries on.
+      const climb = ahead && ahead.type === 'steep' && ahead.tile.so;
+      if (h > 0.04 && (!ramp || climb)) this.vel.addScaledVector(ahead.n, -Math.min((h - 0.04) * 0.4 / dt, 300 * dt));
       else if (ramp && h < -0.04 && contacts >= 1) this.vel.addScaledVector(ahead.n, Math.min((-0.04 - h) * 0.4 / dt, 300 * dt));
     }
+    // Just after a big landing the springs don't throw the car back into the air.
+    if (this.settleT > 0) { this.settleT -= dt; const vn = this.vel.dot(this.n); if (vn > 0.5) this.vel.addScaledVector(this.n, 0.5 - vn); }
     this.pushVelocities();
     const before = this.vel.clone();
 
@@ -1967,6 +2019,7 @@ class Car {
       // against the road the car was heading for, not a wheel catching an edge).
       const ln = this.landing ? this.landing.n : this.n, vn = this.vel.dot(ln);
       if (vn < -12) { this.vel.addScaledVector(ln, -12 - vn); this.pushVelocities(); }
+      if (vn < -6) this.settleT = 0.4;
       if (this.airTime > 0.3) { events.land = true; this.landT = 0.12; }
     }
     this.airTime = this.grounded ? 0 : this.airTime + dt;
@@ -2277,7 +2330,10 @@ function selectCar(id) {
 }
 
 // v4 keys: the cars got slower, so older times no longer compare.
-function trackKey(track) { return 'mt4.pb.' + track.id; }
+// Times start again from scratch when the racing changes enough that old ones
+// no longer compare (the prefix changes); the old ones are cleared from this device.
+function trackKey(track) { return 'mt5.pb.' + track.id; }
+try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k) && !k.startsWith('mt5.')).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
 function loadPB(track) { return store.get(trackKey(track), null); }
 
 function spawnPoint() {
@@ -2354,9 +2410,9 @@ function onFinish() {
   const key = trackKey(world.track);
   const prev = store.get(key, null);
   const isPB = !prev || time < prev.time;
-  const board = store.get('mt4.lb.' + world.track.id, []);
+  const board = store.get('mt5.lb.' + world.track.id, []);
   board.push({ t: time, d: Date.now(), c: game.car.spec.id }); board.sort((a, b) => a.t - b.t); board.length = Math.min(board.length, 8);
-  store.set('mt4.lb.' + world.track.id, board);
+  store.set('mt5.lb.' + world.track.id, board);
   if (isPB) {
     const saved = store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice(), ghost: compressGhost(game.rec) });
     if (!saved) store.set(key, { time, car: game.car.spec.id, splits: game.splits.slice() });
@@ -2444,7 +2500,7 @@ function demoInput(car, st) {
   st.stuck = car.grounded && sp < 2 ? (st.stuck || 0) + PHYS_DT : 0;
   if (st.stuck > 1.2) st.backT = 1.1;
   if (st.backT > 0) { st.backT -= PHYS_DT; return { steer: -steer, gas: 0, brake: 1, drift: false, done: false, lost: false }; }
-  return { steer, gas: g, brake: car.grounded && sp > vt + 3 ? 1 : 0, drift: false, done: bi >= pts.length - 3, lost: Math.sqrt(best) > 14 };
+  return { steer, gas: g, brake: car.grounded && sp > vt + 3 ? 1 : 0, drift: false, done: bi >= pts.length - 3, lost: car.grounded && Math.sqrt(best) > 14 }; // high on a jump isn't lost
 }
 
 // ============================================================================
@@ -2493,7 +2549,7 @@ function drawMinimapBase() {
     for (const t of world.tiles) {
       const n = TYPES[t.type].n; g.beginPath();
       for (let i = 0; i <= n; i++) { const p = tilePoint(t, i / n); const [x, y] = mmXform(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); }
-      g.lineWidth = pass ? 7 : 12; g.strokeStyle = pass ? ({ start: '#ffd23f', finish: '#ffffff', checkpoint: '#24b8ff', boost: '#ff9a20' }[t.type] || `hsl(220, 15%, ${62 + t.l * 9}%)`) : 'rgba(0,0,0,0.55)';
+      g.lineWidth = pass ? 7 : 12; g.strokeStyle = pass ? ({ start: '#ffd23f', finish: '#ffffff', checkpoint: '#24b8ff', boost: '#ff9a20' }[t.type] || `hsl(220, 15%, ${Math.min(90, 62 + t.l * 9)}%)`) : 'rgba(0,0,0,0.55)';
       g.stroke();
     }
   }
@@ -2660,10 +2716,30 @@ function askName(first) {
 // comes from: an official track, the daily, a seed, a community track or a
 // code a friend sent.
 const MAX_TIMES = 400; // tracks kept per player; the oldest drop off
-const times = { on: false, boards: new Map(), pending: new Map(), canPost: true, queue: Promise.resolve(), modal: null };
+const times = { on: false, boards: new Map(), pending: new Map(), canPost: true, queue: Promise.resolve(), modal: null, swept: false };
+// Board keys start with BOARD_V; it changes when every board starts again, and
+// times under an older key are then cleared (see dropOldTimes).
+const BOARD_V = 'M';
 function boardKey(tr) {
-  const s = '4|' + tr.tiles.map(t => [t.type, t.x, t.z, t.l, t.r].join(',')).sort().join(';');
-  return 'L' + hashStr(s).toString(36) + hashStr(s + '#').toString(36);
+  const s = '5|' + tr.tiles.map(t => [t.type, t.x, t.z, t.l, t.r].join(',')).sort().join(';');
+  return BOARD_V + hashStr(s).toString(36) + hashStr(s + '#').toString(36);
+}
+// Take times from before the last reset (and their ghosts) out of a player's best.
+function dropOldTimes(best, uid) {
+  for (const k of Object.keys(best)) if (!k.startsWith(BOARD_V)) { if (best[k] && best[k].g) ghostRef(uid, k).delete().catch(() => {}); delete best[k]; }
+  return best;
+}
+// Once a visit, clear your own times from before the last reset.
+function sweepOldTimes(snap) {
+  if (times.swept || !community.me || community.canWrite === false) return;
+  times.swept = true;
+  const mine = snap.docs.find(d => d.id === community.me && d.exists), best = mine && mine.data().best;
+  if (!best || typeof best !== 'object' || Object.keys(best).every(k => k.startsWith(BOARD_V))) return;
+  const ref = community.db.doc('times/' + community.me);
+  times.queue = times.queue.catch(() => {}).then(async () => {
+    const cur = await ref.get();
+    await ref.set({ best: dropOldTimes({ ...((cur.exists && cur.data().best) || {}) }, community.me), updated: Date.now() });
+  }).catch(() => {});
 }
 function watchTimes(db) {
   db.collection('times').onSnapshot(snap => {
@@ -2677,7 +2753,7 @@ function watchTimes(db) {
       }
     }
     for (const rows of boards.values()) rows.sort((x, y) => x.t - y.t || x.a - y.a);
-    times.boards = boards; times.on = true;
+    times.boards = boards; times.on = true; sweepOldTimes(snap);
     // A run you just posted shows straight away; drop it once the board has it.
     for (const [k, p] of times.pending) { const mine = (boards.get(k) || []).find(r => r.uid === community.me); if (mine && mine.t <= p.t) times.pending.delete(k); }
     refreshTimes();
@@ -2706,7 +2782,7 @@ function postTime(tr, t, car, rec) {
   times.pending.set(key, entry);
   times.queue = times.queue.catch(() => {}).then(async () => {
     const snap = await ref.get();
-    const best = { ...((snap.exists && snap.data().best) || {}) };
+    const best = dropOldTimes({ ...((snap.exists && snap.data().best) || {}) }, community.me);
     if (best[key] && best[key].t <= t) return;
     if (ghost) {
       try { await ghostRef(community.me, key).set(ghost); }
@@ -2974,7 +3050,7 @@ function mpTrackOptions() {
   const o = (v, label) => `<option value="${v}">${escapeHtml(label)}</option>`;
   mp.commOpts = community.db ? communityTracks() : [];
   let html = `<optgroup label="Daily &amp; random">${o('d', dailyTrack().name)}${o('r', 'Random track')}</optgroup>`;
-  for (const d of ['Easy', 'Medium', 'Hard', 'Expert']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
+  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
   if (mp.commOpts.length) html += `<optgroup label="Community">${mp.commOpts.map((t, i) => o('p:' + i, t.name)).join('')}</optgroup>`;
   return html;
 }
@@ -3284,7 +3360,7 @@ function mpRender() {
 const routeCache = new Map();
 function trackInfo(tr) {
   const key = tr.id + ':' + tr.tiles.length;
-  if (!routeCache.has(key)) { const route = computeRoute(tr.tiles); routeCache.set(key, { route, medals: medalTimes(route) }); }
+  if (!routeCache.has(key)) { const route = computeRoute(tr.tiles); routeCache.set(key, { route, medals: medalTimes(route, tr) }); }
   return routeCache.get(key);
 }
 function trackCard(tr, ref, actions) {
@@ -3301,7 +3377,7 @@ function trackCard(tr, ref, actions) {
   </div>`;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Yours'];
+const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
 function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
@@ -3491,7 +3567,7 @@ function showHelp() {
       <kbd>G</kbd><span>Garage (from the main menu): pick from 14 cars and change the paint</span>
       <kbd>Gamepad</kbd><span>RT gas, LT brake, X handbrake, Y restart, B checkpoint</span>
     </div>
-    <p class="empty-note">Pass every checkpoint, in any order, before you cross the finish. Boost pads push you past top speed and kickers launch you over gaps.</p>
+    <p class="empty-note">Pass every checkpoint, in any order, before you cross the finish. Boost pads push you past top speed, and kickers and steep ramps launch you over gaps.</p>
     <div class="row"><button class="btn primary" id="m-done">Got it</button></div>`);
   $('m-done').onclick = closeModal;
 }
@@ -3571,7 +3647,7 @@ function openEditor(tr) {
 function editorTrack() { return { id: editor.id || 'draft', name: editor.name, env: editor.env, tiles: editor.tiles.map(stripTile), official: false }; }
 $('ed-env').onchange = e => { editor.env = e.target.value; world.env = editor.env; applyTheme(); rebuildEditor(); };
 function rebuildEditor() {
-  editor.group.clear();
+  editor.group.clear(); shapeSteep(editor.tiles);
   for (const t of editor.tiles) editor.group.add(buildTile(t));
   buildScenery(editor.tiles);
   updateEditorStatus();
@@ -3591,10 +3667,11 @@ function drawPieceIcon(c, type) {
   const minX = Math.min(...xs) - W / 2, maxX = Math.max(...xs) + W / 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
   const sc = 64 / Math.max(maxX - minX, maxZ - minZ); const ox = 40 - (minX + maxX) / 2 * sc, oz = 40 + (minZ + maxZ) / 2 * sc;
   g.lineCap = 'butt'; g.lineWidth = W * sc;
-  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
+  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
   g.beginPath(); ps.forEach((p, i) => { const x = ox + p[0] * sc, y = oz - p[2] * sc; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
   g.fillStyle = '#0b1322'; g.strokeStyle = '#0b1322'; g.lineWidth = 3; g.textAlign = 'center'; g.font = '700 22px sans-serif';
   if (type === 'ramp' || type === 'kicker' || type === 'longramp') g.fillText('▲', 40, 48);
+  if (type === 'steep') { g.fillText('▲', 40, 40); g.fillText('▲', 40, 58); }
   if (type === 'loop' || type === 'loopr') { g.beginPath(); g.arc(40, 40, 13, 0, Math.PI * 2); g.stroke(); }
   for (const o of T.obstacles || []) { g.fillStyle = '#ffb020'; if (o.kind === 'cyl') { g.beginPath(); g.arc(ox + o.x * sc, oz - o.z * sc, Math.max(3, o.r * sc), 0, Math.PI * 2); g.fill(); } else g.fillRect(ox + (o.x - o.hx) * sc, oz - (o.z + o.hz) * sc, o.hx * 2 * sc, o.hz * 2 * sc); }
 }
