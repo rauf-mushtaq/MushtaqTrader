@@ -5,8 +5,8 @@ Practice trading with fake money yet still be able to learn how to trade without
 
 A low-poly time-trial racer in the style of PolyTrack, in a single HTML file (`racer/index.html`, with Three.js and Ammo.js loaded from CDNs). Open the file in a browser to play.
 
-- **Car physics**: runs on [Ammo.js](https://github.com/kripken/ammo.js), the JavaScript port of the Bullet physics engine. Each car is a Bullet raycast vehicle: a rigid chassis on four raycast wheels with sprung suspension. Grip comes from a friction-circle tyre model that uses each wheel's load from Bullet. The road is Bullet collision geometry built from the track; barriers, pillars and blocks are handled by the car itself, so brushing one slides you along it instead of spinning you round. It's very grippy, with top speeds kept moderate so you stay in control through the turns (the speedometer reads 70% of the true speed, about 115–140 km/h flat out), and you get weight transfer, wheelspin and real slides. The road is a true 3D surface, so cars can drive banked turns, ride walls and go upside down through loops. A small handling layer on top adds the drift, boosts and air control, and keeps the car on banked, sloping and looping road, so it rides over ramps instead of being thrown off the top. After a landing the throttle cuts briefly so the back wheels can settle.
-- **Air control**: in the air, steering turns the car, W/S pitch the nose down or up, and Space works as an air brake that stops it spinning.
+- **Car physics**: runs on [Ammo.js](https://github.com/kripken/ammo.js), the JavaScript port of the Bullet physics engine. Each car is a Bullet raycast vehicle: a rigid chassis on four raycast wheels with sprung suspension. Grip comes from a friction-circle tyre model that uses each wheel's load from Bullet. The road is Bullet collision geometry built from the track; barriers, pillars and blocks are handled by the car itself, so brushing one slides you along it instead of spinning you round. It's very grippy, with top speeds kept moderate so you stay in control through the turns (the speedometer reads 70% of the true speed, about 115–140 km/h flat out), and you get weight transfer, wheelspin and real slides. The road is a true 3D surface, so cars can drive banked turns, ride walls and go upside down through loops. A small handling layer on top adds the drift, boosts and air control, and keeps the car on banked turns, wall rides and loops. As in PolyTrack, a car going fast enough flies off the top of a ramp or a crest. After a landing the throttle cuts briefly so the back wheels can settle.
+- **Air control**: in the air, steering turns the car and Space works as an air brake that stops it spinning. The car lines itself up with the road it's coming down on, so it lands flat on its wheels, and a very big drop is cushioned.
 - **Drift**: the cars grip and stay straight through corners. To drift, hold Space (the handbrake) as you turn in to slide the tail out, keep steering into the slide to hold it, then straighten up for a small drift boost; longer drifts give bigger boosts.
 - **Track pieces**: road, tight, wide and **banked** turns, **wall rides**, **loops** (exiting a lane left or right), ramps and **long slopes**, kickers, boost pads, **pillars** and **chicane blocks**, **tunnels**, checkpoints, and arrow signs on tight turns.
 - **Environments**: Summer, Winter (snowy pines) and Desert (cacti and mesas), combined with time of day.
@@ -26,8 +26,8 @@ Your times, ghosts, custom tracks and settings are saved in the browser's local 
 
 | Key | Action |
 | --- | --- |
-| W / ↑ | Accelerate (the clock starts on your first input); in the air, nose down |
-| S / ↓ | Brake, then reverse; in the air, nose up |
+| W / ↑ | Accelerate (the clock starts on your first input) |
+| S / ↓ | Brake, then reverse |
 | A D / ← → | Steer (also in the air) |
 | Space / Shift | Handbrake; air brake in the air |
 | R | Instant restart |

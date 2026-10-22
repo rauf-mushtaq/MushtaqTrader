@@ -809,10 +809,17 @@ function routeSpeeds(route, spec) {
   // Over a crest the car goes light or airborne; ease off if a corner follows soon after.
   for (let i = 0; i < N; i++) {
     if (route.crest[i] < 0.02) continue;
-    let turnAhead = 0, slowest = Infinity;
-    for (let j = i; j < Math.min(N, i + 60); j++) { turnAhead = Math.max(turnAhead, route.rawCurv[j]); slowest = Math.min(slowest, v[j]); }
+    let turnAhead = 0, slowest = Infinity, turnAt = -1;
+    for (let j = i; j < Math.min(N, i + 60); j++) {
+      if (turnAt < 0 && route.rawCurv[j] > 0.025) turnAt = j;
+      turnAhead = Math.max(turnAhead, route.rawCurv[j]); slowest = Math.min(slowest, v[j]);
+    }
     // Brakes do nothing in the air, so be at corner speed before leaving the ground.
     if (turnAhead > 0.025) v[i] = Math.min(v[i], Math.sqrt(GRAV / route.crest[i]) * 1.5, slowest * 1.1);
+    // Off the top of a ramp the car flies about 2·v²·slope/g, so it can't steer
+    // for a corner that close; go slow enough to land before it.
+    const k = Math.max(0, i - 8), slope = (route.pts[i].y - route.pts[k].y) / ((i - k) * route.step || 1);
+    if (turnAt >= 0 && slope > 0.05) v[i] = Math.min(v[i], Math.max(18, Math.sqrt(GRAV * Math.max(4, (turnAt - i) * route.step - 6) / (2 * slope))));
   }
   // Kickers: arrive at the speed that lands the jump.
   for (const j of route.jumps) {
@@ -833,7 +840,7 @@ function routeSpeeds(route, spec) {
 function medalTimes(route) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 18.7, bigturn: 37.5, ramp: 32.4, kicker: 40.5, longramp: 41.2, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6 };
+  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6 };
   let t = 1.2;
   for (const g of route.segs) t += g.len / (pace[g.type] || 46.3);
   const author = t * 1000;
@@ -1723,13 +1730,24 @@ class Car {
   get yaw() { const f = this.forward(); return Math.atan2(f.x, f.z); }
   forward() { const f = new V3(0, 0, 1).applyQuaternion(this.q); f.y = 0; if (f.lengthSq() < 1e-6) f.set(0, 0, 1); return f.normalize(); }
   speedKmh() { return Math.abs(this.fs) * 3.6; }
-  nearbyTiles() {
-    const gx = Math.round(this.pos.x / S), gz = Math.round(this.pos.z / S); const out = [];
+  nearbyTiles(p = this.pos) {
+    const gx = Math.round(p.x / S), gz = Math.round(p.z / S); const out = [];
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
       const list = world.cells.get(cellKey(gx + dx, gz + dz));
       if (list) for (const t of list) if (!out.includes(t)) out.push(t);
     }
     return out;
+  }
+  // Where the car will come down: follow its flight path ahead until it meets the
+  // road (or the ground), and take that surface's "up" if it faces upward.
+  predictLanding() {
+    const p = new V3();
+    for (let t = 0.04; t <= 1.5; t += 0.04) {
+      p.copy(this.pos).addScaledVector(this.vel, t); p.y -= 0.5 * GRAV * t * t;
+      const s = surfaceAt(this.nearbyTiles(p), p, this.spec.comY + 0.3, 3);
+      if (s) return { n: s.n.y > 0.3 ? s.n : UP, t };
+    }
+    return null;
   }
   invI(v) {
     const qi = this.q.clone().invert(); const l = v.clone().applyQuaternion(qi);
@@ -1846,20 +1864,18 @@ class Car {
     if (contacts >= 2) {
       const wy = this.w.dot(up); T.addScaledVector(up, -wy * 0.6);
     } else if (!contacts) {
-      // Road grip over crests and walls; fades to nothing upside down, so a
-      // loop taken too slowly still drops you. Kickers are exempt so jumps fly.
+      // Road grip over banks, wall rides and loops; fades to nothing upside down,
+      // so a loop taken too slowly still drops you. Anywhere else (off the top of
+      // a ramp or a crest, or a kicker) the car flies on gravity alone.
       const tiles = this.nearbyTiles();
       if (!this.fromKicker) {
         const below = surfaceAt(tiles, this.pos, 3.5, 0.3);
-        if (below && below.surf !== 'grass' && (below.n.y > 0.5 || this.airTime < 0.5)) F.addScaledVector(below.n, -24 * clamp(0.5 + below.n.y * 0.6, 0, 1));
+        if (below && below.surf !== 'grass' && TWISTY.has(below.type) && (below.n.y > 0.5 || this.airTime < 0.5)) F.addScaledVector(below.n, -24 * clamp(0.5 + below.n.y * 0.6, 0, 1));
       }
-      // Air control: steer to turn, gas pitches the nose down, brake pulls it up.
-      // The handbrake works as an air brake that stops the car rotating. The car
-      // levels itself to the road it's about to land on (or to flat ground).
+      // In the air, steering turns the car and the handbrake works as an air brake
+      // that stops it rotating; the car lines itself up to land (below).
       T.addScaledVector(up, -this.steer * 5);
-      T.addScaledVector(left, ((input.gas || 0) - (input.brake || 0)) * 4.5);
-      const land = surfaceAt(tiles, this.pos.clone().addScaledVector(this.vel, 0.2), 6, 0.5);
-      T.add(new V3().crossVectors(up, land && land.n.y > 0.3 ? land.n : UP).multiplyScalar(hand ? 22 : 12));
+      this.landing = this.predictLanding();
     }
     this.vel.addScaledVector(F, dt);
     this.w.addScaledVector(this.invI(T), dt);
@@ -1879,7 +1895,11 @@ class Car {
     // bank onto flat road, still squashed into the suspension, isn't a jolt.
     const held = road && road.surf !== 'grass' && (GLUED.has(road.type) || onSlope);
     this.glueT = held ? 0.25 : Math.max(0, this.glueT - dt);
-    const twisty = road && road.surf !== 'grass' && (held || this.glueT > 0) && (contacts >= 1 || this.airTime < 0.25);
+    // Loops, banks and walls keep their hold for a moment if a wheel lifts; ramps and
+    // slopes (and the fade after any held piece) only while the wheels are down, so
+    // the car flies off the top of a ramp.
+    const onTwisty = road && road.surf !== 'grass' && TWISTY.has(road.type);
+    const twisty = road && road.surf !== 'grass' && (held || this.glueT > 0) && (contacts >= 1 || (onTwisty && this.airTime < 0.25));
     this.twisty = twisty;
     let nFollow = twisty ? road.n : contacts >= 2 ? this.n : null;
     if (twisty && onSlope && under.every(r => r && r.surf !== 'grass')) nFollow = under[0].n.clone().add(under[1].n).normalize();
@@ -1894,11 +1914,19 @@ class Car {
       // A single wheel down (off a crest, or coming off a bank): stop pitch and
       // roll building up, so the car neither tips over nor noses down.
       if (contacts === 1) { const wy = this.w.dot(up); this.w.addScaledVector(up, -wy).multiplyScalar(Math.exp(-8 * dt)).addScaledVector(up, wy); }
+      // In the air: line the car up with the road where it will come down, turning
+      // faster the closer the touchdown, so it lands flat on its wheels (yaw is left alone).
+      else if (!contacts) {
+        const L = this.landing, want = new V3().crossVectors(up, L ? L.n : UP).divideScalar(Math.max(0.12, (L ? L.t : 1) * 0.6));
+        want.addScaledVector(up, -want.dot(up));
+        const wy = this.w.dot(up); const wp = this.w.clone().addScaledVector(up, -wy);
+        wp.lerp(want, 1 - Math.exp(-8 * dt)); this.w.copy(wp).addScaledVector(up, wy);
+      }
       this.nPrev = null;
     }
-    // Banked turns, wall rides and ramps: the road rises and falls fast as the bank
-    // comes in and out or over the top of a slope, so on these pieces the car is
-    // held down onto the surface (where it will be next tick) instead of being flung off it.
+    // Banked turns and wall rides: the road's edges rise and fall fast as the bank
+    // comes in and out, so on these pieces the car is held down onto the surface
+    // (where it will be next tick) instead of being flung off it.
     // In loops and banks the car is pressed hard into the road; past what the
     // suspension can hold it rides on the track itself rather than scraping its body.
     if (twisty) {
@@ -1912,7 +1940,7 @@ class Car {
     if (road && (road.type === 'bankturn' || road.type === 'wallturn' || ramp) && !this.fromKicker && this.airTime < 0.4) {
       const ahead = surfaceAt(around, this.pos.clone().addScaledVector(this.vel, dt), 2.6, 0.6);
       const h = ahead && ahead.surf !== 'grass' ? ahead.h - sp.comY : 0;
-      if (h > 0.04) this.vel.addScaledVector(ahead.n, -Math.min((h - 0.04) * 0.4 / dt, 300 * dt));
+      if (h > 0.04 && !ramp) this.vel.addScaledVector(ahead.n, -Math.min((h - 0.04) * 0.4 / dt, 300 * dt));
       else if (ramp && h < -0.04 && contacts >= 1) this.vel.addScaledVector(ahead.n, Math.min((-0.04 - h) * 0.4 / dt, 300 * dt));
     }
     this.pushVelocities();
@@ -1934,7 +1962,13 @@ class Car {
     const gN = this.wheels.filter(w => w.contact && w.surf === 'grass').length;
     this.surf = gN >= 2 ? 'grass' : this.wheels.some(w => w.contact && w.surf === 'boost') ? 'boost' : 'road';
     if (nowContacts) { const nSum = new V3(); for (const w of this.wheels) if (w.contact) nSum.add(w.n); this.n.copy(nSum.normalize()); }
-    if (this.grounded && !wasGrounded && this.airTime > 0.3) { events.land = true; this.landT = 0.12; }
+    if (this.grounded && !wasGrounded && this.airTime > 0.15) {
+      // A big drop is cushioned to what the suspension handles well (measured
+      // against the road the car was heading for, not a wheel catching an edge).
+      const ln = this.landing ? this.landing.n : this.n, vn = this.vel.dot(ln);
+      if (vn < -12) { this.vel.addScaledVector(ln, -12 - vn); this.pushVelocities(); }
+      if (this.airTime > 0.3) { events.land = true; this.landT = 0.12; }
+    }
     this.airTime = this.grounded ? 0 : this.airTime + dt;
     const fwdNow = new V3(0, 0, 1).applyQuaternion(this.q), leftNow = new V3(1, 0, 0).applyQuaternion(this.q);
     this.fs = this.vel.dot(fwdNow);
@@ -2401,7 +2435,8 @@ function demoInput(car, st) {
   const rel = pts[look].clone().addScaledVector(r.nrms[look], 0.9).sub(car.pos);
   const fwd = new V3(0, 0, 1).applyQuaternion(car.q), left = new V3(1, 0, 0).applyQuaternion(car.q);
   const err = Math.atan2(rel.dot(left), Math.max(0.1, rel.dot(fwd)));
-  const steer = car.grounded ? clamp(-err * 2.0, -1, 1) : 0;
+  // Steering in the air turns the car to land facing the road ahead.
+  const steer = clamp(-err * 2.0, -1, 1);
   const speeds = routeSpeeds(r, car.spec);
   const vt = speeds[Math.min(speeds.length - 1, bi + 3)];
   const g = car.grounded && sp < vt ? 1 : 0;
@@ -3445,7 +3480,7 @@ function showHelp() {
       <kbd>A D / ← →</kbd><span>Steer</span>
       <kbd>Drifting</kbd><span>Hold the handbrake as you turn in to slide the tail out. Keep steering into the slide to hold it, then straighten up for a small boost (the meter turns blue, yellow, then pink).</span>
       <kbd>Space / Shift</kbd><span>Handbrake. In the air it's an air brake that stops the car spinning.</span>
-      <kbd>In the air</kbd><span>Steer to turn the car, W / ↑ dips the nose, S / ↓ lifts it. Line up your landing.</span>
+      <kbd>In the air</kbd><span>Steer to turn the car. It lines itself up to land on its wheels.</span>
       ${mp.room ? `<kbd>Race online</kbd><span>Host a race or join one from the menu to race other players live. The host picks the track and starts it, and everyone gets the same countdown. In a live race R takes you back to your last checkpoint (the clock keeps running).</span>` : ''}
       ${times.on ? `<kbd>Ghosts</kbd><span>Open a track's leaderboard (the Record line on its card) or look at the finish screen, and switch on Ghost next to other players' times to race against them.</span>` : ''}
       <kbd>R</kbd><span>Instant restart</span>
