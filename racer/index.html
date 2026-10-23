@@ -74,7 +74,7 @@
   .track-card .actions button { font-size: 11px; padding: 3px 7px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .track-card .actions button:hover { color: var(--text); border-color: var(--text); }
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.community { color: #62f0ff; }
+  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.circuit { color: #ff5ad1; } .diff.community { color: #62f0ff; }
   .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track-card .rec { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-align: left; min-width: 0; }
   .track-card .rec .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -773,7 +773,29 @@ const OFFICIAL = [
   { id: 'o60', name: 'Air Show', diff: 'Stunt', env: 'summer', seq: 'ST S2 B S K G S3 B2 S V G2 S3 C S BL S2 B S K G S3 B2 S V G2 S3 C S BR S2 B3 S V2 G2 Z S3 F' },
   { id: 'o61', name: 'Sky Fortress', diff: 'Stunt', env: 'desert', author: 31400, seq: 'ST S2 B3 S V3 G2 Z S2 C S B S OL S2 BR S2 B2 S MR S3 C S2 B2 S V G2 Z S3 BL S2 B S VD S3 F' },
   { id: 'o62', name: 'Stunt Park', diff: 'Stunt', env: 'summer', author: 33300, seq: 'ST S2 B S OL S2 X S2 B S K G S3 C S2 U S2 QR S2 B2 S V G2 S3 C S BL T3 S B S MR S3 VD S2 D S2 F' },
-  { id: 'o63', name: 'Grand Finale', diff: 'Stunt', env: 'desert', seq: 'ST S2 B S OL S2 B S OR S2 C S LU S LU S2 WL S3 B S2 V G2 S4 C S2 WR S2 B2 S ML S3 C S BR S2 B3 S V2 G2 Z S3 F' }
+  { id: 'o63', name: 'Grand Finale', diff: 'Stunt', env: 'desert', seq: 'ST S2 B S OL S2 B S OR S2 C S LU S LU S2 WL S3 B S2 V G2 S4 C S2 WR S2 B2 S ML S3 C S BR S2 B3 S V2 G2 Z S3 F' },
+  // Circuit: closed laps in the style of Grand Prix circuits (long straights, hairpins,
+  // chicanes, esses and sweepers); the finish line is just behind the start.
+  { id: 'o64', name: 'Speed Bowl', diff: 'Circuit', env: 'summer', seq: 'ST S2 U S B S2 QR S6 B S2 C S3 QR S12 C S QR S6 B S6 QR C S D S2 F' },
+  { id: 'o65', name: 'Temple of Speed', diff: 'Circuit', env: 'summer', seq: 'ST B S2 R L S3 BR S5 L R C S5 R S6 R S3 B C S2 L R L S6 BR S2 C BR S3 F' },
+  { id: 'o66', name: 'Neon Strip', diff: 'Circuit', env: 'desert', seq: 'ST B S L S4 R S2 L S3 C S L S3 B S3 R L S3 C L S7 L S2 R S2 C L S2 F' },
+  { id: 'o67', name: 'Mountain Ring', diff: 'Circuit', env: 'winter', seq: 'ST S3 U R S5 U S3 C S R S6 R S3 D S2 C L S6 R S3 R S2 C D S3 F' },
+  { id: 'o68', name: 'Airfield', diff: 'Circuit', env: 'summer', seq: 'ST S BR S2 L R L R S3 B S3 BR S3 C S4 L R S8 R S6 C S BR S2 R S3 L S5 L S5 C S2 R S2 F' },
+  { id: 'o69', name: 'Red Sea', diff: 'Circuit', env: 'desert', seq: 'ST B S L R S BL S2 BR S BL S2 BR S C BL S2 U S3 QL S4 D S4 BL C S7 R S5 BL S5 C S2 L S2 F' },
+  { id: 'o70', name: 'Polder Banks', diff: 'Circuit', env: 'summer', author: 31900, seq: 'ST S3 U QR S5 R S4 C S L S6 R R S2 BL S3 C S3 R S5 R L S2 QR S2 C D S3 F' },
+  { id: 'o71', name: 'Samba', diff: 'Circuit', env: 'summer', seq: 'ST S2 L R L S5 B S4 C S BL S2 L S2 U R S3 L S C L S2 R R S3 D L S5 BL C S2 F' },
+  { id: 'o72', name: 'Desert Lights', diff: 'Circuit', env: 'desert', author: 34600, seq: 'ST B S6 R R S2 L S2 R S2 L R L C S2 R R S7 L L S4 C BR S2 B S2 R S7 R S C S4 F' },
+  { id: 'o73', name: 'Lakeside', diff: 'Circuit', env: 'summer', seq: 'ST S2 L R S2 BR S6 R L C S5 L S2 R R S3 B S2 C R L S3 BR S10 C S R S2 F' },
+  { id: 'o74', name: 'Twisty Valley', diff: 'Circuit', env: 'summer', seq: 'ST S6 R R S L S5 R S C BL S5 R S2 R L S2 R S C S L S2 BR S7 R S2 C S4 F' },
+  { id: 'o75', name: 'Copper Bowl', diff: 'Circuit', env: 'desert', seq: 'ST B S3 R L R S2 BL S3 R S2 R L C S B S2 R S6 L R L R S3 C S2 R S5 T3 L R S4 C BR S3 F' },
+  { id: 'o76', name: 'Dune Fort', diff: 'Circuit', env: 'desert', seq: 'ST S2 L S5 R L S4 C S L L S2 R S B S2 R L S2 L S C R S2 L S2 T3 S2 L S2 C S3 F' },
+  { id: 'o77', name: 'Lone Star', diff: 'Circuit', env: 'desert', seq: 'ST S8 U L L S D R L R L R L C R S8 L S2 B S2 L S2 C R L S3 R S5 L S4 L S3 C S4 F' },
+  { id: 'o78', name: 'Old Town', diff: 'Circuit', env: 'desert', seq: 'ST B S6 L S7 L S L C S4 R S U L R S R L S2 D R S3 C S L S5 L S7 L B S C S4 F' },
+  { id: 'o79', name: 'Forest Rush', diff: 'Circuit', env: 'winter', seq: 'ST S R R S2 L U R U S6 R L S2 C S3 R S14 R R C BL S R L S D S R S5 D BL C S R L S2 F' },
+  { id: 'o80', name: 'Figure Eight', diff: 'Circuit', env: 'summer', seq: 'ST S6 R S L R L R S BR S2 C S3 R S3 U S3 D S3 C L S6 BL S2 R L S2 L S C S4 F' },
+  { id: 'o81', name: 'Marina Night', diff: 'Circuit', env: 'summer', seq: 'ST S2 L R S3 R S6 R C L S7 R S2 T3 S2 R C L S2 R S7 R L S2 C R S3 F' },
+  { id: 'o82', name: 'Harbour Streets', diff: 'Circuit', env: 'summer', seq: 'ST S4 R U S4 L S3 R S3 C D R S R S2 L L S4 R S R S T4 X C S3 L S2 L R S2 R L S2 R S C R S3 F' },
+  { id: 'o83', name: 'Hairpin Heaven', diff: 'Circuit', env: 'winter', author: 37700, seq: 'ST S2 R R S L L S2 R S7 C R R S7 L L S7 R C S4 R R S2 L L S2 R S6 C S R S2 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
 
 // ============================================================================
@@ -3083,7 +3105,7 @@ function mpTrackOptions() {
   const o = (v, label) => `<option value="${v}">${escapeHtml(label)}</option>`;
   mp.commOpts = community.db ? communityTracks() : [];
   let html = `<optgroup label="Daily &amp; random">${o('d', dailyTrack().name)}${o('r', 'Random track')}</optgroup>`;
-  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
+  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
   if (mp.commOpts.length) html += `<optgroup label="Community">${mp.commOpts.map((t, i) => o('p:' + i, t.name)).join('')}</optgroup>`;
   return html;
 }
@@ -3410,7 +3432,7 @@ function trackCard(tr, ref, actions) {
   </div>`;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Yours'];
+const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
 function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
