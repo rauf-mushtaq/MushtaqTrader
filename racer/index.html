@@ -411,7 +411,7 @@
     <kbd>Click</kbd> place · <kbd>Right-click</kbd> erase<br>
     <kbd>R</kbd> rotate · <kbd>Q</kbd>/<kbd>E</kbd> level<br>
     <kbd>1</kbd>–<kbd>9</kbd> pieces · <kbd>X</kbd> eraser<br>
-    <kbd>WASD</kbd> / drag to pan · wheel to zoom<br>
+    <kbd>WASD</kbd> / drag to pan · wheel or pinch to zoom<br>
     <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>T</kbd> test drive
   </div>
   <div id="ed-bar" class="glass"></div>
@@ -3811,17 +3811,31 @@ function editorHover() {
   }
   editor.cursor.visible = true;
 }
+// Move the view by a drag of (dx, dy) pixels, so the ground follows the pointer.
+function panEditor(dx, dy) {
+  const s = editor.dist * 0.0017; const fx = -Math.sin(editor.yaw), fz = -Math.cos(editor.yaw);
+  editor.target.x -= (-fz * dx + fx * -dy) * s; editor.target.z -= (fx * dx + fz * -dy) * s;
+}
+// Touch: one finger drags the view and a tap places a piece; two fingers pinch to
+// zoom and move together to pan. Lifting the fingers after a pinch places nothing.
+const edPointers = new Map();
+function pinchOf() { const [a, b] = [...edPointers.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+function setMouse(e) { const r = canvas.getBoundingClientRect(); mouse.x = (e.clientX - r.left) / r.width * 2 - 1; mouse.y = -(e.clientY - r.top) / r.height * 2 + 1; mouseIn = true; }
 canvas.addEventListener('pointermove', e => {
-  const r = canvas.getBoundingClientRect(); mouse.x = (e.clientX - r.left) / r.width * 2 - 1; mouse.y = -(e.clientY - r.top) / r.height * 2 + 1; mouseIn = true;
+  if (edPointers.has(e.pointerId)) edPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (game.state === 'editor' && editor.pinch && edPointers.size >= 2) {
+    const p = pinchOf();
+    editor.dist = clamp(editor.dist * editor.pinch.d / Math.max(10, p.d), 40, 900);
+    panEditor(p.x - editor.pinch.x, p.y - editor.pinch.y);
+    editor.pinch = p; return;
+  }
+  setMouse(e);
   if (game.state === 'editor' && editor.drag) {
     const dx = e.clientX - editor.drag.x, dy = e.clientY - editor.drag.y;
     if (Math.abs(dx) + Math.abs(dy) > 4) editor.drag.moved = true;
     if (editor.drag.moved) {
       if (editor.drag.rotate) { editor.yaw -= dx * 0.006; editor.pitch = clamp(editor.pitch + dy * 0.005, 0.35, 1.45); }
-      else {
-        const s = editor.dist * 0.0017; const fx = -Math.sin(editor.yaw), fz = -Math.cos(editor.yaw);
-        editor.target.x -= (-fz * dx + fx * -dy) * s; editor.target.z -= (fx * dx + fz * -dy) * s;
-      }
+      else panEditor(dx, dy);
       editor.drag.x = e.clientX; editor.drag.y = e.clientY;
     }
   }
@@ -3830,16 +3844,20 @@ canvas.addEventListener('pointerleave', () => { mouseIn = false; });
 canvas.addEventListener('pointerdown', e => {
   if (game.state !== 'editor') return;
   canvas.setPointerCapture(e.pointerId);
+  edPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (edPointers.size >= 2) { editor.drag = null; editor.pinch = pinchOf(); return; }
   editor.drag = { x: e.clientX, y: e.clientY, moved: false, button: e.button, rotate: e.button === 1 || e.altKey };
-  const r = canvas.getBoundingClientRect(); mouse.x = (e.clientX - r.left) / r.width * 2 - 1; mouse.y = -(e.clientY - r.top) / r.height * 2 + 1; mouseIn = true;
+  setMouse(e);
 });
 canvas.addEventListener('pointerup', e => {
+  edPointers.delete(e.pointerId); if (edPointers.size < 2) editor.pinch = null;
   if (game.state !== 'editor' || !editor.drag) return;
   const d = editor.drag; editor.drag = null;
   if (d.moved) return;
   editorHover();
   if (d.button === 2 || e.shiftKey) editorErase(); else if (d.button === 0) editorPlace();
 });
+canvas.addEventListener('pointercancel', e => { edPointers.delete(e.pointerId); if (edPointers.size < 2) editor.pinch = null; editor.drag = null; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => { if (game.state !== 'editor') return; e.preventDefault(); editor.dist = clamp(editor.dist * Math.exp(e.deltaY * 0.0012), 40, 900); }, { passive: false });
 
@@ -4050,7 +4068,7 @@ function start() {
 }
 $('btn-name').onclick = () => askName(false);
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
