@@ -549,10 +549,16 @@ const TYPES = {
   tunnel:     { label: 'Tunnel', fp: [[0, 0]], n: 8, path: straightPath, wallH: 5.2 },
   mloop:      { label: 'Massive loop', fp: [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 1], [1, 2], [1, 3]], n: 170, levels: 8, path: MEGA.path(1), nrm: MEGA.nrm },
   mloopr:     { label: 'Massive loop (right)', fp: [[0, 0], [0, 1], [0, 2], [0, 3], [-1, 0], [-1, 1], [-1, 2], [-1, 3]], n: 170, levels: 8, path: MEGA.path(-1), nrm: MEGA.nrm },
+  // Plaza: an open square of road the full width of the tile, with no barriers,
+  // so plazas side by side make an area you can drive anywhere on (and streets can
+  // meet at one). Raised up it's the roof of a building, with solid walls below.
+  plaza:      { label: 'Plaza', fp: [[0, 0]], n: 2, path: straightPath, width: S, open: true },
+  // Pavement under a narrower piece in the City (a hair lower, so the two don't flicker). Not in the editor.
+  pave:       { label: 'Pavement', fp: [[0, 0]], n: 2, path: u => [0, -0.04, -S / 2 + u * S], width: S, open: true },
   steep:      { label: 'Steep ramp', fp: [[0, 0]], n: 40, levels: 2, path: (u, t) => [0, steepRise(u, t ? t.si : 0, t ? t.so : 0), -S / 2 + u * S] },
 };
 // New pieces go on the end: share codes store a piece as its place in this list.
-const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep', 'mloop', 'mloopr'];
+const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep', 'mloop', 'mloopr', 'plaza'];
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // world (x,z) heading for rotation r
 
 function rotXZ(x, z, r) { const a = r * Math.PI / 2, c = Math.cos(a), s = Math.sin(a); return [x * c + z * s, -x * s + z * c]; }
@@ -797,6 +803,53 @@ const OFFICIAL = [
   { id: 'o82', name: 'Harbour Streets', diff: 'Circuit', env: 'summer', seq: 'ST S4 R U S4 L S3 R S3 C D R S R S2 L L S4 R S R S T4 X C S3 L S2 L R S2 R L S2 R S C R S3 F' },
   { id: 'o83', name: 'Hairpin Heaven', diff: 'Circuit', env: 'winter', author: 37700, seq: 'ST S2 R R S L L S2 R S7 C R R S7 L L S7 R C S4 R R S2 L L S2 R S6 C S R S2 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
+
+// ============================================================================
+// The City: a free-roam practice map that everyone online drives together (see
+// the online City further down). The whole floor is open plaza; on it stand
+// buildings to jump between and parks full of ramps. No clock and no finish.
+// ============================================================================
+function cityTiles() {
+  const cells = new Map(), out = new Set();
+  const put = (type, x, z, l = 0, r = 0) => {
+    const t = { type, x, z, l, r };
+    for (const [fx, fz] of footprint(t)) { const o = cells.get(fx + ',' + fz); if (o) { out.delete(o); for (const [ox, oz] of footprint(o)) cells.delete(ox + ',' + oz); } }
+    for (const [fx, fz] of footprint(t)) cells.set(fx + ',' + fz, t);
+    out.add(t);
+  };
+  const rect = (x0, z0, x1, z1, l = 0) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) put('plaza', x, z, l); };
+  rect(0, 0, 31, 31); // the city floor
+  // Rooftop Run (north): boosts and two steep ramps up onto a 20 m roof, then
+  // jumps from roof to roof across the alleys, each roof a storey lower.
+  put('boost', 2, 3, 0, 1); put('boost', 3, 3, 0, 1); put('steep', 4, 3, 0, 1); put('steep', 5, 3, 2, 1);
+  rect(6, 2, 11, 4, 4); rect(13, 2, 15, 4, 3); rect(17, 2, 19, 4, 2); rect(21, 2, 23, 4, 1);
+  // Skate Park (middle): two funboxes with ramps on and off, a line of kickers,
+  // a loop, and a steep launch over the park.
+  rect(12, 12, 14, 13, 1); for (const z of [12, 13]) { put('ramp', 11, z, 0, 1); put('ramp', 15, z, 0, 3); }
+  rect(17, 16, 18, 18, 1); for (const x of [17, 18]) { put('ramp', x, 15, 0, 0); put('ramp', x, 19, 0, 2); }
+  for (const x of [8, 12, 16]) put('kicker', x, 10, 0, 1);
+  put('loop', 9, 16, 0, 1);
+  put('steep', 21, 20, 0, 2);
+  // Stunt Yard (east): a massive loop and a loop, each with boosts before it, and a
+  // pyramid with steep ramps up every side.
+  put('boost', 25, 4, 0, 0); put('boost', 25, 5, 0, 0); put('mloop', 25, 6, 0, 0);
+  put('boost', 29, 5, 0, 0); put('boost', 29, 6, 0, 0); put('loop', 29, 7, 0, 0);
+  rect(27, 15, 28, 16, 2);
+  for (const z of [15, 16]) { put('steep', 26, z, 0, 1); put('steep', 29, z, 0, 3); }
+  for (const x of [27, 28]) { put('steep', x, 14, 0, 0); put('steep', x, 17, 0, 2); }
+  // Big Air (south): boosts and three steep ramps launch you onto a roof 20 m up.
+  for (const x of [4, 5, 6]) put('boost', x, 26, 0, 1);
+  put('steep', 7, 26, 0, 1); put('steep', 8, 26, 2, 1); put('steep', 9, 26, 4, 1);
+  rect(12, 24, 17, 28, 4);
+  // The skyline: tall buildings round the edge.
+  rect(0, 29, 2, 31, 7); rect(27, 0, 31, 2, 8); rect(29, 27, 31, 31, 6); rect(23, 28, 26, 31, 5);
+  put('start', 15, 22, 0, 2); // spawn, facing the park
+  // Pavement under everything narrower than a plaza, so the floor has no gaps.
+  const paved = new Set([...out].filter(t => t.type === 'plaza' && !t.l).map(t => t.x + ',' + t.z));
+  for (const t of [...out]) if (t.type !== 'plaza') for (const [x, z] of footprint(t)) if (!paved.has(x + ',' + z)) { paved.add(x + ',' + z); out.add({ type: 'pave', x, z, l: 0, r: 0 }); }
+  return [...out];
+}
+const CITY = { id: 'city', name: 'City', env: 'summer', free: true, official: false, get tiles() { return this._t || (this._t = cityTiles()); } };
 
 // ============================================================================
 // Route finding: walk from the start along connected pieces (and across jump
@@ -1055,7 +1108,7 @@ const MAT = {
   cpIdle: new THREE.MeshStandardMaterial({ color: 0x24b8ff, emissive: 0x0a4c80, emissiveIntensity: 0.6, flatShading: true }),
   cpDone: new THREE.MeshStandardMaterial({ color: 0x3ee38a, emissive: 0x137a3e, emissiveIntensity: 0.6, flatShading: true }),
 };
-const COL = { asphalt: new THREE.Color('#3a3f4b'), asphaltBoost: new THREE.Color('#4a3a2c'), side: new THREE.Color('#9aa3b2'), red: new THREE.Color('#e8413c'), white: new THREE.Color('#f4f4f4'), line: new THREE.Color('#d9dde4') };
+const COL = { plaza: new THREE.Color('#585e6a'), asphalt: new THREE.Color('#3a3f4b'), asphaltBoost: new THREE.Color('#4a3a2c'), side: new THREE.Color('#9aa3b2'), red: new THREE.Color('#e8413c'), white: new THREE.Color('#f4f4f4'), line: new THREE.Color('#d9dde4') };
 
 function makeTexture(draw, w = 256, h = 64) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
@@ -1112,16 +1165,35 @@ function arrowSign(dir) {
   return signTex[dir];
 }
 
+// A raised plaza stands on a building: window-grid walls, one look per height.
+const BUILDING_LOOKS = [['#b5654a', '#f3d9a4'], ['#cbb48c', '#33465e'], ['#7d8fa6', '#cfe8ff'], ['#3f8a8c', '#bff6ff'], ['#3a4256', '#ffd76a'], ['#8a6fa8', '#f7e1ff']];
+const buildingMats = BUILDING_LOOKS.map(([wall, win]) => {
+  const map = makeTexture((g, w, h) => {
+    g.fillStyle = wall; g.fillRect(0, 0, w, h); g.fillStyle = win;
+    for (let i = 0; i < 4; i++) g.fillRect(i * w / 4 + 8, 14, w / 4 - 16, h - 34);
+    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, h - 8, w, 8);
+  }, 128, 64);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  return new THREE.MeshStandardMaterial({ map, roughness: 0.85, flatShading: true });
+});
+function buildingMesh(t) {
+  const h = t.l * H - TH - GROUND_Y, geo = new THREE.BoxGeometry(S, h, S), uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * h / H); // a row of windows per level
+  const m = new THREE.Mesh(geo, buildingMats[(t.l - 1) % buildingMats.length]);
+  m.position.set(0, -TH - h / 2, 0); m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
 // Build the visual group for one tile (in local space, then placed).
 function buildTile(t, opts = {}) {
   const T = TYPES[t.type]; const g = new THREE.Group();
   const fr = localFrames(t.type, uSteps(T.n), t);
-  const pts = fr.pts;
+  const pts = fr.pts, RW = T.width || W;
   const isBoost = t.type === 'boost';
-  const road = new THREE.Mesh(slabGeometry(fr, -W / 2, W / 2, 0, TH, isBoost ? COL.asphaltBoost : COL.asphalt, COL.side), opts.ghostMat || MAT.road);
+  const road = new THREE.Mesh(slabGeometry(fr, -RW / 2, RW / 2, 0, TH, isBoost ? COL.asphaltBoost : T.open ? COL.plaza : COL.asphalt, COL.side), opts.ghostMat || MAT.road);
   road.castShadow = !opts.ghostMat; road.receiveShadow = !opts.ghostMat;
   g.add(road); g.userData.road = road;
   if (opts.ghostMat) { place(g, t); return g; }
+  if (T.open) { if (t.l > 0) g.add(buildingMesh(t)); place(g, t); return g; }
 
   // Red/white barriers along both edges (low enough to jump over). Tunnels get tall walls and a roof.
   const wallH = T.wallH || WALL_H;
@@ -1199,6 +1271,8 @@ function centreline(t) {
 }
 // Obstacles in world space: pillars (circles) and blocks (boxes), as seen from above.
 function obstaclesFor(t) {
+  // A raised plaza's building is solid from the ground to just under its roof.
+  if (TYPES[t.type].open && t.l > 0) return [{ kind: 'box', x: t.x * S, z: t.z * S, y0: GROUND_Y, y1: t.l * H - 0.6, hx: S / 2, hz: S / 2 }];
   return (TYPES[t.type].obstacles || []).map(o => {
     const [x, z] = rotXZ(o.x, o.z, t.r); const swap = t.r % 2 === 1;
     return { kind: o.kind, x: t.x * S + x, z: t.z * S + z, y0: t.l * H, y1: t.l * H + o.h, r: o.r, hx: swap ? o.hz : o.hx, hz: swap ? o.hx : o.hz };
@@ -1283,6 +1357,35 @@ const world = {
 scene.add(world.group);
 const cellKey = (x, z) => x + ',' + z;
 
+// A big map (the City) is drawn as one mesh per material instead of one per
+// piece, so it costs a handful of draw calls.
+function mergeStatic(group) {
+  group.updateMatrixWorld(true);
+  const buckets = new Map(), keep = [];
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    if (Array.isArray(o.material)) { keep.push(o); return; }
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
+    const key = o.material.uuid + '|' + Object.keys(g.attributes).sort().join(',') + '|' + o.castShadow + o.receiveShadow;
+    if (!buckets.has(key)) buckets.set(key, { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, geos: [] });
+    buckets.get(key).geos.push(g);
+  });
+  for (const o of keep) o.updateMatrixWorld(true);
+  const kept = keep.map(o => { const m = o.clone(); m.matrix.copy(o.matrixWorld); m.matrix.decompose(m.position, m.quaternion, m.scale); return m; });
+  group.traverse(o => { if (o.isMesh && !Array.isArray(o.material)) o.geometry.dispose(); });
+  group.clear();
+  for (const b of buckets.values()) {
+    const out = new THREE.BufferGeometry();
+    for (const name of Object.keys(b.geos[0].attributes)) {
+      const size = b.geos[0].attributes[name].itemSize, arr = new Float32Array(b.geos.reduce((n, g) => n + g.attributes[name].array.length, 0));
+      let off = 0; for (const g of b.geos) { arr.set(g.attributes[name].array, off); off += g.attributes[name].array.length; }
+      out.setAttribute(name, new THREE.BufferAttribute(arr, size));
+    }
+    for (const g of b.geos) g.dispose();
+    const m = new THREE.Mesh(out, b.mat); m.castShadow = b.cast; m.receiveShadow = b.recv; group.add(m);
+  }
+  for (const m of kept) group.add(m);
+}
 function loadTrack(track) {
   world.track = track; world.tiles = track.tiles.map(t => ({ ...t }));
   const env = envFor(track); if (env !== world.env) { world.env = env; applyTheme(); }
@@ -1299,6 +1402,7 @@ function loadTrack(track) {
     if (t.type === 'checkpoint') world.cps.push(t);
     if (t.type === 'start') world.start = t;
   }
+  if (track.free) mergeStatic(world.group);
   world.group.updateMatrixWorld(true);
   world.route = computeRoute(world.tiles);
   buildTrackPhysics(world.tiles, world.route.ok ? world.route.segs.filter(g => g.type === 'gap').map(g => g.Q) : []);
@@ -1595,7 +1699,7 @@ function surfaceAt(tiles, p, maxAbove, maxBelow) {
   for (const t of tiles) {
     if (!t.cl.box.containsPoint(p)) continue;
     const c = nearestOnCentreline(t.cl, p);
-    if (Math.abs(c.along) > 0.05 || Math.abs(c.lat) > W / 2) continue;
+    if (Math.abs(c.along) > 0.05 || Math.abs(c.lat) > (TYPES[t.type].width || W) / 2) continue;
     if (c.h > maxAbove || c.h < -maxBelow) continue;
     if (!best || c.h < best.h) best = { q: c.q, n: c.N, h: c.h, surf: t.type === 'boost' ? 'boost' : 'road', type: t.type, tile: t };
   }
@@ -1626,6 +1730,7 @@ const TWISTY = new Set(['bankturn', 'wallturn', 'loop', 'loopr', 'mloop', 'mloop
 // Pieces the car is held to, following the road's own shape: the twisty ones, and
 // ramps and slopes, which bend up and over too sharply at speed for the suspension alone.
 const GLUED = new Set([...TWISTY, 'ramp', 'longramp', 'steep']);
+const LOOPS = new Set(['loop', 'loopr', 'mloop', 'mloopr']);
 const CAR_MASS = 1000;
 const INERTIA = new V3(3.0, 2.6, 1.7); // pitch, yaw, roll (per unit mass)
 const DRIFT_STAGES = [{ t: 0.6, boost: 3, name: 'Drift boost', color: 'var(--author)' }, { t: 1.4, boost: 5, name: 'Super drift boost', color: 'var(--signal)' }, { t: 2.4, boost: 8, name: 'Ultra drift boost', color: '#ff7ad9' }];
@@ -1690,10 +1795,10 @@ function buildTrackPhysics(tiles, landings) {
     // Road that twists (banks, wall rides, loops) is cut into narrow strips across
     // its width; one wide quad would fold into facets that tilt steeply uphill and
     // downhill along the road and drag the car back.
-    const strips = TWISTY.has(t.type) ? 8 : 1;
+    const strips = TWISTY.has(t.type) ? 8 : 1, RW = TYPES[t.type].width || W;
     for (let i = 0; i < n; i++) {
       for (let k = 0; k < strips; k++) {
-        const l0 = -W / 2 + W * k / strips, l1 = -W / 2 + W * (k + 1) / strips;
+        const l0 = -RW / 2 + RW * k / strips, l1 = -RW / 2 + RW * (k + 1) / strips;
         quadK('road', at(cl, i, l0, 0), at(cl, i, l1, 0), at(cl, i + 1, l1, 0), at(cl, i + 1, l0, 0));
       }
       if (t.type === 'tunnel') quadK('roof', at(cl, i, -W / 2, wallH + 0.01), at(cl, i, W / 2, wallH + 0.01), at(cl, i + 1, W / 2, wallH + 0.01), at(cl, i + 1, -W / 2, wallH + 0.01));
@@ -1705,7 +1810,7 @@ function buildTrackPhysics(tiles, landings) {
       const end = cl.pts[i];
       if (!landings.some(q => q.distanceTo(end) < 1)) continue;
       const out = end.clone().sub(cl.pts[j]).normalize(), drop = cl.nrm[i].clone().multiplyScalar(-0.8).addScaledVector(out, 1.6);
-      const a = at(cl, i, -W / 2, 0), b = at(cl, i, W / 2, 0);
+      const a = at(cl, i, -RW / 2, 0), b = at(cl, i, RW / 2, 0);
       quadK('road', a, b, b.clone().add(drop), a.clone().add(drop));
     }
   }
@@ -2013,6 +2118,15 @@ class Car {
       const wy = this.w.dot(up); const wp = this.w.clone().addScaledVector(up, -wy);
       wp.lerp(target, 1 - Math.exp(-14 * dt)); this.w.copy(wp).addScaledVector(up, wy);
       this.nPrev = nFollow.clone();
+      // A loop also bends sideways (each one exits a lane over): unless you're
+      // steering, the car turns with the road so it doesn't slide off near the top.
+      if (twisty && LOOPS.has(road.type) && road.tile && Math.abs(input.steer || 0) < 0.25) {
+        const P = road.tile.cl.pts, c = nearestOnCentreline(road.tile.cl, this.pos);
+        const tg = P[c.i + 1].clone().sub(P[c.i]); tg.addScaledVector(nFollow, -tg.dot(nFollow)).normalize();
+        const f = fwd.clone().addScaledVector(nFollow, -fwd.dot(nFollow)).normalize(); if (tg.dot(f) < 0) tg.negate();
+        const err = Math.atan2(new V3().crossVectors(f, tg).dot(nFollow), f.dot(tg)), wn = this.w.dot(nFollow);
+        this.w.addScaledVector(nFollow, (err * 6 - wn) * (1 - Math.exp(-8 * dt)));
+      }
     } else {
       // A single wheel down (off a crest, or coming off a bank): stop pitch and
       // roll building up, so the car neither tips over nor noses down.
@@ -2103,7 +2217,7 @@ class Car {
   collideWalls(tiles, dt) {
     const p = this.pos; let hit = false;
     for (const t of tiles) {
-      if (!t.cl.box.containsPoint(p)) continue;
+      if (TYPES[t.type].open || !t.cl.box.containsPoint(p)) continue;
       const c = nearestOnCentreline(t.cl, p);
       if (Math.abs(c.along) > 0.05) continue;
       const wallH = TYPES[t.type].wallH || WALL_H;
@@ -2411,8 +2525,14 @@ function restartRace() {
   $('hud-delta').hidden = true; $('hud-hint').hidden = false; game.offTrack = 0;
   $('hud-hint').innerHTML = touchUI() ? 'Press <b>Gas</b> to launch' : 'Press <b>W</b> or <b>↑</b> to launch';
   $('hud-drift').hidden = true;
+  // Free roam (the City): no clock, medals or checkpoints.
+  const free = !!world.track.free;
+  for (const id of ['hud-time', 'hud-cp', 'hud-medals']) $(id).hidden = free;
+  $('hud-keys').innerHTML = free ? '<kbd>R</kbd> back to the start · <kbd>Enter</kbd> back on your wheels · <kbd>Space</kbd> handbrake / drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause' : HUD_KEYS;
+  if (free) $('hud-hint').innerHTML = 'Drive anywhere: jumps, rooftops and parks. ' + $('hud-hint').innerHTML;
   updateHudStatic();
 }
+const HUD_KEYS = $('hud-keys').innerHTML;
 function setCpMat(t, done) {
   const g = t.mesh; if (!g || !g.userData.gatePosts) return;
   const src = done ? MAT.cpDone : MAT.cpIdle;
@@ -2420,6 +2540,8 @@ function setCpMat(t, done) {
 }
 function respawn() {
   if (game.state !== 'race') return;
+  // In free roam the car is put back on its wheels where it is.
+  if (world.track.free) { const c = game.car; game.car.reset(c.pos.clone().add(new V3(0, 1.5, 0)), c.yaw, 0); clearSkids(); return; }
   if (!game.lastCp) {
     if (!mp.race) { restartRace(); return; }
     const { p, yaw } = spawnPoint(); game.car.reset(p, yaw); clearSkids(); return; // a live race's clock keeps running
@@ -2436,7 +2558,7 @@ function startTrack(track, fromEditor = false) {
   game.fromEditor = fromEditor;
   setState('race');
   restartRace();
-  if (!r.ok) toast(r.reason + ' You can still drive it.');
+  if (!r.ok && !track.free) toast(r.reason + ' You can still drive it.');
 }
 
 function onCheckpoint(t) {
@@ -2584,7 +2706,7 @@ function updateDriftHud(car) {
 // The speed readout (and the garage's top speeds) show 70% of the true speed.
 const SPEEDO = 0.7;
 function updateHud() {
-  $('hud-time').textContent = fmtTime(game.time);
+  if (!world.track.free) $('hud-time').textContent = fmtTime(game.time);
   const kmh = game.car.speedKmh();
   $('spd').textContent = Math.round(kmh * SPEEDO);
   $('spd-bar').style.width = clamp(kmh / (game.car.spec.vmax * 3.6 * 1.15) * 100, 0, 100) + '%';
@@ -2602,6 +2724,11 @@ function drawMinimapBase() {
   g.lineCap = 'round'; g.lineJoin = 'round';
   for (const pass of [0, 1]) {
     for (const t of world.tiles) {
+      if (TYPES[t.type].open) { // plazas and roofs as squares, lighter the higher they are
+        const [x0, y0] = mmXform(t.x * S - S / 2, t.z * S - S / 2), [x1, y1] = mmXform(t.x * S + S / 2, t.z * S + S / 2);
+        g.fillStyle = pass ? `hsl(220, 12%, ${Math.min(88, 50 + t.l * 7)}%)` : 'rgba(0,0,0,0.55)'; const e = pass ? 0 : 2;
+        g.fillRect(Math.min(x0, x1) - e, Math.min(y0, y1) - e, Math.abs(x1 - x0) + 2 * e, Math.abs(y1 - y0) + 2 * e); continue;
+      }
       const n = TYPES[t.type].n; g.beginPath();
       for (let i = 0; i <= n; i++) { const p = tilePoint(t, i / n); const [x, y] = mmXform(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); }
       g.lineWidth = pass ? 7 : 12; g.strokeStyle = pass ? ({ start: '#ffd23f', finish: '#ffffff', checkpoint: '#24b8ff', boost: '#ff9a20' }[t.type] || `hsl(220, 15%, ${Math.min(90, 62 + t.l * 9)}%)`) : 'rgba(0,0,0,0.55)';
@@ -2647,7 +2774,8 @@ function setState(s) {
 function togglePause() {
   if (game.state === 'race') {
     setState('paused'); $('pause-track').textContent = world.track.name; $('btn-pause-edit').hidden = !game.fromEditor;
-    $('btn-restart').hidden = !!mp.race; $('btn-quit').textContent = mp.race ? 'Back to room' : 'Main menu';
+    $('btn-restart').hidden = !!mp.race; $('btn-quit').textContent = mp.race ? 'Back to room' : world.track.free ? 'Leave the City' : 'Main menu';
+    $('btn-restart').textContent = world.track.free ? 'Back to the start' : 'Restart';
   }
   else if (game.state === 'paused') setState('race');
 }
@@ -3050,6 +3178,7 @@ const mp = {
   cars: new Map(), names: new Map(), tracks: new Map(), commOpts: [],
   sentAt: 0, sent: '', ad: '', hudAt: 0, view: '',
   chat: [], chatSeen: new Set(), chatVer: 0, myMsgs: [], msgN: 0, saidAt: 0, unread: 0, // the room's chat
+  city: false, // in the online City (free roam) rather than a race room
 };
 async function initOnline() {
   if (!window.claude || !window.claude.use) return;
@@ -3071,7 +3200,7 @@ function mpOpenRaces() {
 }
 function mpLobbyChanged() {
   $('btn-online').hidden = !mp.room;
-  const n = mpOpenRaces().length; $('online-count').textContent = n ? n + ' open' : '';
+  const n = mpOpenRaces().length, c = cityDrivers(); $('online-count').textContent = [n ? n + ' open' : '', c ? c + ' in the City' : ''].filter(Boolean).join(' · ');
   if (game.state === 'online' && !mp.r) mpRender();
   mpInvite();
 }
@@ -3164,13 +3293,14 @@ async function mpJoin(name, hosting) {
 }
 function mpLeave() {
   const r = mp.r; if (mp.unsub) mp.unsub();
-  Object.assign(mp, { r: null, name: '', peers: [], unsub: null, hs: 0, sel: null, go: null, lastN: 0, synced: false, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
+  Object.assign(mp, { r: null, name: '', city: false, peers: [], unsub: null, hs: 0, sel: null, go: null, lastN: 0, synced: false, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
   game.lockUntil = 0; $('hud-mp').hidden = true;
   mpSyncCars(); mpAdvertise();
   if (r) r.leave().catch(() => {});
 }
 function mpPeersChanged() {
   if (!mp.r) return;
+  if (mp.city) { mpNames(); mpSend(false); mpSyncCars(); return; } // the City has no host or races
   const host = mpHost();
   // Taking over from a host who left: carry on from the races already seen.
   if (host && host.sameTab && !mp.hs) { mp.hs = Date.now(); mp.sel = mp.sel || (mp.race && mp.race.tr) || { k: 'o', id: OFFICIAL[0].id }; }
@@ -3190,16 +3320,16 @@ function mpPeersChanged() {
 function mpAdvertise() {
   if (!mp.room) return;
   let ad = null;
-  if (mp.r && mpIsHost()) { const tr = mpTrack(mp.sel); ad = { room: mp.name, nm: settings.nick || null, tr: tr ? tr.name : '', n: mpPlayers().length, live: mpLive() }; }
-  const s = JSON.stringify(ad); if (s === mp.ad) return;
-  mp.ad = s; mp.room.presence({ race: ad }).catch(() => {});
+  if (mp.r && !mp.city && mpIsHost()) { const tr = mpTrack(mp.sel); ad = { room: mp.name, nm: settings.nick || null, tr: tr ? tr.name : '', n: mpPlayers().length, live: mpLive() }; }
+  const s = JSON.stringify([ad, mp.city]); if (s === mp.ad) return;
+  mp.ad = s; mp.room.presence({ race: ad, city: mp.city ? 1 : null }).catch(() => {}); // the lobby counts who's in the City
 }
 // This page's presence in the race room: its car, and while racing where it is.
 function mpSend(force) {
   if (!mp.r) return;
   const now = performance.now();
   if (!force && now - mp.sentAt < MP_SEND_MS) { if (!mp.trail) mp.trail = setTimeout(() => { mp.trail = 0; mpSend(false); }, MP_SEND_MS); return; }
-  const c = game.car, racing = mp.status === 'race' && (game.state === 'race' || game.state === 'paused');
+  const c = game.car, racing = (mp.status === 'race' || mp.status === 'city') && (game.state === 'race' || game.state === 'paused');
   const pr = { v: 1, nm: settings.nick || null, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
     cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null,
     m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP) };
@@ -3257,7 +3387,8 @@ function mpRaceCell(r, cps) { return r.done ? fmtTime(r.f) : 'CP ' + r.cp + '/' 
 // the past so their movement can be smoothed between updates.
 function mpSyncCars() {
   const want = new Map();
-  if (mp.race) for (const p of mp.peers) if (!p.sameTab && p.presence.n === mp.race.n && p.presence.st === 'race') want.set(p.peer, p);
+  if (mp.city) { for (const p of mp.peers) if (!p.sameTab && p.presence.st === 'city') want.set(p.peer, p); }
+  else if (mp.race) for (const p of mp.peers) if (!p.sameTab && p.presence.n === mp.race.n && p.presence.st === 'race') want.set(p.peer, p);
   for (const [peer, car] of mp.cars) {
     const p = want.get(peer);
     if (!p || car.spec !== p.presence.c || car.paint !== mpPaint(p) || car.name !== mpName(p)) {
@@ -3292,6 +3423,13 @@ function mpUpdateCars() {
 }
 function mpHud() {
   const el = $('hud-mp');
+  if (mp.city && game.state === 'race') {
+    const now = performance.now(); if (now - mp.hudAt < 400) return; mp.hudAt = now;
+    const others = mpPlayers().filter(p => !p.sameTab && p.presence.st === 'city');
+    el.hidden = false;
+    el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + ['You', ...others.slice(0, 7).map(mpName)].map(n => `<div><span>${escapeHtml(n)}</span><span></span></div>`).join('');
+    return;
+  }
   if (!mp.race || game.state !== 'race') { if (!el.hidden) el.hidden = true; return; }
   const now = performance.now(); if (now - mp.hudAt < 200) return; mp.hudAt = now;
   const rows = mpStandings(), cps = world.cps.length;
@@ -3351,6 +3489,35 @@ function mpRenderChat() {
   if (atEnd || !el.dataset.seen) { el.scrollTop = el.scrollHeight; el.dataset.seen = '1'; }
 }
 
+// The online City: one room that anyone can drop into at any time to drive the
+// City together. Each page shares its car the same way as in a race and draws
+// everyone else's; there's no host, no clock and no finish. Without a live room
+// the City is still there to practise in on your own.
+const CITY_ROOM = 'city';
+function cityDrivers() { return mp.lobby.filter(p => !p.sameTab && p.presence && p.presence.city).length + (mp.city ? 1 : 0); }
+async function cityJoin() {
+  if (mp.joining) return;
+  if (mp.r) mpLeave();
+  if (mp.room) {
+    mp.joining = true; let r = null;
+    try { r = await mp.room.join(CITY_ROOM); } catch (e) { toast('Could not reach the online City, so you’re driving it on your own.'); }
+    finally { mp.joining = false; }
+    if (r) {
+      Object.assign(mp, { r, name: CITY_ROOM, city: true, peers: r.peers(), joinedAt: Date.now(), hs: 0, sel: null, go: null, lastN: 0, synced: true, race: null, status: 'city', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
+      mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mpPeersChanged(); }, () => {
+        if (mp.r !== r) return;
+        toast('Lost the connection to the City. You can keep driving on your own.'); mpLeave();
+      });
+    }
+  }
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  closeModal(); startTrack(CITY); mpSend(true); mpAdvertise(); mpSyncCars(); mpNames();
+}
+function cityLeave() {
+  mpLeave();
+  if (mp.room) showOnline(); else { setState('menu'); loadDemo(); }
+}
+
 // The live race screen: the lobby's open races, or the room you're in.
 function showOnline() {
   if (game.state !== 'online') { setState('online'); loadDemo(); }
@@ -3364,6 +3531,8 @@ function mpRender() {
     mp.view = view;
     $('online-body').innerHTML = view === 'lobby' ? `<div class="eyebrow">Live race</div><h2>Race other players</h2>
       <p class="mp-sub">Race the same track at the same time as other people who have the game open.</p>
+      <div class="lb-head"><span>Free roam</span></div>
+      <div class="mp-list"><div class="mp-item"><div><b>The City</b><small>Drive with everyone online, any time: rooftop jumps, skate parks, loops and big air to practise on. <span id="mp-city-n"></span></small></div><button class="btn primary" id="mp-city">Drive</button></div></div>
       <div class="lb-head"><span>Open races</span></div><div class="mp-list" id="mp-list"></div>
       <div class="row"><button class="btn primary" id="mp-host">Host a race</button><button class="btn" id="mp-back">Back</button></div>`
       : `<div class="eyebrow" id="mp-eyebrow">Live race</div><h2 id="mp-trackname"></h2>
@@ -3379,6 +3548,7 @@ function mpRender() {
     const on = (id, fn, ev = 'onclick') => { const el = $(id); if (el) el[ev] = fn; };
     on('mp-host', () => mpJoin('race-' + Array.from({ length: 6 }, () => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)]).join(''), true));
     on('mp-back', () => { setState('menu'); loadDemo(); });
+    on('mp-city', cityJoin);
     on('mp-leave', () => { mpLeave(); mpRender(); });
     on('mp-start', mpHostStart);
     on('mp-track', e => { const s = mpSpecFromValue(e.target.value); if (s) { mp.sel = s; mpSend(true); mpAdvertise(); mpRender(); } }, 'onchange');
@@ -3387,6 +3557,7 @@ function mpRender() {
     on('mp-say', e => { e.preventDefault(); if (mpSay($('mp-msg').value)) $('mp-msg').value = ''; }, 'onsubmit');
   }
   if (view === 'lobby') {
+    const c = cityDrivers(); $('mp-city-n').textContent = c ? c + (c === 1 ? ' person' : ' people') + ' driving now.' : 'Nobody there yet.';
     const races = mpOpenRaces(), el = $('mp-list');
     el.innerHTML = races.length ? races.map(r => `<div class="mp-item"><div><b>${r.nm ? escapeHtml(r.nm) + '’s race' : r.by ? `<span data-uid="${escapeHtml(r.by)}"></span>’s race` : 'Open race'}</b><small>${escapeHtml(r.track)} · ${r.n} player${r.n > 1 ? 's' : ''} · ${r.live ? 'racing now' : 'waiting'}</small></div><button class="btn" data-join="${r.room}">Join</button></div>`).join('')
       : '<p class="empty-note">No open races right now. Host one and anyone who opens the game can join it.</p>';
@@ -3721,8 +3892,8 @@ function drawPieceIcon(c, type) {
   const xs = ps.map(p => p[0]), zs = ps.map(p => p[2]);
   const minX = Math.min(...xs) - W / 2, maxX = Math.max(...xs) + W / 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
   const sc = 64 / Math.max(maxX - minX, maxZ - minZ); const ox = 40 - (minX + maxX) / 2 * sc, oz = 40 + (minZ + maxZ) / 2 * sc;
-  g.lineCap = 'butt'; g.lineWidth = W * sc;
-  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', mloop: '#62f0ff', mloopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
+  g.lineCap = 'butt'; g.lineWidth = (T.width || W) * sc;
+  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', plaza: '#9aa3b2', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', mloop: '#62f0ff', mloopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
   g.beginPath(); ps.forEach((p, i) => { const x = ox + p[0] * sc, y = oz - p[2] * sc; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
   g.fillStyle = '#0b1322'; g.strokeStyle = '#0b1322'; g.lineWidth = 3; g.textAlign = 'center'; g.font = '700 22px sans-serif';
   if (type === 'ramp' || type === 'kicker' || type === 'longramp') g.fillText('▲', 40, 48);
@@ -3940,7 +4111,7 @@ $('btn-resume').onclick = () => togglePause();
 $('btn-restart').onclick = () => { setState('race'); restartRace(); };
 $('btn-pause-settings').onclick = () => { $('pause').hidden = true; showSettings(); };
 $('btn-pause-edit').onclick = backToEditor;
-$('btn-quit').onclick = () => { if (mp.race) mpToRoom(); else { setState('menu'); loadDemo(); } };
+$('btn-quit').onclick = () => { if (mp.race) mpToRoom(); else if (world.track.free) cityLeave(); else { setState('menu'); loadDemo(); } };
 $('btn-fin-room').onclick = mpToRoom;
 $('btn-online').onclick = () => { initAudio(); showOnline(); };
 $('btn-again').onclick = () => { setState('race'); restartRace(); };
@@ -4040,7 +4211,7 @@ function frame(now) {
     game.acc += dt;
     while (game.acc >= PHYS_DT) { physicsTick(input, st === 'race' && game.started); game.acc -= PHYS_DT; if (game.state !== st) break; }
     if (st === 'race' && game.started) {
-      game.offTrack = car.grounded && car.surf === 'grass' ? (game.offTrack || 0) + dt : 0;
+      game.offTrack = car.grounded && car.surf === 'grass' && !world.track.free ? (game.offTrack || 0) + dt : 0;
       const hint = $('hud-hint');
       if (game.offTrack > 0.8) { hint.hidden = false; hint.innerHTML = 'Off the road · press <b>Enter</b> for last checkpoint'; }
       else if (!hint.hidden) hint.hidden = true;
@@ -4090,7 +4261,7 @@ function start() {
 }
 $('btn-name').onclick = () => askName(false);
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, cityJoin };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
