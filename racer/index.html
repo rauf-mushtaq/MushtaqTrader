@@ -161,6 +161,7 @@
   #touch button.on { background: rgba(255,210,63,0.5); border-color: var(--signal); transform: scale(0.96); }
   #touch .gas.on { background: rgba(62,227,138,0.5); } #touch .brake.on { background: rgba(255,84,104,0.5); } #touch .drift.on { background: rgba(98,240,255,0.45); }
   #touch #touch-pause { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: 60px; height: 46px; border-radius: 12px; font-size: 17px; }
+  #touch #touch-chat { position: absolute; left: calc(50% + 40px); bottom: max(14px, env(safe-area-inset-bottom, 0px)); width: 72px; height: 46px; border-radius: 12px; font-size: 14px; }
   body.touchui #hud-keys { display: none; }
   body.touchui #hud-speed { bottom: auto; top: max(14px, env(safe-area-inset-top, 0px)); right: calc(max(14px, env(safe-area-inset-right, 0px)) + 164px); }
   #hud-drift { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; text-shadow: 0 2px 0 rgba(0,0,0,0.5); }
@@ -211,6 +212,18 @@
   .lb.world tr.me .st { color: var(--signal); }
   #hud-mp { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,0.38); padding: 6px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; min-width: 150px; }
   #hud-mp div { display: flex; justify-content: space-between; gap: 10px; }
+  #city-chat { position: absolute; left: max(14px, env(safe-area-inset-left, 0px)); bottom: 52px; width: min(440px, 62vw); display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+  #cc-log { display: flex; flex-direction: column; gap: 3px; }
+  #cc-log div { align-self: flex-start; max-width: 100%; background: rgba(0,0,0,0.45); padding: 4px 8px; border-radius: 4px; font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; transition: opacity 0.8s; }
+  #cc-log b { color: var(--signal); margin-right: 6px; } #cc-log .me b { color: var(--go); }
+  #cc-log div.old { opacity: 0; } #city-chat.open #cc-log div.old { opacity: 1; }
+  #cc-form { pointer-events: auto; }
+  #cc-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: rgba(8,14,26,0.88); color: var(--text); font: inherit; font-size: 14px; }
+  #cc-hint { font-size: 11px; color: var(--muted); } #city-chat.open #cc-hint { display: none; }
+  body.touchui #cc-hint { display: none; }
+  /* On a touchscreen the box sits top left, under a one-line player count. */
+  body.touchui #city-chat { top: calc(max(14px, env(safe-area-inset-top, 0px)) + 64px); bottom: auto; width: min(380px, 45vw); }
+  body.touchui #hud-mp.city div:not(:first-child) { display: none; }
   #hud-mp div span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
   #hud-mp .me { color: var(--signal); }
   .mp-chat { min-height: 44px; max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.25); font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; margin-top: -6px; }
@@ -274,6 +287,9 @@
   @media (max-width: 560px) {
     #touch button { --w: 78px; }
     #touch #touch-pause { bottom: auto; top: calc(max(14px, env(safe-area-inset-top, 0px)) + 58px); left: max(14px, env(safe-area-inset-left, 0px)); transform: none; position: fixed; }
+    #touch #touch-chat { bottom: auto; top: calc(max(14px, env(safe-area-inset-top, 0px)) + 58px); left: calc(max(14px, env(safe-area-inset-left, 0px)) + 70px); position: fixed; }
+    body.touchui #city-chat { top: calc(max(14px, env(safe-area-inset-top, 0px)) + 112px); width: min(300px, 60vw); }
+    #hud-hint:not(.count) { white-space: normal; width: max-content; max-width: calc(100% - 40px); text-align: center; font-size: 15px; }
   }
   @media (max-width: 560px) { body.touchui #hud-speed { top: calc(max(14px, env(safe-area-inset-top, 0px)) + 116px); right: max(14px, env(safe-area-inset-right, 0px)); } }
   @media (prefers-reduced-motion: reduce) { #toast, #flash { transition: none; } }
@@ -299,12 +315,18 @@
   <div id="hud-drift" hidden><span id="drift-label">Drift</span><div class="meter"><i id="drift-bar"></i></div></div>
   <canvas id="minimap" width="300" height="300"></canvas>
   <div id="hud-speed"><span id="spd">0</span><small>KM/H</small><div class="bar"><i id="spd-bar"></i></div></div>
+  <div id="city-chat" hidden>
+    <div id="cc-log" role="log" aria-live="polite"></div>
+    <form id="cc-form" hidden><input id="cc-input" maxlength="160" autocomplete="off" enterkeyhint="send" placeholder="Say something… Enter to send, Esc to close" aria-label="Chat message"></form>
+    <div id="cc-hint"><kbd>T</kbd> to chat</div>
+  </div>
   <div id="hud-keys"><kbd>R</kbd> restart · <kbd>Enter</kbd> last checkpoint · <kbd>Space</kbd> handbrake / drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause</div>
 </div>
 
 <div id="touch" hidden>
   <div class="grp steer"><button data-k="left" aria-label="Steer left">◀<span>Left</span></button><button data-k="right" aria-label="Steer right">▶<span>Right</span></button></div>
   <button id="touch-pause" aria-label="Pause">II</button>
+  <button id="touch-chat" aria-label="Chat" hidden>Chat</button>
   <div class="grp pedals"><button data-k="drift" class="drift" aria-label="Drift">Drift</button><button data-k="brake" class="brake" aria-label="Brake">▼<span>Brake</span></button><button data-k="gas" class="gas" aria-label="Accelerate">▲<span>Gas</span></button></div>
 </div>
 
@@ -529,6 +551,23 @@ function steepRise(u, si, so) {
   if (!si && !so) return STEEP_R * smooth(u);
   return si ? STEEP_R - steepIn(1 - u) : steepIn(u);
 }
+// Moving obstacles, in world space at clock time c (seconds). Each tile gets its
+// own phase so a row of them doesn't move in step.
+const WALL_SPAN = W / 2 - 0.45;
+const tilePhase = t => Math.abs((t.x * 73856093) ^ (t.z * 19349663)) % 1000 / 1000;
+function spinnerAngle(t, c) { return (c / 3 + tilePhase(t)) * Math.PI * 2 * (t.x % 2 ? -1 : 1); }
+function spinnerObstacles(t, c) {
+  const a = spinnerAngle(t, c), cx = t.x * S, cz = t.z * S, y0 = t.l * H, out = [{ kind: 'cyl', x: cx, z: cz, r: 0.7, y0, y1: y0 + 1.8 }];
+  for (const d of [-5.6, -4.2, -2.8, -1.4, 1.4, 2.8, 4.2, 5.6]) out.push({ kind: 'cyl', x: cx + Math.sin(a) * d, z: cz + Math.cos(a) * d, r: 0.55, y0, y1: y0 + 1.4 });
+  return out;
+}
+// A press: a beam across the road that lifts and slams down. Drive under it while
+// it's up; caught by it, you're knocked back (or on) along the road.
+function pistonLift(t, c) { return clamp(Math.sin((c / 2.4 + tilePhase(t)) * Math.PI * 2) * 1.6 + 0.4, 0, 1) * 4.2; }
+function pistonObstacles(t, c) {
+  const y0 = t.l * H + pistonLift(t, c), swap = t.r % 2 === 1;
+  return [{ kind: 'box', x: t.x * S, z: t.z * S, y0, y1: y0 + 2.4, hx: swap ? 1.4 : WALL_SPAN, hz: swap ? WALL_SPAN : 1.4 }];
+}
 const TYPES = {
   straight:   { label: 'Road',      key: '1', fp: [[0, 0]], n: 8,  path: straightPath },
   turn:       { label: 'Turn',      key: '2', fp: [[0, 0]], n: 16, path: u => { const a = u * Math.PI / 2; return [S / 2 - S / 2 * Math.cos(a), 0, -S / 2 + S / 2 * Math.sin(a)]; } },
@@ -554,11 +593,24 @@ const TYPES = {
   // meet at one). Raised up it's the roof of a building, with solid walls below.
   plaza:      { label: 'Plaza', fp: [[0, 0]], n: 2, path: straightPath, width: S, open: true },
   // Pavement under a narrower piece in the City (a hair lower, so the two don't flicker). Not in the editor.
+  // Obstacles. A spinner's bar and a piston's block move on the shared clock
+  // (world.clock), so everyone in the same place sees them in the same spot.
+  spinner:    { label: 'Spinner', fp: [[0, 0]], n: 8, path: straightPath, line: u => 3.4 * Math.sin(Math.PI * u), dyn: spinnerObstacles },
+  piston:     { label: 'Press', fp: [[0, 0]], n: 8, path: straightPath, dyn: pistonObstacles },
+  wall:       { label: 'Wall', fp: [[0, 0]], n: 8, path: straightPath, obstacles: [{ kind: 'box', x: 0, z: 0, hx: WALL_SPAN, hz: 0.7, h: 2.2 }] },
+  bollards:   { label: 'Bollards', fp: [[0, 0]], n: 8, path: straightPath, line: u => 2.1 * Math.sin(Math.PI * u), obstacles: [-4.2, 0, 4.2].map(x => ({ kind: 'cyl', x, z: 0, r: 0.5, h: 1.3 })) },
+  // A jump pad throws the car up about 6 m (over a wall); a super boost fires it
+  // off at 8000 km/h on the speedometer, and the air soon slows it down again.
+  jumppad:    { label: 'Jump pad', fp: [[0, 0]], n: 8, path: straightPath, surf: 'jump' },
+  superboost: { label: 'Super boost', fp: [[0, 0]], n: 8, path: straightPath, surf: 'super' },
+  // The start and finish of an obstacle course in the City (they time you there).
+  cgate:      { label: 'Course start', fp: [[0, 0]], n: 8, path: straightPath },
+  cgoal:      { label: 'Course finish', fp: [[0, 0]], n: 8, path: straightPath },
   pave:       { label: 'Pavement', fp: [[0, 0]], n: 2, path: u => [0, -0.04, -S / 2 + u * S], width: S, open: true },
   steep:      { label: 'Steep ramp', fp: [[0, 0]], n: 40, levels: 2, path: (u, t) => [0, steepRise(u, t ? t.si : 0, t ? t.so : 0), -S / 2 + u * S] },
 };
 // New pieces go on the end: share codes store a piece as its place in this list.
-const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep', 'mloop', 'mloopr', 'plaza'];
+const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep', 'mloop', 'mloopr', 'plaza', 'spinner', 'piston', 'wall', 'bollards', 'jumppad', 'superboost'];
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // world (x,z) heading for rotation r
 
 function rotXZ(x, z, r) { const a = r * Math.PI / 2, c = Math.cos(a), s = Math.sin(a); return [x * c + z * s, -x * s + z * c]; }
@@ -594,6 +646,9 @@ function tileLength(t) {
   return len;
 }
 
+// More one-tile pieces for the turtle: spinner, piston, wall, bollards, jump pad,
+// super boost, and a course's start and finish gates.
+const PIECE_TOKENS = { SP: 'spinner', PI: 'piston', WA: 'wall', BO: 'bollards', J: 'jumppad', SB: 'superboost', CG: 'cgate', CF: 'cgoal' };
 // Turtle notation for the official tracks: every piece connects to the last.
 // ST start, S road, B boost, C checkpoint, F finish, K kicker, G gap,
 // U/D ramp up/down, LU/LD long slope up/down, V/VD steep ramp up/down, L/R
@@ -613,6 +668,7 @@ function turtle(seq) {
       else if (c === 'G') { gaps.push([x, z, l]); adv(); }
       else if (c === 'U') { add('ramp', x, z, l, d); l++; adv(); }
       else if (c === 'D') { l--; add('ramp', x, z, l, (d + 2) % 4); adv(); }
+      else if (PIECE_TOKENS[c]) { add(PIECE_TOKENS[c], x, z, l, d); adv(); }
       else if (c === 'V') { add('steep', x, z, l, d); l += 2; adv(); }
       else if (c === 'VD') { l -= 2; add('steep', x, z, l, (d + 2) % 4); adv(); }
       else if (c === 'Z') l--;
@@ -811,14 +867,14 @@ const OFFICIAL = [
 // ============================================================================
 function cityTiles() {
   const cells = new Map(), out = new Set();
-  const put = (type, x, z, l = 0, r = 0) => {
-    const t = { type, x, z, l, r };
+  const put = (type, x, z, l = 0, r = 0, extra) => {
+    const t = { type, x, z, l, r, ...extra };
     for (const [fx, fz] of footprint(t)) { const o = cells.get(fx + ',' + fz); if (o) { out.delete(o); for (const [ox, oz] of footprint(o)) cells.delete(ox + ',' + oz); } }
     for (const [fx, fz] of footprint(t)) cells.set(fx + ',' + fz, t);
     out.add(t);
   };
   const rect = (x0, z0, x1, z1, l = 0) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) put('plaza', x, z, l); };
-  rect(0, 0, 31, 31); // the city floor
+  rect(-26, 0, 31, 31); // the city floor (the Obstacle District is the west end)
   // Rooftop Run (north): boosts and two steep ramps up onto a 20 m roof, then
   // jumps from roof to roof across the alleys, each roof a storey lower.
   put('boost', 2, 3, 0, 1); put('boost', 3, 3, 0, 1); put('steep', 4, 3, 0, 1); put('steep', 5, 3, 2, 1);
@@ -843,12 +899,27 @@ function cityTiles() {
   rect(12, 24, 17, 28, 4);
   // The skyline: tall buildings round the edge.
   rect(0, 29, 2, 31, 7); rect(27, 0, 31, 2, 8); rect(29, 27, 31, 31, 6); rect(23, 28, 26, 31, 5);
+  // Super boost runways at the south and east edges: they fire you out of town.
+  for (const [x, z, r] of [[20, 28, 0], [28, 22, 1]]) { const [dx, dz] = DIRS[r]; put('straight', x, z, 0, r); put('straight', x + dx, z + dz, 0, r); put('superboost', x + 2 * dx, z + 2 * dz, 0, r); put('straight', x + 3 * dx, z + 3 * dz, 0, r); }
+  // Obstacle District (west): timed courses side by side, each a road from its
+  // start gate south to its finish, with open ground around to drive back up.
+  CITY_COURSES.forEach(([id, name, seq], i) => {
+    for (const t of turtle(seq)) put(t.type, t.x - 3 - i * 4, t.z + 1, t.l, t.r, t.type === 'cgate' || t.type === 'cgoal' ? { course: id, cname: name } : null);
+  });
   put('start', 15, 22, 0, 2); // spawn, facing the park
   // Pavement under everything narrower than a plaza, so the floor has no gaps.
   const paved = new Set([...out].filter(t => t.type === 'plaza' && !t.l).map(t => t.x + ',' + t.z));
   for (const t of [...out]) if (t.type !== 'plaza') for (const [x, z] of footprint(t)) if (!paved.has(x + ',' + z)) { paved.add(x + ',' + z); out.add({ type: 'pave', x, z, l: 0, r: 0 }); }
   return [...out];
 }
+const CITY_COURSES = [
+  ['slalom', 'Slalom', 'CG S X S P S BO S X S P S BO S2 X S P S BO S2 CF'],
+  ['spinners', 'Spinner Alley', 'CG S2 SP S2 SP S SP S2 SP SP S2 SP S SP S2 SP S2 CF'],
+  ['pistons', 'Piston Press', 'CG S2 PI S PI S2 PI PI S PI S2 PI PI S PI S2 PI S2 CF'],
+  ['wallhop', 'Wall Hop', 'CG S3 J WA S3 J WA S3 J WA S2 B S J WA S3 J WA S2 CF'],
+  ['twister', 'Twister', 'CG S R L S SP S L R S PI S R L BO S L R S SP S R L PI S2 CF'],
+  ['madness', 'Madness', 'CG S B S K S2 SP S PI S J WA S2 BO S X S SP PI S J WA S2 BO SP S2 CF'],
+];
 const CITY = { id: 'city', name: 'City', env: 'summer', free: true, official: false, get tiles() { return this._t || (this._t = cityTiles()); } };
 
 // ============================================================================
@@ -995,7 +1066,7 @@ function routeSpeeds(route, spec) {
 function medalTimes(route, tr) {
   if (!route || !route.ok) return null;
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
-  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, mloop: 45.5, mloopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6, steep: 17.4 };
+  const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, mloop: 45.5, mloopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6, steep: 17.4, spinner: 20, piston: 18, bollards: 18, jumppad: 30, wall: 30 };
   let t = 1.2;
   for (const g of route.segs) t += g.len / (pace[g.type] || 46.3);
   const author = tr && tr.official && tr.author ? tr.author : t * 1000;
@@ -1104,11 +1175,14 @@ const MAT = {
   pillar: new THREE.MeshStandardMaterial({ color: 0xb8c0cc, roughness: 0.9, flatShading: true }),
   block: new THREE.MeshStandardMaterial({ color: 0x5b6577, roughness: 0.8, flatShading: true }),
   boost: new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xff7a00, emissiveIntensity: 0.9, flatShading: true, side: THREE.DoubleSide }),
+  super: new THREE.MeshStandardMaterial({ color: 0xff4fd8, emissive: 0xc01aff, emissiveIntensity: 1.1, flatShading: true, side: THREE.DoubleSide }),
+  jump: new THREE.MeshStandardMaterial({ color: 0x5dff9e, emissive: 0x13c060, emissiveIntensity: 1.0, flatShading: true, side: THREE.DoubleSide }),
+  hazard: new THREE.MeshStandardMaterial({ color: 0xff5a36, roughness: 0.6, flatShading: true }),
   post: new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.6, flatShading: true }),
   cpIdle: new THREE.MeshStandardMaterial({ color: 0x24b8ff, emissive: 0x0a4c80, emissiveIntensity: 0.6, flatShading: true }),
   cpDone: new THREE.MeshStandardMaterial({ color: 0x3ee38a, emissive: 0x137a3e, emissiveIntensity: 0.6, flatShading: true }),
 };
-const COL = { plaza: new THREE.Color('#585e6a'), asphalt: new THREE.Color('#3a3f4b'), asphaltBoost: new THREE.Color('#4a3a2c'), side: new THREE.Color('#9aa3b2'), red: new THREE.Color('#e8413c'), white: new THREE.Color('#f4f4f4'), line: new THREE.Color('#d9dde4') };
+const COL = { superPad: new THREE.Color('#2b1558'), jumpPad: new THREE.Color('#174a3a'), plaza: new THREE.Color('#585e6a'), asphalt: new THREE.Color('#3a3f4b'), asphaltBoost: new THREE.Color('#4a3a2c'), side: new THREE.Color('#9aa3b2'), red: new THREE.Color('#e8413c'), white: new THREE.Color('#f4f4f4'), line: new THREE.Color('#d9dde4') };
 
 function makeTexture(draw, w = 256, h = 64) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
@@ -1119,6 +1193,7 @@ function bannerTex(text, bg, fg) {
   return makeTexture((g, w, h) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = fg; g.font = '700 40px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 2); }, 512, 64);
 }
 const BANNERS = {};
+function bannerText(text, bg, fg) { const k = text + bg; if (!BANNERS[k]) BANNERS[k] = new THREE.MeshStandardMaterial({ map: bannerTex(text, bg, fg), roughness: 0.6 }); return BANNERS[k]; }
 function banner(kind) {
   if (!BANNERS[kind]) {
     const spec = { start: ['START', '#ffd23f', '#1a1400'], finish: ['FINISH', '#111111', '#ffffff'], checkpoint: ['CHECKPOINT', '#0f2a44', '#8fd8ff'] }[kind];
@@ -1189,7 +1264,8 @@ function buildTile(t, opts = {}) {
   const fr = localFrames(t.type, uSteps(T.n), t);
   const pts = fr.pts, RW = T.width || W;
   const isBoost = t.type === 'boost';
-  const road = new THREE.Mesh(slabGeometry(fr, -RW / 2, RW / 2, 0, TH, isBoost ? COL.asphaltBoost : T.open ? COL.plaza : COL.asphalt, COL.side), opts.ghostMat || MAT.road);
+  const top = isBoost ? COL.asphaltBoost : T.open ? COL.plaza : T.surf === 'super' ? COL.superPad : T.surf === 'jump' ? COL.jumpPad : COL.asphalt;
+  const road = new THREE.Mesh(slabGeometry(fr, -RW / 2, RW / 2, 0, TH, top, COL.side), opts.ghostMat || MAT.road);
   road.castShadow = !opts.ghostMat; road.receiveShadow = !opts.ghostMat;
   g.add(road); g.userData.road = road;
   if (opts.ghostMat) { place(g, t); return g; }
@@ -1229,6 +1305,28 @@ function buildTile(t, opts = {}) {
       g.add(chev);
     }
   }
+  if (T.surf === 'super') for (let k = 0; k < 4; k++) { // big pink chevrons
+    const shape = new THREE.Shape(); shape.moveTo(-5, 0); shape.lineTo(0, 3); shape.lineTo(5, 0); shape.lineTo(5, -1.4); shape.lineTo(0, 1.6); shape.lineTo(-5, -1.4); shape.closePath();
+    const chev = new THREE.Mesh(new THREE.ShapeGeometry(shape), MAT.super); chev.rotation.x = -Math.PI / 2; chev.position.set(0, 0.05, -7.5 + k * 4.6); g.add(chev);
+  }
+  if (T.surf === 'jump') for (const r of [5.5, 3.2]) { // green rings
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.8, r, 24), MAT.jump); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; g.add(ring);
+  }
+  if (t.type === 'spinner') {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 1.9, 10), MAT.pillar); post.position.y = 0.95; post.castShadow = true; g.add(post);
+    const arm = new THREE.Group(); arm.position.y = 1.0; arm.userData.dyn = (m, c) => { m.rotation.y = spinnerAngle(t, c) - t.r * Math.PI / 2; };
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 12), MAT.hazard); bar.castShadow = true; arm.add(bar);
+    for (const z of [-6, 6]) { const tip = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.8, 0.5), MAT.boost); tip.position.z = z; arm.add(tip); }
+    g.add(arm);
+  }
+  if (t.type === 'piston') {
+    const block = new THREE.Group(); block.userData.dyn = (m, c) => { m.position.y = pistonLift(t, c); };
+    const box = new THREE.Mesh(new THREE.BoxGeometry(WALL_SPAN * 2, 2.4, 2.8), MAT.hazard); box.position.y = 1.2; box.castShadow = true; block.add(box);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(WALL_SPAN * 2 + 0.04, 0.4, 2.84), MAT.boost); stripe.position.y = 0.5; block.add(stripe);
+    g.add(block);
+    for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.8, 8.2, 0.8), MAT.post); post.position.set(sx * (W / 2 + 0.8), 4.1, 0); post.castShadow = true; g.add(post); }
+    const top = new THREE.Mesh(new THREE.BoxGeometry(W + 2.4, 0.8, 0.8), MAT.post); top.position.y = 8.2; g.add(top);
+  }
   for (const o of T.obstacles || []) {
     const geo = o.kind === 'cyl' ? new THREE.CylinderGeometry(o.r, o.r * 1.1, o.h, 10) : new THREE.BoxGeometry(o.hx * 2, o.h, o.hz * 2);
     const m = new THREE.Mesh(geo, o.kind === 'cyl' ? MAT.pillar : MAT.block); m.position.set(o.x, o.h / 2, o.z); m.castShadow = true; m.receiveShadow = true; g.add(m);
@@ -1240,6 +1338,14 @@ function buildTile(t, opts = {}) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.2, 0.3), MAT.post); post.position.set(-9.2, 1.6, 9.2); g.add(post);
     const a = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.45), arrowSign(1)); a.position.set(-9.2, 2.6, 9.0); a.rotation.y = Math.PI; g.add(a);
     const b = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.45), arrowSign(-1)); b.position.set(-9.0, 2.6, 9.2); b.rotation.y = Math.PI / 2; g.add(b);
+  }
+  if (t.type === 'cgate' || t.type === 'cgoal') { // a course's gate: posts and a banner with its name
+    for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.9, 6.6, 0.9), MAT.post); post.position.set(sx * (W / 2 + 0.9), 3.3, 0); post.castShadow = true; g.add(post); }
+    const label = t.type === 'cgate' ? (t.cname || 'Course').toUpperCase() : 'FINISH', go = t.type === 'cgate';
+    const face = bannerText(label, go ? '#ff9a20' : '#111111', go ? '#1a0e00' : '#ffffff');
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(W + 2.7, 1.4, 0.7), [MAT.post, MAT.post, MAT.post, MAT.post, face, face]);
+    beam.position.set(0, 6.3, 0); beam.castShadow = true; g.add(beam);
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(W, 2.2), new THREE.MeshStandardMaterial({ map: checkerTex, roughness: 0.8 })); line.rotation.x = -Math.PI / 2; line.position.y = 0.04; g.add(line);
   }
   if (t.type === 'start' || t.type === 'finish' || t.type === 'checkpoint') {
     const line = new THREE.Mesh(new THREE.PlaneGeometry(W, 2.2), new THREE.MeshStandardMaterial({ map: checkerTex, roughness: 0.8 }));
@@ -1352,6 +1458,7 @@ function buildScenery(tiles) {
 // ============================================================================
 const world = {
   track: null, tiles: [], group: new THREE.Group(), cells: new Map(), route: null, medals: null,
+  clock: 0, dyn: [], // the moving obstacles' clock (seconds) and their moving parts
   cps: [], start: null, env: 'summer',
 };
 scene.add(world.group);
@@ -1361,9 +1468,12 @@ const cellKey = (x, z) => x + ',' + z;
 // piece, so it costs a handful of draw calls.
 function mergeStatic(group) {
   group.updateMatrixWorld(true);
-  const buckets = new Map(), keep = [];
+  const buckets = new Map(), keep = [], moving = [];
+  group.traverse(o => { if (o.userData.dyn) moving.push(o); });
+  const skip = new Set(); for (const d of moving) d.traverse(o => skip.add(o));
+  const holders = moving.map(d => { const h = new THREE.Group(); d.parent.matrixWorld.decompose(h.position, h.quaternion, h.scale); return [h, d]; });
   group.traverse(o => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || skip.has(o)) return;
     if (Array.isArray(o.material)) { keep.push(o); return; }
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
     const key = o.material.uuid + '|' + Object.keys(g.attributes).sort().join(',') + '|' + o.castShadow + o.receiveShadow;
@@ -1372,8 +1482,9 @@ function mergeStatic(group) {
   });
   for (const o of keep) o.updateMatrixWorld(true);
   const kept = keep.map(o => { const m = o.clone(); m.matrix.copy(o.matrixWorld); m.matrix.decompose(m.position, m.quaternion, m.scale); return m; });
-  group.traverse(o => { if (o.isMesh && !Array.isArray(o.material)) o.geometry.dispose(); });
+  group.traverse(o => { if (o.isMesh && !Array.isArray(o.material) && !skip.has(o)) o.geometry.dispose(); });
   group.clear();
+  for (const [h, d] of holders) { h.add(d); group.add(h); }
   for (const b of buckets.values()) {
     const out = new THREE.BufferGeometry();
     for (const name of Object.keys(b.geos[0].attributes)) {
@@ -1387,7 +1498,7 @@ function mergeStatic(group) {
   for (const m of kept) group.add(m);
 }
 function loadTrack(track) {
-  world.track = track; world.tiles = track.tiles.map(t => ({ ...t }));
+  world.track = track; world.tiles = track.tiles.map(t => ({ ...t })); world.bounds = null;
   const env = envFor(track); if (env !== world.env) { world.env = env; applyTheme(); }
   world.group.clear(); world.cells.clear(); world.cps = []; world.start = null;
   shapeSteep(world.tiles);
@@ -1403,6 +1514,8 @@ function loadTrack(track) {
     if (t.type === 'start') world.start = t;
   }
   if (track.free) mergeStatic(world.group);
+  world.dyn = []; world.group.traverse(o => { if (o.userData.dyn) world.dyn.push(o); });
+  world.clock = (Date.now() / 1000) % 3600; // roughly the same for everyone, so moving obstacles line up online
   world.group.updateMatrixWorld(true);
   world.route = computeRoute(world.tiles);
   buildTrackPhysics(world.tiles, world.route.ok ? world.route.segs.filter(g => g.type === 'gap').map(g => g.Q) : []);
@@ -1701,7 +1814,7 @@ function surfaceAt(tiles, p, maxAbove, maxBelow) {
     const c = nearestOnCentreline(t.cl, p);
     if (Math.abs(c.along) > 0.05 || Math.abs(c.lat) > (TYPES[t.type].width || W) / 2) continue;
     if (c.h > maxAbove || c.h < -maxBelow) continue;
-    if (!best || c.h < best.h) best = { q: c.q, n: c.N, h: c.h, surf: t.type === 'boost' ? 'boost' : 'road', type: t.type, tile: t };
+    if (!best || c.h < best.h) best = { q: c.q, n: c.N, h: c.h, surf: TYPES[t.type].surf || (t.type === 'boost' ? 'boost' : 'road'), type: t.type, tile: t };
   }
   // The ground only counts where there's no road (a banked edge can dip below it).
   const gh = p.y - GROUND_Y;
@@ -1900,7 +2013,7 @@ class Car {
   }
   clearState(speed) {
     this.grounded = true; this.surf = 'road'; this.steer = 0; this.steerAng = 0; this.fs = speed; this.slip = 0; this.airTime = 0;
-    this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0; this.settleT = 0;
+    this.drifting = false; this.driftTime = 0; this.slideCool = 0; this.boostT = 0; this.boostAmt = 0; this.flipT = 0; this.fromKicker = false; this.driftGrip = 1; this.landT = 0; this.settleT = 0; this.padCool = 0;
     this.nPrev = null; this.prevBeta = 0; this.holding = false; this.twisty = false; this.glueT = 0;
     for (const w of this.wheels || []) { w.len = SUSP_L - this.c0; w.contact = false; w.slip = 0; w.vLong = speed; }
   }
@@ -2044,6 +2157,20 @@ class Car {
       // leans the car without tipping it over.
       T.add(r.addScaledVector(up, -r.dot(up) * 0.85).cross(tire));
     }
+    // Jump pads and super boosts fire once as you drive onto them.
+    if (this.padCool > 0) this.padCool -= dt;
+    else if (contacts && this.wheels.some(w => w.contact && (w.surf === 'jump' || w.surf === 'super'))) {
+      if (this.wheels.some(w => w.contact && w.surf === 'super')) {
+        const fh = fwd.clone().setY(0).normalize(), a = 8 * Math.PI / 180, v = SUPER_SPEED;
+        this.vel.copy(fh).multiplyScalar(v * Math.cos(a)).addScaledVector(UP, v * Math.sin(a)); this.padCool = 1.2; events.pad = 'super';
+      } else { const vn = this.vel.dot(this.n); if (vn < 21) this.vel.addScaledVector(this.n, 21 - vn);
+        // A pad also carries you forward at a pace that clears a wall just past it.
+        const fh = fwd.clone().setY(0).normalize(), vf = this.vel.dot(fh); if (vf > 0 && vf < 25) this.vel.addScaledVector(fh, 25 - vf);
+        this.padCool = 0.6; events.pad = 'jump'; }
+    }
+    // Past any normal top speed the air slows the car quickly (after a super
+    // boost's first quarter second at full speed).
+    if (this.vel.lengthSq() > 90 * 90 && this.padCool < 0.95) this.vel.multiplyScalar(Math.exp(-2.2 * dt));
     const boostOn = this.wheels.some(w => w.contact && w.surf === 'boost');
     if (boostOn && fs < Math.max(sp.vmax * 1.15, 56)) F.addScaledVector(fwd, 60);
     if (this.boostT > 0) { this.boostT -= dt; if (fs < sp.vmax * 1.15) F.addScaledVector(fwd, this.boostAmt / 0.5); }
@@ -2251,8 +2378,8 @@ class Car {
   // Pillars and blocks standing on the road.
   collideObstacles(tiles) {
     const f = new V3(0, 0, 1).applyQuaternion(this.q); const r = this.hw; const base = this.pos.y - this.spec.comY; let hit = false;
-    for (const t of tiles) for (const o of t.obs || []) {
-      if (base > o.y1 || this.pos.y < o.y0 - 1) continue;
+    for (const t of tiles) for (const o of TYPES[t.type].dyn ? TYPES[t.type].dyn(t, world.clock) : t.obs || []) {
+      if (base > o.y1 || base + this.spec.height * 0.9 < o.y0) continue;
       for (const k of [-1, 0, 1]) {
         const cx = this.pos.x + f.x * k * (this.hl - 1.1), cz = this.pos.z + f.z * k * (this.hl - 1.1);
         let nx, nz, pen;
@@ -2313,7 +2440,7 @@ class Car {
   }
 }
 function driftStage(t) { let s = null; for (const st of DRIFT_STAGES) if (t >= st.t) s = st; return s; }
-const events = { land: false, wall: 0, driftBoost: null, flipped: false };
+const events = { land: false, wall: 0, driftBoost: null, flipped: false, pad: null };
 
 // ============================================================================
 // Skid marks (instanced quads in a ring buffer)
@@ -2444,7 +2571,7 @@ function refreshTouch() {
 }
 const touchEl = $('touch');
 touchEl.addEventListener('pointerdown', e => {
-  if (e.target.closest('#touch-pause')) return;
+  if (e.target.closest('#touch-pause, #touch-chat')) return;
   e.preventDefault(); initAudio();
   try { touchEl.setPointerCapture(e.pointerId); } catch (err) { /* capture not supported */ }
   touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); refreshTouch();
@@ -2455,7 +2582,7 @@ touchEl.addEventListener('contextmenu', e => e.preventDefault());
 // Stop Safari zooming the page during play. The driving buttons turn off its touch
 // gestures (two quick taps on Left, or two fingers on the controls, would zoom);
 // anywhere else a quick second tap still works but doesn't zoom; and pinching does nothing.
-touchEl.addEventListener('touchstart', e => { if (!e.target.closest('#touch-pause')) e.preventDefault(); }, { passive: false });
+touchEl.addEventListener('touchstart', e => { if (!e.target.closest('#touch-pause, #touch-chat')) e.preventDefault(); }, { passive: false });
 let lastTapEnd = 0, tapFrom = null;
 document.addEventListener('touchstart', e => { const t = e.touches[0]; tapFrom = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
 document.addEventListener('touchend', e => {
@@ -2505,6 +2632,12 @@ function trackKey(track) { return 'mt5.pb.' + track.id; }
 try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k) && !k.startsWith('mt5.')).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
 function loadPB(track) { return store.get(trackKey(track), null); }
 
+// Free roam: more than a few tiles beyond the edge of the map.
+function outOfTown(p) {
+  const b = world.bounds || (world.bounds = world.tiles.reduce((b, t) => [Math.min(b[0], t.x), Math.min(b[1], t.z), Math.max(b[2], t.x), Math.max(b[3], t.z)], [Infinity, Infinity, -Infinity, -Infinity]));
+  const x = p.x / S, z = p.z / S;
+  return x < b[0] - 4 || z < b[1] - 4 || x > b[2] + 4 || z > b[3] + 4;
+}
 function spawnPoint() {
   const st = world.start;
   const p = tilePoint(st, 0.32); const yaw = st.r * Math.PI / 2;
@@ -2518,7 +2651,7 @@ function restartRace() {
   for (const t of world.cps) setCpMat(t, false);
   game.pb = loadPB(world.track);
   game.ghostData = settings.ghost && game.pb && game.pb.ghost && !mp.race ? game.pb.ghost : null; // no ghosts in live races
-  game.lockUntil = 0; $('hud-hint').className = '';
+  game.lockUntil = 0; $('hud-hint').className = ''; game.course = null;
   setGhostCar(game.pb && game.pb.car ? game.pb.car : settings.car);
   game.ghost.visible = false; syncRivals();
   game.camPos.copy(p).addScaledVector(game.car.forward(), -8).add(new V3(0, 3.5, 0));
@@ -2561,6 +2694,24 @@ function startTrack(track, fromEditor = false) {
   if (!r.ok && !track.free) toast(r.reason + ' You can still drive it.');
 }
 
+// Obstacle courses in the City: cross a course's start gate and your time runs
+// until its finish; your best for each course is kept on this device, and a
+// finish is posted to the City chat.
+function courseStart(t) {
+  const c = game.course, again = c && c.id === t.course && game.time - c.t0 < 1000;
+  game.course = { id: t.course, name: t.cname, t0: game.time };
+  if (!again) { flash(t.cname + ' · go!', 'var(--signal)'); blip(660, 0.12); }
+}
+function courseEnd(t) {
+  const c = game.course; if (!c || c.id !== t.course) return;
+  game.course = null;
+  const time = Math.round(game.time - c.t0), key = 'mt5.course.' + c.id, best = store.get(key, null), pb = best == null || time < best;
+  if (pb) store.set(key, time);
+  flash(c.name + ' ' + fmtTime(time), pb ? 'var(--go)' : 'var(--text)');
+  toast(pb ? (best == null ? 'First run of ' : 'New best on ') + c.name + '!' : 'Your best on ' + c.name + ' is ' + fmtTime(best));
+  blip(880, 0.15); setTimeout(() => blip(1320, 0.2), 110);
+  if (mp.city) mpSay('🏁 ' + c.name + ' in ' + fmtTime(time) + (pb && best != null ? ' (personal best)' : ''));
+}
 function onCheckpoint(t) {
   if (game.cpHit.has(t)) return;
   game.cpHit.add(t); setCpMat(t, true);
@@ -2627,7 +2778,7 @@ function updateCamera(dt, car, cinematic) {
     game.camPos.copy(want); game.camLook.copy(look); camera.up.copy(car.visUp);
   } else {
     const far = game.camMode === 1; const cu = game.camUp;
-    const back = (far ? 12 : 7.2) + sp * 0.035;
+    const back = (far ? 12 : 7.2) + Math.min(sp, 90) * 0.035;
     const f3 = new V3(0, 0, 1).applyQuaternion(q); f3.addScaledVector(cu, -f3.dot(cu)).normalize();
     const vel = car.vel.clone(); vel.addScaledVector(cu, -vel.dot(cu));
     const dir = vel.lengthSq() > 25 ? (car.grounded ? f3.clone().lerp(vel.normalize(), 0.35).normalize() : vel.normalize()) : f3;
@@ -2636,8 +2787,8 @@ function updateCamera(dt, car, cinematic) {
     camera.up.copy(cu);
   }
   if (game.camMode !== 2 || cinematic) {
-    const k = 1 - Math.exp(-(cinematic ? 3 : 9) * dt);
-    game.camPos.lerp(want, k); game.camLook.lerp(look, 1 - Math.exp(-14 * dt));
+    const fast = !cinematic && car.vel.length() > 110; // stay with a super boost
+    game.camPos.lerp(want, fast ? 1 : 1 - Math.exp(-(cinematic ? 3 : 9) * dt)); game.camLook.lerp(look, fast ? 1 : 1 - Math.exp(-14 * dt));
     const cu = cinematic ? UP : game.camUp; const above = game.camPos.clone().sub(pos).dot(cu);
     if (above < 0.8) game.camPos.addScaledVector(cu, 0.8 - above);
   }
@@ -2705,8 +2856,13 @@ function updateDriftHud(car) {
 }
 // The speed readout (and the garage's top speeds) show 70% of the true speed.
 const SPEEDO = 0.7;
+const SUPER_SPEED = 8000 / 3.6 / SPEEDO; // a super boost reads 8000 km/h
 function updateHud() {
   if (!world.track.free) $('hud-time').textContent = fmtTime(game.time);
+  else { // in the City the clock only shows while you're on a course
+    const c = game.course; $('hud-time').hidden = $('hud-cp').hidden = !c;
+    if (c) { $('hud-time').textContent = fmtTime(game.time - c.t0); $('hud-cp').textContent = c.name; }
+  }
   const kmh = game.car.speedKmh();
   $('spd').textContent = Math.round(kmh * SPEEDO);
   $('spd-bar').style.width = clamp(kmh / (game.car.spec.vmax * 3.6 * 1.15) * 100, 0, 100) + '%';
@@ -2770,6 +2926,7 @@ function setState(s) {
   $('online').hidden = s !== 'online'; mpInvite();
   if (s !== 'race' && s !== 'finished') for (const c of mp.cars.values()) c.mesh.visible = c.tag.visible = false;
   if (s === 'menu') renderMenu();
+  if (s !== 'race' && s !== 'paused' && cityChat.open) cityChatClose(); else cityChatRender();
 }
 function togglePause() {
   if (game.state === 'race') {
@@ -3300,7 +3457,7 @@ function mpLeave() {
 }
 function mpPeersChanged() {
   if (!mp.r) return;
-  if (mp.city) { mpNames(); mpSend(false); mpSyncCars(); return; } // the City has no host or races
+  if (mp.city) { mpNames(); mpReadChat(); mpSend(false); mpSyncCars(); cityChatRender(); return; } // the City has no host or races
   const host = mpHost();
   // Taking over from a host who left: carry on from the races already seen.
   if (host && host.sameTab && !mp.hs) { mp.hs = Date.now(); mp.sel = mp.sel || (mp.race && mp.race.tr) || { k: 'o', id: OFFICIAL[0].id }; }
@@ -3426,14 +3583,14 @@ function mpHud() {
   if (mp.city && game.state === 'race') {
     const now = performance.now(); if (now - mp.hudAt < 400) return; mp.hudAt = now;
     const others = mpPlayers().filter(p => !p.sameTab && p.presence.st === 'city');
-    el.hidden = false;
+    el.hidden = false; el.classList.add('city');
     el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + ['You', ...others.slice(0, 7).map(mpName)].map(n => `<div><span>${escapeHtml(n)}</span><span></span></div>`).join('');
-    return;
+    cityChatRender(); return;
   }
   if (!mp.race || game.state !== 'race') { if (!el.hidden) el.hidden = true; return; }
   const now = performance.now(); if (now - mp.hudAt < 200) return; mp.hudAt = now;
   const rows = mpStandings(), cps = world.cps.length;
-  el.hidden = false;
+  el.hidden = false; el.classList.remove('city');
   el.innerHTML = rows.slice(0, 8).map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${i + 1}. ${escapeHtml(r.name)}</span><span>${mpRaceCell(r, cps)}</span></div>`).join('');
 }
 function mpTick() {
@@ -3454,7 +3611,7 @@ function mpSay(text) {
   const now = Date.now(); if (now - mp.saidAt < 700) { toast('Slow down a little.'); return false; }
   mp.saidAt = now; mp.msgN++;
   mp.myMsgs = [...mp.myMsgs, [mp.msgN, text, now]].slice(-3);
-  mp.chat.push({ by: community.me, me: true, text }); mpChatChanged(false);
+  mp.chat.push({ by: community.me, me: true, text, at: now }); mpChatChanged(false);
   const el = $('mp-chat'); if (el) el.scrollTop = el.scrollHeight;
   mpSend(true); return true;
 }
@@ -3466,7 +3623,7 @@ function mpReadChat() {
       if (!Array.isArray(m) || typeof m[1] !== 'string') continue;
       const key = p.peer + ':' + m[0]; if (mp.chatSeen.has(key)) continue;
       mp.chatSeen.add(key);
-      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, nm: cleanText(p.presence.nm || '', NICK_MAX), me: p.isMe, text, ts: +m[2] || 0 });
+      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, nm: cleanText(p.presence.nm || '', NICK_MAX), me: p.isMe, text, ts: +m[2] || 0, at: Date.now() });
     }
   }
   if (!fresh.length) return;
@@ -3477,8 +3634,9 @@ function mpChatChanged(incoming, n = 0) {
   mp.chat = mp.chat.slice(-60); mp.chatVer++;
   const inRoom = game.state === 'online' && mp.view !== 'lobby';
   if (incoming && !inRoom) mp.unread += n;
-  if (incoming && inRoom) blip(760, 0.06);
-  if (inRoom) mpRenderChat(); else if (game.state === 'finished' && mp.race) renderFinishBoard();
+  if (incoming && (inRoom || mp.city)) blip(760, 0.06);
+  if (mp.city) cityChatRender();
+  else if (inRoom) mpRenderChat(); else if (game.state === 'finished' && mp.race) renderFinishBoard();
 }
 function mpRenderChat() {
   const el = $('mp-chat'); if (!el || +el.dataset.ver === mp.chatVer) return;
@@ -3514,9 +3672,30 @@ async function cityJoin() {
   closeModal(); startTrack(CITY); mpSend(true); mpAdvertise(); mpSyncCars(); mpNames();
 }
 function cityLeave() {
-  mpLeave();
+  cityChatClose(); mpLeave();
   if (mp.room) showOnline(); else { setState('menu'); loadDemo(); }
 }
+
+// The City chat: the room's messages shown over the road while you drive. T (or
+// the Chat button on a touchscreen) opens the box and Enter sends; old lines fade.
+const cityChat = { open: false, html: '' };
+function cityChatRender() {
+  const show = !!(mp.city && world.track && world.track.free && (game.state === 'race' || game.state === 'paused'));
+  $('city-chat').hidden = !show; $('touch-chat').hidden = !show;
+  if (!show) return;
+  $('city-chat').classList.toggle('open', cityChat.open);
+  const now = Date.now(), html = mp.chat.slice(-6).map(c => `<div class="${c.me ? 'me' : ''}${now - (c.at || 0) > 20000 ? ' old' : ''}"><b>${escapeHtml(c.me ? 'You' : c.nm || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('');
+  if (html !== cityChat.html) { cityChat.html = html; $('cc-log').innerHTML = html; }
+}
+function cityChatOpen() {
+  if (!mp.city) return;
+  cityChat.open = true; keys.clear(); releaseTouch(); $('cc-form').hidden = false; cityChatRender();
+  const i = $('cc-input'); i.value = ''; i.focus();
+}
+function cityChatClose() { cityChat.open = false; $('cc-form').hidden = true; $('cc-input').blur(); cityChatRender(); }
+$('cc-form').onsubmit = e => { e.preventDefault(); const v = $('cc-input').value; if (!cleanChat(v) || mpSay(v)) cityChatClose(); };
+$('cc-input').onkeydown = e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); cityChatClose(); } };
+$('touch-chat').addEventListener('click', () => cityChat.open ? cityChatClose() : cityChatOpen());
 
 // The live race screen: the lobby's open races, or the room you're in.
 function showOnline() {
@@ -3893,13 +4072,17 @@ function drawPieceIcon(c, type) {
   const minX = Math.min(...xs) - W / 2, maxX = Math.max(...xs) + W / 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
   const sc = 64 / Math.max(maxX - minX, maxZ - minZ); const ox = 40 - (minX + maxX) / 2 * sc, oz = 40 + (minZ + maxZ) / 2 * sc;
   g.lineCap = 'butt'; g.lineWidth = (T.width || W) * sc;
-  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', plaza: '#9aa3b2', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', mloop: '#62f0ff', mloopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
+  g.strokeStyle = { boost: '#ff9a20', checkpoint: '#24b8ff', start: '#ffd23f', finish: '#ffffff', ramp: '#a6b4d0', longramp: '#a6b4d0', steep: '#ffb020', plaza: '#9aa3b2', superboost: '#ff4fd8', jumppad: '#5dff9e', wall: '#5b6577', bollards: '#8b97ae', kicker: '#ff7a7a', bankturn: '#c9a2ff', wallturn: '#e07bff', loop: '#62f0ff', loopr: '#62f0ff', mloop: '#62f0ff', mloopr: '#62f0ff', tunnel: '#6d7891' }[type] || '#8b97ae';
   g.beginPath(); ps.forEach((p, i) => { const x = ox + p[0] * sc, y = oz - p[2] * sc; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
   g.fillStyle = '#0b1322'; g.strokeStyle = '#0b1322'; g.lineWidth = 3; g.textAlign = 'center'; g.font = '700 22px sans-serif';
   if (type === 'ramp' || type === 'kicker' || type === 'longramp') g.fillText('▲', 40, 48);
   if (type === 'steep') { g.fillText('▲', 40, 40); g.fillText('▲', 40, 58); }
   if (type === 'loop' || type === 'loopr') { g.beginPath(); g.arc(40, 40, 13, 0, Math.PI * 2); g.stroke(); }
   if (type === 'mloop' || type === 'mloopr') { g.lineWidth = 4; g.beginPath(); g.arc(40, 40, 17, 0, Math.PI * 2); g.stroke(); }
+  if (type === 'jumppad') { g.beginPath(); g.arc(40, 40, 12, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.arc(40, 40, 5, 0, Math.PI * 2); g.stroke(); }
+  if (type === 'superboost') { g.lineWidth = 4; for (const y of [30, 44, 58]) { g.beginPath(); g.moveTo(30, y); g.lineTo(40, y - 9); g.lineTo(50, y); g.stroke(); } }
+  if (type === 'spinner') { g.strokeStyle = '#ff5a36'; g.lineWidth = 6; g.beginPath(); g.moveTo(22, 58); g.lineTo(58, 22); g.stroke(); g.fillStyle = '#0b1322'; g.beginPath(); g.arc(40, 40, 5, 0, Math.PI * 2); g.fill(); }
+  if (type === 'piston') { g.fillStyle = '#ff5a36'; g.fillRect(40 - WALL_SPAN * sc, 34, WALL_SPAN * 2 * sc, 12); g.fillStyle = '#ffb020'; g.fillRect(40 - WALL_SPAN * sc, 38, WALL_SPAN * 2 * sc, 3); }
   for (const o of T.obstacles || []) { g.fillStyle = '#ffb020'; if (o.kind === 'cyl') { g.beginPath(); g.arc(ox + o.x * sc, oz - o.z * sc, Math.max(3, o.r * sc), 0, Math.PI * 2); g.fill(); } else g.fillRect(ox + (o.x - o.hx) * sc, oz - (o.z + o.hz) * sc, o.hx * 2 * sc, o.hz * 2 * sc); }
 }
 $('ed-bar').addEventListener('click', e => { const b = e.target.closest('[data-type]'); if (b) selectPiece(b.dataset.type); });
@@ -4061,6 +4244,7 @@ window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input, textarea, select')) return;
   initAudio();
   if (!$('modal').hidden) { if (e.code === 'Escape' && !modalLocked) { closeModal(); if (game.state === 'paused') $('pause').hidden = false; } return; }
+  if (e.code === 'KeyT' && game.state === 'race' && mp.city && world.track.free) { e.preventDefault(); cityChatOpen(); return; }
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyM') { settings.sound = !settings.sound; saveSettings(); toast(settings.sound ? 'Sound on' : 'Sound off'); if (settings.sound) initAudio(); }
@@ -4130,7 +4314,7 @@ function loadDemo() {
 }
 
 function physicsTick(input, racing) {
-  const car = game.car;
+  const car = game.car; world.clock += PHYS_DT;
   car.pPos.copy(car.pos); car.pQ.copy(car.q);
   car.step(PHYS_DT, input); game.recTick++;
   if (racing) {
@@ -4149,6 +4333,8 @@ function physicsTick(input, racing) {
       if (Math.abs(lz) > 1.5) continue;
       if (t.type === 'checkpoint') onCheckpoint(t);
       else if (t.type === 'finish' && game.state === 'race') onFinish();
+      else if (t.type === 'cgate' && world.track.free) courseStart(t);
+      else if (t.type === 'cgoal' && world.track.free) courseEnd(t);
     }
   }
   if (car.grounded && game.recTick % 3 === 0) addSkid(car);
@@ -4180,6 +4366,7 @@ function updateGhost(alpha = 1) {
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  for (const o of world.dyn) o.userData.dyn(o, world.clock + game.acc);
   const st = game.state; const car = game.car;
   for (const c of scenery.children) if (c.userData.drift) c.position.x += c.userData.drift * dt;
   updateSmoke(dt);
@@ -4193,7 +4380,7 @@ function frame(now) {
       physicsTick(input, false); game.acc -= PHYS_DT;
       if (events.flipped) { demoIdx++; loadDemo(); break; }
     }
-    events.land = false; events.wall = 0; events.driftBoost = null; events.flipped = false;
+    events.land = false; events.wall = 0; events.driftBoost = null; events.flipped = false; events.pad = null;
     car.syncMesh(dt, clamp(game.acc / PHYS_DT, 0, 1)); updateCamera(dt, car, true); updateAudio(car, false, 0);
   } else if (st === 'race' || st === 'finished') {
     let input = readInput();
@@ -4212,11 +4399,15 @@ function frame(now) {
     while (game.acc >= PHYS_DT) { physicsTick(input, st === 'race' && game.started); game.acc -= PHYS_DT; if (game.state !== st) break; }
     if (st === 'race' && game.started) {
       game.offTrack = car.grounded && car.surf === 'grass' && !world.track.free ? (game.offTrack || 0) + dt : 0;
-      const hint = $('hud-hint');
+      const hint = $('hud-hint'), away = world.track.free && car.grounded && outOfTown(car.pos);
       if (game.offTrack > 0.8) { hint.hidden = false; hint.innerHTML = 'Off the road · press <b>Enter</b> for last checkpoint'; }
+      else if (away) { hint.hidden = false; hint.innerHTML = document.body.classList.contains('touchui') ? 'Out of town · <b>Pause</b> to go back' : 'Out of town · <b>R</b> to go back'; }
       else if (!hint.hidden) hint.hidden = true;
     }
     if (events.land) { events.land = false; blip(110, 0.18, 'sine', 0.3); }
+    if (events.pad) { if (events.pad === 'super') { flash('Super boost!', '#ff4fd8'); blip(220, 0.5, 'sawtooth', 0.25); setTimeout(() => blip(660, 0.4), 120); } else blip(520, 0.12); events.pad = null; }
+    // Fell through the world (a very hard landing): back on top.
+    if (world.track.free && car.pos.y < GROUND_Y - 4) car.reset(new V3(car.pos.x, 0.5, car.pos.z), car.yaw, 0);
     if (events.flipped) { events.flipped = false; if (st === 'race') { respawn(); flash('Flipped · back to checkpoint', 'var(--signal)'); } }
     if (events.wall) { blip(80 + Math.random() * 30, 0.12, 'square', Math.min(0.22, events.wall / 60)); events.wall = 0; }
     if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); blip(620, 0.1); setTimeout(() => blip(930, 0.16), 70); }
@@ -4261,7 +4452,7 @@ function start() {
 }
 $('btn-name').onclick = () => askName(false);
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, cityJoin };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, cityJoin, tilePoint, openEditor, editorTrack };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
