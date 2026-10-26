@@ -203,6 +203,7 @@
   /* Live races */
   .mp-sub { margin: -4px 0 0; color: var(--muted); line-height: 1.45; font-size: 14px; }
   .mp-list { display: flex; flex-direction: column; gap: 8px; }
+  .course-list { max-height: min(56vh, 520px); overflow-y: auto; padding-right: 2px; }
   .mp-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: rgba(255,255,255,0.03); }
   .mp-item > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .mp-item b { font-family: var(--display); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -380,6 +381,7 @@
     <div class="row">
       <button class="btn" id="btn-pause-settings">Settings</button>
       <button class="btn" id="btn-pause-edit" hidden>Back to editor</button>
+      <button class="btn" id="btn-courses" hidden>Courses</button>
       <button class="btn" id="btn-quit">Main menu</button>
     </div>
   </div>
@@ -557,9 +559,8 @@ const WALL_SPAN = W / 2 - 0.45;
 const tilePhase = t => Math.abs((t.x * 73856093) ^ (t.z * 19349663)) % 1000 / 1000;
 function spinnerAngle(t, c) { return (c / 3 + tilePhase(t)) * Math.PI * 2 * (t.x % 2 ? -1 : 1); }
 function spinnerObstacles(t, c) {
-  const a = spinnerAngle(t, c), cx = t.x * S, cz = t.z * S, y0 = t.l * H, out = [{ kind: 'cyl', x: cx, z: cz, r: 0.7, y0, y1: y0 + 1.8 }];
-  for (const d of [-5.6, -4.2, -2.8, -1.4, 1.4, 2.8, 4.2, 5.6]) out.push({ kind: 'cyl', x: cx + Math.sin(a) * d, z: cz + Math.cos(a) * d, r: 0.55, y0, y1: y0 + 1.4 });
-  return out;
+  const a = spinnerAngle(t, c), cx = t.x * S, cz = t.z * S, y0 = t.l * H, dx = Math.sin(a) * 5.9, dz = Math.cos(a) * 5.9;
+  return [{ kind: 'cyl', x: cx, z: cz, r: 0.7, y0, y1: y0 + 1.8 }, { kind: 'bar', x: cx - dx, z: cz - dz, x2: cx + dx, z2: cz + dz, r: 0.45, y0, y1: y0 + 1.4 }];
 }
 // A press: a beam across the road that lifts and slams down. Drive under it while
 // it's up; caught by it, you're knocked back (or on) along the road.
@@ -609,6 +610,9 @@ const TYPES = {
   pave:       { label: 'Pavement', fp: [[0, 0]], n: 2, path: u => [0, -0.04, -S / 2 + u * S], width: S, open: true },
   steep:      { label: 'Steep ramp', fp: [[0, 0]], n: 40, levels: 2, path: (u, t) => [0, steepRise(u, t ? t.si : 0, t ? t.so : 0), -S / 2 + u * S] },
 };
+// Yards: open floor 2, 4 or 8 tiles square, so a big map's ground is a few pieces
+// instead of thousands (the City is built with them).
+for (const n of [2, 4, 8]) TYPES['yard' + n] = { label: 'Yard', fp: Array.from({ length: n * n }, (_, i) => [i % n, Math.floor(i / n)]), n: 2, path: u => [(n - 1) * S / 2, 0, -S / 2 + u * n * S], width: n * S, open: true };
 // New pieces go on the end: share codes store a piece as its place in this list.
 const PALETTE = ['straight', 'turn', 'bigturn', 'ramp', 'kicker', 'boost', 'checkpoint', 'start', 'finish', 'longramp', 'bankturn', 'wallturn', 'loop', 'loopr', 'pillar', 'chicane', 'tunnel', 'steep', 'mloop', 'mloopr', 'plaza', 'spinner', 'piston', 'wall', 'bollards', 'jumppad', 'superboost'];
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // world (x,z) heading for rotation r
@@ -901,24 +905,51 @@ function cityTiles() {
   rect(0, 29, 2, 31, 7); rect(27, 0, 31, 2, 8); rect(29, 27, 31, 31, 6); rect(23, 28, 26, 31, 5);
   // Super boost runways at the south and east edges: they fire you out of town.
   for (const [x, z, r] of [[20, 28, 0], [28, 22, 1]]) { const [dx, dz] = DIRS[r]; put('straight', x, z, 0, r); put('straight', x + dx, z + dz, 0, r); put('superboost', x + 2 * dx, z + 2 * dz, 0, r); put('straight', x + 3 * dx, z + 3 * dz, 0, r); }
-  // Obstacle District (west): timed courses side by side, each a road from its
-  // start gate south to its finish, with open ground around to drive back up.
-  CITY_COURSES.forEach(([id, name, seq], i) => {
-    for (const t of turtle(seq)) put(t.type, t.x - 3 - i * 4, t.z + 1, t.l, t.r, t.type === 'cgate' || t.type === 'cgoal' ? { course: id, cname: name } : null);
-  });
+  // The timed courses (see CITY_COURSES), with open ground around to drive back up.
+  rect(-32, -50, 33, -1); // the Course Park's floor, north of town
+  for (const [id, name, seq, x0, z0, h] of CITY_COURSES) for (const t of turtle(seq)) {
+    const [x, z] = h ? [x0 - t.x, z0 - t.z] : [x0 + t.x, z0 + t.z];
+    put(t.type, x, z, t.l, (t.r + h) % 4, t.type === 'cgate' || t.type === 'cgoal' ? { course: id, cname: name } : null);
+  }
   put('start', 15, 22, 0, 2); // spawn, facing the park
   // Pavement under everything narrower than a plaza, so the floor has no gaps.
   const paved = new Set([...out].filter(t => t.type === 'plaza' && !t.l).map(t => t.x + ',' + t.z));
   for (const t of [...out]) if (t.type !== 'plaza') for (const [x, z] of footprint(t)) if (!paved.has(x + ',' + z)) { paved.add(x + ',' + z); out.add({ type: 'pave', x, z, l: 0, r: 0 }); }
+  // Join the open floor into yards, biggest first.
+  const floor = new Map([...out].filter(t => t.type === 'plaza' && !t.l).map(t => [t.x + ',' + t.z, t]));
+  const cellsOf = (x, z, n) => { const ks = []; for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) ks.push((x + a) + ',' + (z + b)); return ks; };
+  const order = [...floor.values()].sort((a, b) => a.z - b.z || a.x - b.x);
+  for (const n of [8, 4, 2]) for (const { x, z } of order) {
+    if (!floor.has(x + ',' + z)) continue;
+    const ks = cellsOf(x, z, n);
+    if (!ks.every(c => floor.has(c))) continue;
+    for (const c of ks) { out.delete(floor.get(c)); floor.delete(c); }
+    out.add({ type: 'yard' + n, x, z, l: 0, r: 0 });
+  }
   return [...out];
 }
+// The City's timed courses: [id, name, turtle sequence, gate x, gate z, heading].
+// The Obstacle District (west) runs south from the north edge of town; the Course
+// Park (north of town) runs north, each course turned round (heading 2).
 const CITY_COURSES = [
-  ['slalom', 'Slalom', 'CG S X S P S BO S X S P S BO S2 X S P S BO S2 CF'],
-  ['spinners', 'Spinner Alley', 'CG S2 SP S2 SP S SP S2 SP SP S2 SP S SP S2 SP S2 CF'],
-  ['pistons', 'Piston Press', 'CG S2 PI S PI S2 PI PI S PI S2 PI PI S PI S2 PI S2 CF'],
-  ['wallhop', 'Wall Hop', 'CG S3 J WA S3 J WA S3 J WA S2 B S J WA S3 J WA S2 CF'],
-  ['twister', 'Twister', 'CG S R L S SP S L R S PI S R L BO S L R S SP S R L PI S2 CF'],
-  ['madness', 'Madness', 'CG S B S K S2 SP S PI S J WA S2 BO S X S SP PI S J WA S2 BO SP S2 CF'],
+  ['slalom', 'Slalom', 'CG S X S P S BO S X S P S BO S2 X S P S BO S2 CF', -3, 1, 0],
+  ['spinners', 'Spinner Alley', 'CG S2 SP S2 SP S SP S2 SP SP S2 SP S SP S2 SP S2 CF', -7, 1, 0],
+  ['pistons', 'Piston Press', 'CG S2 PI S PI S2 PI PI S PI S2 PI PI S PI S2 PI S2 CF', -11, 1, 0],
+  ['wallhop', 'Wall Hop', 'CG S3 J WA S3 J WA S3 J WA S2 B S J WA S3 J WA S2 CF', -15, 1, 0],
+  ['twister', 'Twister', 'CG S R L S SP S L R S PI S R L BO S L R S SP S R L PI S2 CF', -19, 1, 0],
+  ['madness', 'Madness', 'CG S B S K S2 SP S PI S J WA S2 BO S X S SP PI S J WA S2 BO SP S2 CF', -23, 1, 0],
+  ['gauntlet', 'The Gauntlet', 'CG S B S K G S2 SP S PI S L S BO S R S U S J WA S2 D S2 X P S B B S OL S2 PI PI PI S J WA S2 BO S2 CF', -25, -2, 2],
+  ['bounce', 'Bounce House', 'CG S2 J WA S J WA S2 SP S J WA S J WA S2 PI S J WA S2 CF', -22, -2, 2],
+  ['sweepers', 'Sweepers', 'CG S2 BL S PI S BR S SP S BL S2 BO S BR S2 CF', -6, -2, 2],
+  ['tunnel', 'Tunnel Vision', 'CG S T2 PI T2 S X T3 SP S T2 PI PI T2 S BO T3 S CF', -3, -2, 2],
+  ['looplane', 'Loop Lane', 'CG S B S OL S2 PI S2 B B S OR S2 SP S2 B B S OL S2 J WA S3 B B S OR S2 CF', 1, -2, 2],
+  ['pinball', 'Pinball', 'CG S BO S X P BO X S P X BO S SP S X P BO S2 SP S X BO P S CF', 4, -2, 2],
+  ['zigzag', 'Zigzag', 'CG S2 L S BO S R S2 R S SP S L S2 L S BO S R S2 R S PI S L S2 CF', 11, -2, 2],
+  ['skygaunt', 'Sky Gauntlet', 'CG S B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S PI S2 VD VD S2 CF', 14, -2, 2],
+  ['hills', 'Hill Hopper', 'CG S U S2 J WA S D S U S PI S D S2 LU S2 SP S LD S U S J WA D S2 CF', 17, -2, 2],
+  ['bigwheel', 'Big Wheel', 'CG S B B S ML S3 SP S2 B B S MR S3 PI S2 CF', 21, -2, 2],
+  ['gapjump', 'Gap Jumper', 'CG S B S K G S3 J WA S2 B S K G2 S3 BO S2 B S K G S3 PI S2 CF', 24, -2, 2],
+  ['switchback', 'Switchback', 'CG S SP S2 L L S BO S PI S R R S2 SP S2 L L S X S2 CF', 30, -2, 2],
 ];
 const CITY = { id: 'city', name: 'City', env: 'summer', free: true, official: false, get tiles() { return this._t || (this._t = cityTiles()); } };
 
@@ -1177,7 +1208,7 @@ const MAT = {
   boost: new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xff7a00, emissiveIntensity: 0.9, flatShading: true, side: THREE.DoubleSide }),
   super: new THREE.MeshStandardMaterial({ color: 0xff4fd8, emissive: 0xc01aff, emissiveIntensity: 1.1, flatShading: true, side: THREE.DoubleSide }),
   jump: new THREE.MeshStandardMaterial({ color: 0x5dff9e, emissive: 0x13c060, emissiveIntensity: 1.0, flatShading: true, side: THREE.DoubleSide }),
-  hazard: new THREE.MeshStandardMaterial({ color: 0xff5a36, roughness: 0.6, flatShading: true }),
+  hazard: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, flatShading: true }), // moving parts, coloured per box
   post: new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.6, flatShading: true }),
   cpIdle: new THREE.MeshStandardMaterial({ color: 0x24b8ff, emissive: 0x0a4c80, emissiveIntensity: 0.6, flatShading: true }),
   cpDone: new THREE.MeshStandardMaterial({ color: 0x3ee38a, emissive: 0x137a3e, emissiveIntensity: 0.6, flatShading: true }),
@@ -1193,6 +1224,19 @@ function bannerTex(text, bg, fg) {
   return makeTexture((g, w, h) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = fg; g.font = '700 40px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 2); }, 512, 64);
 }
 const BANNERS = {};
+// Boxes of different colours as one geometry, so a moving part is one draw call.
+function colouredBoxes(parts) {
+  const pos = [], nrm = [], col = [], c = new THREE.Color();
+  for (const [w, h, d, x, y, z, hex] of parts) {
+    const g = new THREE.BoxGeometry(w, h, d).toNonIndexed(); g.translate(x, y, z); c.set(hex);
+    pos.push(...g.attributes.position.array); nrm.push(...g.attributes.normal.array);
+    for (let i = 0; i < g.attributes.position.count; i++) col.push(c.r, c.g, c.b);
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3)); out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return out;
+}
 function bannerText(text, bg, fg) { const k = text + bg; if (!BANNERS[k]) BANNERS[k] = new THREE.MeshStandardMaterial({ map: bannerTex(text, bg, fg), roughness: 0.6 }); return BANNERS[k]; }
 function banner(kind) {
   if (!BANNERS[kind]) {
@@ -1314,15 +1358,13 @@ function buildTile(t, opts = {}) {
   }
   if (t.type === 'spinner') {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 1.9, 10), MAT.pillar); post.position.y = 0.95; post.castShadow = true; g.add(post);
-    const arm = new THREE.Group(); arm.position.y = 1.0; arm.userData.dyn = (m, c) => { m.rotation.y = spinnerAngle(t, c) - t.r * Math.PI / 2; };
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 12), MAT.hazard); bar.castShadow = true; arm.add(bar);
-    for (const z of [-6, 6]) { const tip = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.8, 0.5), MAT.boost); tip.position.z = z; arm.add(tip); }
+    const arm = new THREE.Mesh(colouredBoxes([[0.9, 0.7, 12, 0, 0, 0, 0xff5a36], [1.0, 0.8, 0.5, 0, 0, -6, 0xffb020], [1.0, 0.8, 0.5, 0, 0, 6, 0xffb020]]), MAT.hazard);
+    arm.position.y = 1.0; arm.castShadow = true; arm.userData.dyn = (m, c) => { m.rotation.y = spinnerAngle(t, c) - t.r * Math.PI / 2; };
     g.add(arm);
   }
   if (t.type === 'piston') {
-    const block = new THREE.Group(); block.userData.dyn = (m, c) => { m.position.y = pistonLift(t, c); };
-    const box = new THREE.Mesh(new THREE.BoxGeometry(WALL_SPAN * 2, 2.4, 2.8), MAT.hazard); box.position.y = 1.2; box.castShadow = true; block.add(box);
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(WALL_SPAN * 2 + 0.04, 0.4, 2.84), MAT.boost); stripe.position.y = 0.5; block.add(stripe);
+    const block = new THREE.Mesh(colouredBoxes([[WALL_SPAN * 2, 2.4, 2.8, 0, 1.2, 0, 0xff5a36], [WALL_SPAN * 2 + 0.04, 0.4, 2.84, 0, 0.5, 0, 0xffb020]]), MAT.hazard);
+    block.castShadow = true; block.userData.dyn = (m, c) => { m.position.y = pistonLift(t, c); };
     g.add(block);
     for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.8, 8.2, 0.8), MAT.post); post.position.set(sx * (W / 2 + 0.8), 4.1, 0); post.castShadow = true; g.add(post); }
     const top = new THREE.Mesh(new THREE.BoxGeometry(W + 2.4, 0.8, 0.8), MAT.post); top.position.y = 8.2; g.add(top);
@@ -1343,8 +1385,8 @@ function buildTile(t, opts = {}) {
     for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.9, 6.6, 0.9), MAT.post); post.position.set(sx * (W / 2 + 0.9), 3.3, 0); post.castShadow = true; g.add(post); }
     const label = t.type === 'cgate' ? (t.cname || 'Course').toUpperCase() : 'FINISH', go = t.type === 'cgate';
     const face = bannerText(label, go ? '#ff9a20' : '#111111', go ? '#1a0e00' : '#ffffff');
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(W + 2.7, 1.4, 0.7), [MAT.post, MAT.post, MAT.post, MAT.post, face, face]);
-    beam.position.set(0, 6.3, 0); beam.castShadow = true; g.add(beam);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(W + 2.7, 1.4, 0.7), MAT.post); beam.position.set(0, 6.3, 0); beam.castShadow = true; g.add(beam);
+    for (const side of [-1, 1]) { const sign = new THREE.Mesh(new THREE.PlaneGeometry(W + 2.5, 1.3), face); sign.position.set(0, 6.3, side * 0.36); if (side < 0) sign.rotation.y = Math.PI; g.add(sign); }
     const line = new THREE.Mesh(new THREE.PlaneGeometry(W, 2.2), new THREE.MeshStandardMaterial({ map: checkerTex, roughness: 0.8 })); line.rotation.x = -Math.PI / 2; line.position.y = 0.04; g.add(line);
   }
   if (t.type === 'start' || t.type === 'finish' || t.type === 'checkpoint') {
@@ -1895,7 +1937,8 @@ function buildTrackPhysics(tiles, landings) {
     phys.v2.setValue(x0, GROUND_Y, z1); meshes.ground.addTriangle(phys.v1, phys.v3, phys.v2, false); count.ground += 2;
   };
   const m = 12, gx0 = (minX - m - 0.5) * S, gx1 = (maxX + m + 0.5) * S, gz0 = (minZ - m - 0.5) * S, gz1 = (maxZ + m + 0.5) * S, far = 4000;
-  for (let x = minX - m; x <= maxX + m; x++) for (let z = minZ - m; z <= maxZ + m; z++) if (!holes.has(x + ',' + z)) quad((x - 0.5) * S, (z - 0.5) * S, (x + 0.5) * S, (z + 0.5) * S);
+  if (!holes.size) quad(gx0, gz0, gx1, gz1);
+  else for (let x = minX - m; x <= maxX + m; x++) for (let z = minZ - m; z <= maxZ + m; z++) if (!holes.has(x + ',' + z)) quad((x - 0.5) * S, (z - 0.5) * S, (x + 0.5) * S, (z + 0.5) * S);
   quad(-far, -far, far, gz0); quad(-far, gz1, far, far); quad(-far, gz0, gx0, gz1); quad(gx1, gz0, far, gz1);
   // Collision comes straight from each piece's centre-line frames: the drivable
   // top surface (and a tunnel's roof). No end caps or undersides, so wheels never
@@ -2160,6 +2203,7 @@ class Car {
     // Jump pads and super boosts fire once as you drive onto them.
     if (this.padCool > 0) this.padCool -= dt;
     else if (contacts && this.wheels.some(w => w.contact && (w.surf === 'jump' || w.surf === 'super'))) {
+      this.settleT = 0; // landing on a pad still fires it
       if (this.wheels.some(w => w.contact && w.surf === 'super')) {
         const fh = fwd.clone().setY(0).normalize(), a = 8 * Math.PI / 180, v = SUPER_SPEED;
         this.vel.copy(fh).multiplyScalar(v * Math.cos(a)).addScaledVector(UP, v * Math.sin(a)); this.padCool = 1.2; events.pad = 'super';
@@ -2298,7 +2342,9 @@ class Car {
 
     this.readState();
     const near = this.nearbyTiles();
-    if (this.collideWalls(near, dt) | this.collideObstacles(near)) this.pushTransform();
+    const hitWall = this.collideWalls(near, dt), hitObs = this.collideObstacles(near);
+    if (hitObs) this.collideWalls(near, dt); // barriers have the last word: an obstacle never shoves a car through one
+    if (hitWall || hitObs) this.pushTransform();
     this.readWheels(hand);
     // Hitting a barrier, pillar or block shows up as a sudden loss of speed.
     const hit = before.sub(this.vel).length() - GRAV * dt * 1.5;
@@ -2380,11 +2426,17 @@ class Car {
     const f = new V3(0, 0, 1).applyQuaternion(this.q); const r = this.hw; const base = this.pos.y - this.spec.comY; let hit = false;
     for (const t of tiles) for (const o of TYPES[t.type].dyn ? TYPES[t.type].dyn(t, world.clock) : t.obs || []) {
       if (base > o.y1 || base + this.spec.height * 0.9 < o.y0) continue;
+      // A moving obstacle shoves a little each step (it moves little each step), so a
+      // car caught against a barrier is swept along it, never through it.
+      const maxPush = TYPES[t.type].dyn ? 0.25 : Infinity;
       for (const k of [-1, 0, 1]) {
         const cx = this.pos.x + f.x * k * (this.hl - 1.1), cz = this.pos.z + f.z * k * (this.hl - 1.1);
         let nx, nz, pen;
-        if (o.kind === 'cyl') {
-          const dx = cx - o.x, dz = cz - o.z, d = Math.hypot(dx, dz); pen = o.r + r - d; if (pen <= 0) continue;
+        if (o.kind === 'cyl' || o.kind === 'bar') {
+          // A bar (a spinner's arm) pushes away from its nearest point, so it sweeps a car along smoothly.
+          let px = o.x, pz = o.z;
+          if (o.kind === 'bar') { const ux = o.x2 - o.x, uz = o.z2 - o.z, u = clamp(((cx - o.x) * ux + (cz - o.z) * uz) / (ux * ux + uz * uz), 0, 1); px += ux * u; pz += uz * u; }
+          const dx = cx - px, dz = cz - pz, d = Math.hypot(dx, dz); pen = o.r + r - d; if (pen <= 0) continue;
           nx = d > 1e-4 ? dx / d : 1; nz = d > 1e-4 ? dz / d : 0;
         } else {
           const px = clamp(cx, o.x - o.hx, o.x + o.hx), pz = clamp(cz, o.z - o.hz, o.z + o.hz);
@@ -2392,7 +2444,7 @@ class Car {
           if (d > 1e-4) { pen = r - d; if (pen <= 0) continue; nx = dx / d; nz = dz / d; }
           else { const ex = o.hx - Math.abs(cx - o.x), ez = o.hz - Math.abs(cz - o.z); if (ex < ez) { nx = Math.sign(cx - o.x) || 1; nz = 0; pen = ex + r; } else { nx = 0; nz = Math.sign(cz - o.z) || 1; pen = ez + r; } }
         }
-        hit = true;
+        hit = true; pen = Math.min(pen, maxPush);
         this.pos.x += nx * pen; this.pos.z += nz * pen;
         const vn = this.vel.x * nx + this.vel.z * nz;
         if (vn < 0) { this.vel.x -= nx * vn * 1.3; this.vel.z -= nz * vn * 1.3; this.vel.multiplyScalar(0.92); this.w.y *= 0.5; if (vn < -4) events.wall = Math.max(events.wall, -vn); }
@@ -2634,7 +2686,7 @@ function loadPB(track) { return store.get(trackKey(track), null); }
 
 // Free roam: more than a few tiles beyond the edge of the map.
 function outOfTown(p) {
-  const b = world.bounds || (world.bounds = world.tiles.reduce((b, t) => [Math.min(b[0], t.x), Math.min(b[1], t.z), Math.max(b[2], t.x), Math.max(b[3], t.z)], [Infinity, Infinity, -Infinity, -Infinity]));
+  const b = world.bounds || (world.bounds = world.tiles.flatMap(footprint).reduce((b, [x, z]) => [Math.min(b[0], x), Math.min(b[1], z), Math.max(b[2], x), Math.max(b[3], z)], [Infinity, Infinity, -Infinity, -Infinity]));
   const x = p.x / S, z = p.z / S;
   return x < b[0] - 4 || z < b[1] - 4 || x > b[2] + 4 || z > b[3] + 4;
 }
@@ -2661,8 +2713,8 @@ function restartRace() {
   // Free roam (the City): no clock, medals or checkpoints.
   const free = !!world.track.free;
   for (const id of ['hud-time', 'hud-cp', 'hud-medals']) $(id).hidden = free;
-  $('hud-keys').innerHTML = free ? '<kbd>R</kbd> back to the start · <kbd>Enter</kbd> back on your wheels · <kbd>Space</kbd> handbrake / drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause' : HUD_KEYS;
-  if (free) $('hud-hint').innerHTML = 'Drive anywhere: jumps, rooftops and parks. ' + $('hud-hint').innerHTML;
+  $('hud-keys').innerHTML = free ? '<kbd>R</kbd> back to the start · <kbd>Enter</kbd> back on your wheels · <kbd>Space</kbd> handbrake / drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause and courses' : HUD_KEYS;
+  if (free) $('hud-hint').innerHTML = `Drive anywhere: jumps, parks and ${CITY_COURSES.length} obstacle courses. ` + $('hud-hint').innerHTML;
   updateHudStatic();
 }
 const HUD_KEYS = $('hud-keys').innerHTML;
@@ -2711,6 +2763,22 @@ function courseEnd(t) {
   toast(pb ? (best == null ? 'First run of ' : 'New best on ') + c.name + '!' : 'Your best on ' + c.name + ' is ' + fmtTime(best));
   blip(880, 0.15); setTimeout(() => blip(1320, 0.2), 110);
   if (mp.city) mpSay('🏁 ' + c.name + ' in ' + fmtTime(time) + (pb && best != null ? ' (personal best)' : ''));
+}
+// The list of courses, with your best on each; pick one to go to its start gate.
+function showCourses() {
+  const row = ([id, name, , , , h]) => { const best = store.get('mt5.course.' + id, null);
+    return `<div class="mp-item"><div><b>${name}</b><small>${h ? 'Course Park' : 'Obstacle District'} · ${best == null ? 'not done yet' : 'best ' + fmtTime(best)}</small></div><button class="btn" data-course="${id}">Go</button></div>`; };
+  openModal(`<div class="eyebrow">City</div><h2>Obstacle courses</h2><div class="mp-list course-list">${CITY_COURSES.map(row).join('')}</div>
+    <div class="row"><button class="btn" id="m-done">Close</button></div>`);
+  $('m-done').onclick = () => { closeModal(); $('pause').hidden = false; };
+  for (const b of $('modal-body').querySelectorAll('[data-course]')) b.onclick = () => { closeModal(); goToCourse(b.dataset.course); };
+}
+function goToCourse(id) {
+  const g = world.tiles.find(t => t.type === 'cgate' && t.course === id); if (!g) return;
+  const yaw = g.r * Math.PI / 2, p = tilePoint(g, 0).sub(new V3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(8));
+  setState('race'); game.course = null; game.car.reset(p, yaw, 0); clearSkids();
+  game.camPos.copy(p).add(new V3(-Math.sin(yaw) * 10, 5, -Math.cos(yaw) * 10));
+  flash(g.cname, 'var(--signal)');
 }
 function onCheckpoint(t) {
   if (game.cpHit.has(t)) return;
@@ -2880,8 +2948,9 @@ function drawMinimapBase() {
   g.lineCap = 'round'; g.lineJoin = 'round';
   for (const pass of [0, 1]) {
     for (const t of world.tiles) {
-      if (TYPES[t.type].open) { // plazas and roofs as squares, lighter the higher they are
-        const [x0, y0] = mmXform(t.x * S - S / 2, t.z * S - S / 2), [x1, y1] = mmXform(t.x * S + S / 2, t.z * S + S / 2);
+      if (TYPES[t.type].open) { // plazas, yards and roofs as squares, lighter the higher they are
+        const fp = footprint(t), xs = fp.map(c => c[0]), zs = fp.map(c => c[1]);
+        const [x0, y0] = mmXform(Math.min(...xs) * S - S / 2, Math.min(...zs) * S - S / 2), [x1, y1] = mmXform(Math.max(...xs) * S + S / 2, Math.max(...zs) * S + S / 2);
         g.fillStyle = pass ? `hsl(220, 12%, ${Math.min(88, 50 + t.l * 7)}%)` : 'rgba(0,0,0,0.55)'; const e = pass ? 0 : 2;
         g.fillRect(Math.min(x0, x1) - e, Math.min(y0, y1) - e, Math.abs(x1 - x0) + 2 * e, Math.abs(y1 - y0) + 2 * e); continue;
       }
@@ -2933,6 +3002,7 @@ function togglePause() {
     setState('paused'); $('pause-track').textContent = world.track.name; $('btn-pause-edit').hidden = !game.fromEditor;
     $('btn-restart').hidden = !!mp.race; $('btn-quit').textContent = mp.race ? 'Back to room' : world.track.free ? 'Leave the City' : 'Main menu';
     $('btn-restart').textContent = world.track.free ? 'Back to the start' : 'Restart';
+    $('btn-courses').hidden = !world.track.free;
   }
   else if (game.state === 'paused') setState('race');
 }
@@ -4294,6 +4364,7 @@ $('btn-help').onclick = showHelp;
 $('btn-resume').onclick = () => togglePause();
 $('btn-restart').onclick = () => { setState('race'); restartRace(); };
 $('btn-pause-settings').onclick = () => { $('pause').hidden = true; showSettings(); };
+$('btn-courses').onclick = () => { $('pause').hidden = true; showCourses(); };
 $('btn-pause-edit').onclick = backToEditor;
 $('btn-quit').onclick = () => { if (mp.race) mpToRoom(); else if (world.track.free) cityLeave(); else { setState('menu'); loadDemo(); } };
 $('btn-fin-room').onclick = mpToRoom;
@@ -4452,7 +4523,7 @@ function start() {
 }
 $('btn-name').onclick = () => askName(false);
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, cityJoin, tilePoint, openEditor, editorTrack };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, CITY_COURSES, cityJoin, tilePoint, openEditor, editorTrack, goToCourse, showCourses };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
