@@ -1208,7 +1208,7 @@ function applyTheme() {
 }
 
 // Ground plane — also a driveable (slow) surface.
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x7fc06a, roughness: 1, flatShading: true });
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x7fc06a, roughness: 1, flatShading: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 }); // drawn behind road lying just above it
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), groundMat);
 ground.rotation.x = -Math.PI / 2; ground.position.y = -0.45; ground.receiveShadow = true;
 ground.userData.surf = 'grass';
@@ -1559,6 +1559,7 @@ function mergeStatic(group) {
 function loadTrack(track) {
   world.track = track; world.tiles = track.tiles.map(t => ({ ...t })); world.bounds = null;
   const env = envFor(track); if (env !== world.env) { world.env = env; applyTheme(); }
+  setGroundLevel(!!track.free);
   world.group.clear(); world.cells.clear(); world.cps = []; world.start = null;
   shapeSteep(world.tiles);
   for (const t of world.tiles) {
@@ -1846,7 +1847,10 @@ function disposeTree(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose()
 // height and normal come straight from the track data (no mesh raycasts).
 // ============================================================================
 const UP = new V3(0, 1, 0);
-const GROUND_Y = -0.45;
+// The ground's height. In the City (free roam) it sits just under the floor, so
+// you drive off the floor and back on without a kerb to hop.
+let GROUND_Y = -0.45;
+function setGroundLevel(free) { GROUND_Y = free ? -0.06 : -0.45; ground.position.y = GROUND_Y; }
 // Nearest point on a piece's centreline to p (in 3D), with the road frame there:
 // lat = sideways offset, h = height above the road surface along its normal.
 function nearestOnCentreline(cl, p) {
@@ -2492,6 +2496,7 @@ class Car {
       if (wh.n.dot(up) < 0.3) wh.n.copy(up); // ignore a glancing hit on an edge
       const s = surfaceAt(tiles, probe.copy(wh.cp).addScaledVector(wh.n, 0.3), 0.8, 0.8);
       wh.surf = s ? s.surf : 'grass'; wh.type = s ? s.type : null; wh.tile = s ? s.tile : null;
+      if (wh.surf === 'grass' && world.track && world.track.free) wh.surf = 'ground'; // in the City, off the road drives just like on it
       if (wh.type === 'kicker') this.fromKicker = true; else if (wh.type) this.fromKicker = false;
       const wf = fwd.clone(); if (wh.front) wf.applyAxisAngle(up, this.steerAng);
       wf.addScaledVector(wh.n, -wf.dot(wh.n)).normalize(); wh.wf.copy(wf);
@@ -4139,6 +4144,7 @@ const ghostOK = new THREE.MeshStandardMaterial({ color: 0xffd23f, transparent: t
 const ghostBad = new THREE.MeshStandardMaterial({ color: 0xff5468, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
 
 function openEditor(tr) {
+  setGroundLevel(false);
   editor.tiles = tr.tiles.map(stripTile); editor.name = tr.name || 'My track'; editor.id = tr.id || null; editor.idx = tr.idx != null ? tr.idx : null;
   editor.env = envFor(tr); $('ed-env').value = editor.env; world.env = editor.env; applyTheme();
   editor.undo = []; editor.level = 0; editor.erase = false; clearSkids();
