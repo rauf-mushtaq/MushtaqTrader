@@ -74,7 +74,7 @@
   .track-card .actions button { font-size: 11px; padding: 3px 7px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .track-card .actions button:hover { color: var(--text); border-color: var(--text); }
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.circuit { color: #ff5ad1; } .diff.community { color: #62f0ff; }
+  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.circuit { color: #ff5ad1; } .diff.marathon { color: #c9a2ff; } .diff.community { color: #62f0ff; }
   .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track-card .rec { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-align: left; min-width: 0; }
   .track-card .rec .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -651,8 +651,8 @@ function tileLength(t) {
 }
 
 // More one-tile pieces for the turtle: spinner, piston, wall, bollards, jump pad,
-// super boost, and a course's start and finish gates.
-const PIECE_TOKENS = { SP: 'spinner', PI: 'piston', WA: 'wall', BO: 'bollards', J: 'jumppad', SB: 'superboost', CG: 'cgate', CF: 'cgoal' };
+// super boost, plaza, and a course's start and finish gates.
+const PIECE_TOKENS = { SP: 'spinner', PI: 'piston', WA: 'wall', BO: 'bollards', J: 'jumppad', SB: 'superboost', PZ: 'plaza', CG: 'cgate', CF: 'cgoal' };
 // Turtle notation for the official tracks: every piece connects to the last.
 // ST start, S road, B boost, C checkpoint, F finish, K kicker, G gap,
 // U/D ramp up/down, LU/LD long slope up/down, V/VD steep ramp up/down, L/R
@@ -861,7 +861,15 @@ const OFFICIAL = [
   { id: 'o80', name: 'Figure Eight', diff: 'Circuit', env: 'summer', seq: 'ST S6 R S L R L R S BR S2 C S3 R S3 U S3 D S3 C L S6 BL S2 R L S2 L S C S4 F' },
   { id: 'o81', name: 'Marina Night', diff: 'Circuit', env: 'summer', seq: 'ST S2 L R S3 R S6 R C L S7 R S2 T3 S2 R C L S2 R S7 R L S2 C R S3 F' },
   { id: 'o82', name: 'Harbour Streets', diff: 'Circuit', env: 'summer', seq: 'ST S4 R U S4 L S3 R S3 C D R S R S2 L L S4 R S R S T4 X C S3 L S2 L R S2 R L S2 R S C R S3 F' },
-  { id: 'o83', name: 'Hairpin Heaven', diff: 'Circuit', env: 'winter', author: 37700, seq: 'ST S2 R R S L L S2 R S7 C R R S7 L L S7 R C S4 R R S2 L L S2 R S6 C S R S2 F' }
+  { id: 'o83', name: 'Hairpin Heaven', diff: 'Circuit', env: 'winter', author: 37700, seq: 'ST S2 R R S L L S2 R S7 C R R S7 L L S7 R C S4 R R S2 L L S2 R S6 C S R S2 F' },
+  // Marathon: about three and a half minutes each, back and forth across the map
+  // through spinners, presses, wall hops, bounce pads, bollards, loops and sky
+  // roads. Comet Run, Cloud Courier and Grand Odyssey have a super boost leap.
+  { id: 'o84', name: 'The Long Haul', diff: 'Marathon', env: 'summer', author: 216000, seq: 'ST S2 B S3 B S3 B S5 SP S2 SP S SP S2 SP S2 B S2 BL S2 BL C S2 PI S PI S2 PI PI S2 PI S5 J WA S3 J WA S3 J WA S2 BR S2 BR C S BO S X S P S BO S2 X S P S BO S B B S OL S2 PI S2 B B S OR S2 BL S2 BL C B S K G S3 B S K G2 S3 B S K G S5 J WA S J WA S J WA S2 BR S2 BR C T2 PI T2 S X T3 SP S T2 S2 LU S2 J WA S2 LD S2 U S PI S D S2 BL S2 BL C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 BR S2 BR C B B S ML S3 SP S2 B B S MR S5 PI S PI S2 PI PI S2 PI S2 BL S2 BL C S3 J WA S3 J WA S3 J WA S2 B S3 B S3 B S5 LU S2 J WA S2 LD S2 U S PI S D S4 F' },
+  { id: 'o85', name: 'Iron Marathon', diff: 'Marathon', env: 'desert', author: 204800, seq: 'ST S4 PI S PI S2 PI PI S2 PI S4 SP S2 SP S SP S2 SP S2 B S2 U S QL S2 QL S D C T2 PI T2 S X T3 SP S T2 S2 PI S PI S2 PI PI S2 PI S2 U S QR S2 QR S D C S3 J WA S3 J WA S3 J WA S3 BO S X S P S BO S2 X S P S BO S U S QL S2 QL S D C S2 SP S2 SP S SP S2 SP S2 B S4 J WA S J WA S J WA S2 U S QR S2 QR S D C S2 LU S2 J WA S2 LD S2 U S PI S D S4 PI S PI S2 PI PI S2 PI S2 U S QL S2 QL S D C T2 PI T2 S X T3 SP S T2 S2 SP S2 SP S SP S2 SP S2 B S2 U S QR S2 QR S D C S3 J WA S3 J WA S3 J WA S2 B S3 B S3 B S5 PI S PI S2 PI PI S2 PI S4 F' },
+  { id: 'o86', name: 'Comet Run', diff: 'Marathon', env: 'summer', author: 209300, seq: 'ST S2 B S3 B S3 B S5 SP S2 SP S SP S2 SP S2 B S2 BL S2 BL C S2 PI S PI S2 PI PI S2 PI S2 B S K G S3 B S K G2 S3 B S K G S3 BR S2 BR C S BO S X S P S BO S2 X S P S BO S B B S OL S2 PI S2 B B S OR S2 BL S2 BL C S3 J WA S3 J WA S3 J WA S2 B S2 SB S G112 PZ12 S2 B B S ML S3 SP S2 B B S MR S3 BR S2 BR C S2 J WA S J WA S J WA S2 T2 PI T2 S X T3 SP S T2 BL S2 BL C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 BR S2 BR C S2 SP S2 SP S SP S2 SP S2 B S2 B S3 B S3 B S5 F' },
+  { id: 'o87', name: 'Cloud Courier', diff: 'Marathon', env: 'winter', author: 214500, seq: 'ST S2 B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QL S2 QL S D C S2 LU S2 J WA S2 LD S2 U S PI S D S5 J WA S3 J WA S3 J WA S2 U S QR S2 QR S D C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QL S2 QL S D C B S K G S3 B S K G2 S3 B S K G S3 B S2 SB S G112 PZ12 S4 PI S PI S2 PI PI S2 PI S2 U S QR S2 QR S D C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QL S2 QL S D C S2 LU S2 J WA S2 LD S2 U S PI S D S2 B B S OL S2 PI S2 B B S OR S2 U S QR S2 QR S D C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S4 F' },
+  { id: 'o88', name: 'Grand Odyssey', diff: 'Marathon', env: 'desert', author: 213400, seq: 'ST S2 B S3 B S3 B S3 B B S OL S2 PI S2 B B S OR S2 BL S2 BL C S2 SP S2 SP S SP S2 SP S2 B S4 PI S PI S2 PI PI S2 PI S2 U S QR S2 QR S D C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QL S2 QL S D C S3 J WA S3 J WA S3 J WA S2 BR S2 BR C B B S ML S3 SP S2 B B S MR S3 B S2 SB S G112 PZ12 S3 BO S X S P S BO S2 X S P S BO S BL S2 BL C T2 PI T2 S X T3 SP S T2 U S QR S2 QR S D C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QL S2 QL S D C S2 PI S PI S2 PI PI S2 PI S4 SP S2 SP S SP S2 SP S2 B S4 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
 
 // ============================================================================
@@ -988,14 +996,15 @@ function computeRoute(tiles) {
       }
     }
     if (!next) {
-      // Jump: look for a piece that starts straight ahead within ~5 tiles.
-      const flat = new V3(dir.x, 0, dir.z).normalize();
+      // Jump: look for a piece that starts straight ahead within ~5 tiles (or,
+      // just after a super boost, within its flight of about 2.4 km).
+      const flat = new V3(dir.x, 0, dir.z).normalize(), reach = segs.slice(-2).some(g => g.type === 'superboost') ? 3000 : 100;
       for (const e of ends) {
         if (used.has(e.t)) continue;
         for (const [Q, fwd] of [[e.a, true], [e.b, false]]) {
           const rel = Q.clone().sub(P); const along = rel.x * flat.x + rel.z * flat.z;
           const lat = Math.abs(rel.x * flat.z - rel.z * flat.x);
-          if (along > 4 && along < 100 && lat < 2 && rel.y < 1 && rel.y > -3 * H && along < best) { best = along; next = e; nextFwd = fwd; gap = along; }
+          if (along > 4 && along < reach && lat < 2 && rel.y < 1 && rel.y > -3 * H && along < best) { best = along; next = e; nextFwd = fwd; gap = along; }
         }
       }
       if (next) segs.push({ type: 'gap', len: gap, P: P.clone(), Q: (nextFwd ? next.a : next.b).clone(), lift: dir.y / Math.hypot(dir.x, dir.z) });
@@ -1099,7 +1108,7 @@ function medalTimes(route, tr) {
   // Fitted to the autopilot's laps in the Street GT; faster cars beat these more easily.
   const pace = { turn: 18.7, bigturn: 37.5, ramp: 27.2, kicker: 40.5, longramp: 40.6, boost: 116.9, gap: 40.5, bankturn: 52.1, wallturn: 55.9, loop: 45.5, loopr: 45.5, mloop: 45.5, mloopr: 45.5, pillar: 22.4, chicane: 10, tunnel: 46.6, steep: 17.4, spinner: 20, piston: 18, bollards: 18, jumppad: 30, wall: 30 };
   let t = 1.2;
-  for (const g of route.segs) t += g.len / (pace[g.type] || 46.3);
+  for (const g of route.segs) t += g.type === 'gap' && g.len > 300 ? 7.5 : g.len / (pace[g.type] || 46.3); // a super boost's flight takes about 7 s
   const author = tr && tr.official && tr.author ? tr.author : t * 1000;
   return { author: Math.round(author), gold: Math.round(author * 1.08), silver: Math.round(author * 1.25), bronze: Math.round(author * 1.5) };
 }
@@ -2204,13 +2213,20 @@ class Car {
     if (this.padCool > 0) this.padCool -= dt;
     else if (contacts && this.wheels.some(w => w.contact && (w.surf === 'jump' || w.surf === 'super'))) {
       this.settleT = 0; // landing on a pad still fires it
-      if (this.wheels.some(w => w.contact && w.surf === 'super')) {
-        const fh = fwd.clone().setY(0).normalize(), a = 8 * Math.PI / 180, v = SUPER_SPEED;
+      // A pad launches you along its road (whichever way you're driving it), so
+      // you land in line with the road however the car is turned or sliding.
+      const surf = this.wheels.some(w => w.contact && w.surf === 'super') ? 'super' : 'jump';
+      const r = this.wheels.find(w => w.contact && w.surf === surf).tile.r * Math.PI / 2, fh = new V3(Math.sin(r), 0, Math.cos(r)); if (fh.dot(fwd) < 0) fh.negate();
+      if (surf === 'super') {
+        const a = 8 * Math.PI / 180, v = SUPER_SPEED;
         this.vel.copy(fh).multiplyScalar(v * Math.cos(a)).addScaledVector(UP, v * Math.sin(a)); this.padCool = 1.2; events.pad = 'super';
-      } else { const vn = this.vel.dot(this.n); if (vn < 21) this.vel.addScaledVector(this.n, 21 - vn);
-        // A pad also carries you forward at a pace that clears a wall just past it.
-        const fh = fwd.clone().setY(0).normalize(), vf = this.vel.dot(fh); if (vf > 0 && vf < 25) this.vel.addScaledVector(fh, 25 - vf);
-        this.padCool = 0.6; events.pad = 'jump'; }
+      } else {
+        // Up, and on at a set pace: every hop clears a wall just past the pad and
+        // lands within about two and a half tiles, however fast you hit it.
+        const vf = this.vel.dot(fh); if (vf > 0) this.vel.copy(fh).multiplyScalar(clamp(vf, 25, 32));
+        const vn = this.vel.dot(this.n); if (vn < 21) this.vel.addScaledVector(this.n, 21 - vn);
+        this.padCool = 0.6; events.pad = 'jump';
+      }
     }
     // Past any normal top speed the air slows the car quickly (after a super
     // boost's first quarter second at full speed).
@@ -2466,7 +2482,7 @@ class Car {
       wh.cp.set(p.x(), p.y(), p.z()); wh.n.set(n.x(), n.y(), n.z());
       if (wh.n.dot(up) < 0.3) wh.n.copy(up); // ignore a glancing hit on an edge
       const s = surfaceAt(tiles, probe.copy(wh.cp).addScaledVector(wh.n, 0.3), 0.8, 0.8);
-      wh.surf = s ? s.surf : 'grass'; wh.type = s ? s.type : null;
+      wh.surf = s ? s.surf : 'grass'; wh.type = s ? s.type : null; wh.tile = s ? s.tile : null;
       if (wh.type === 'kicker') this.fromKicker = true; else if (wh.type) this.fromKicker = false;
       const wf = fwd.clone(); if (wh.front) wf.applyAxisAngle(up, this.steerAng);
       wf.addScaledVector(wh.n, -wf.dot(wh.n)).normalize(); wh.wf.copy(wf);
@@ -2894,8 +2910,13 @@ function demoInput(car, st) {
   const g = car.grounded && sp < vt ? 1 : 0;
   // Stuck against something: back out with the wheels turned the other way.
   st.stuck = car.grounded && sp < 2 ? (st.stuck || 0) + PHYS_DT : 0;
-  if (st.stuck > 1.2) st.backT = 1.1;
+  if (st.stuck > 1.2) { st.backT = 1.1; st.stuck = 0; } // then try forward again
   if (st.backT > 0) { st.backT -= PHYS_DT; return { steer: -steer, gas: 0, brake: 1, drift: false, done: false, lost: false }; }
+  // Making no headway (knocked back by a spinner on the same beat every try, say):
+  // hold back a moment so the next try comes at another point in its turn.
+  if (bi > (st.far ?? -1) || bi < st.far - 200) { st.far = bi; st.since = 0; } else st.since = (st.since || 0) + PHYS_DT;
+  if (st.since > 3) { st.since = 0; st.holdT = 0.8; }
+  if (st.holdT > 0) { st.holdT -= PHYS_DT; return { steer, gas: 0, brake: 1, drift: false, done: false, lost: false }; }
   return { steer, gas: g, brake: car.grounded && sp > vt + 3 ? 1 : 0, drift: false, done: bi >= pts.length - 3, lost: car.grounded && Math.sqrt(best) > 14 }; // high on a jump isn't lost
 }
 
@@ -3461,7 +3482,7 @@ function mpTrackOptions() {
   const o = (v, label) => `<option value="${v}">${escapeHtml(label)}</option>`;
   mp.commOpts = community.db ? communityTracks() : [];
   let html = `<optgroup label="Daily &amp; random">${o('d', dailyTrack().name)}${o('r', 'Random track')}</optgroup>`;
-  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
+  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
   if (mp.commOpts.length) html += `<optgroup label="Community">${mp.commOpts.map((t, i) => o('p:' + i, t.name)).join('')}</optgroup>`;
   return html;
 }
@@ -3852,7 +3873,7 @@ function trackCard(tr, ref, actions) {
   </div>`;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Yours'];
+const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
 function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
