@@ -74,7 +74,7 @@
   .track-card .actions button { font-size: 11px; padding: 3px 7px; border-radius: 3px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; }
   .track-card .actions button:hover { color: var(--text); border-color: var(--text); }
   .diff { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.circuit { color: #ff5ad1; } .diff.marathon { color: #c9a2ff; } .diff.community { color: #62f0ff; }
+  .diff.easy { color: var(--go); } .diff.medium { color: var(--signal); } .diff.hard { color: var(--stop); } .diff.custom { color: var(--author); } .diff.sky { color: #9fd8ff; } .diff.stunt { color: #ff9a20; } .diff.circuit { color: #ff5ad1; } .diff.marathon { color: #c9a2ff; } .diff.extreme { color: #ff4d4d; } .diff.community { color: #62f0ff; }
   .track-card .by { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .track-card .rec { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-align: left; min-width: 0; }
   .track-card .rec .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -877,7 +877,35 @@ const OFFICIAL = [
   { id: 'o90', name: 'Meteor Shower', diff: 'Marathon', env: 'desert', author: 208200, seq: 'ST S2 B S3 B S3 B S5 PI S PI S2 PI PI S2 PI S2 BL S2 BL C S2 SP S2 SP S SP S2 SP S2 B S2 B S2 SB S G112 PZ12 C S5 J WA S3 J WA S3 J WA S2 BR S2 BR C S BO S X S P S BO S2 X S P S BO S B S2 SB S G112 PZ12 C S4 J WA S J WA S J WA S2 BL S2 BL C T2 PI T2 S X T3 SP S T2 S2 PI S SP S2 PI S SP S2 BO S2 B S3 B S3 B S3 BR S2 BR C B B S OL S2 PI S2 B B S OR S2 B S2 SB S G112 PZ12 C S2 B S K G S3 B S K G2 S3 B S K G S3 BL S2 BL C S2 SP S2 SP S SP S2 SP S2 B S4 PI S PI S2 PI PI S2 PI S2 BR S2 BR C S2 J WA S J WA S J WA S J WA S2 B S3 B S3 B S5 F' },
   { id: 'o91', name: 'Starfall Relay', diff: 'Marathon', env: 'winter', author: 205000, seq: 'ST S2 B S3 B S3 B S5 SP S2 SP S SP S2 SP S2 B S2 U S QL S2 QL S D C S2 PI S PI S2 PI PI S2 PI S2 B S2 SB S G112 PZ12 C S2 B S2 SB S G112 PZ12 C S5 J WA S3 J WA S3 J WA S2 U S QR S2 QR S D C S2 J WA S J WA S J WA S2 B S2 SB S G112 PZ12 C S2 B S2 SB S G112 PZ12 C S3 BO S X S P S BO S2 X S P S BO S U S QL S2 QL S D C T2 PI T2 S X T3 SP S T2 S2 PI S SP S2 PI S SP S2 BO S2 U S QR S2 QR S D C B S K G S3 B S K G2 S3 B S K G S5 SP S2 SP S SP S2 SP S2 B S2 B S3 B S3 B S5 F' },
   { id: 'o92', name: 'Orbit Express', diff: 'Marathon', env: 'summer', author: 214400, seq: 'ST S2 B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QL S2 QL S D C B B S ML S3 SP S2 B B S MR S3 B S2 SB S G112 PZ12 C S4 PI S PI S2 PI PI S2 PI S2 U S QR S2 QR S D C S3 J WA S3 J WA S3 J WA S2 B S2 SB S G112 PZ12 C S4 SP S2 SP S SP S2 SP S2 B S2 U S QL S2 QL S D C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 U S QR S2 QR S D C B B S OL S2 PI S2 B B S OR S2 U S QL S2 QL S D C S2 PI S SP S2 PI S SP S2 BO S2 B S3 B S3 B S3 U S QR S2 QR S D C S2 J WA S J WA S J WA S J WA S4 F' },
-  { id: 'o93', name: 'Rocket Valley', diff: 'Marathon', env: 'desert', author: 207200, seq: 'ST S2 B S3 B S3 B S3 B S K G S3 B S K G2 S3 B S K G S3 BL S2 BL C S2 LU S2 J WA S2 LD S2 U S PI S D S2 B S2 SB S G112 PZ12 C S4 SP S2 SP S SP S2 SP S2 B S2 BR S2 BR C S2 PI S PI S2 PI PI S2 PI S2 B S2 SB S G112 PZ12 C S5 J WA S3 J WA S3 J WA S2 BL S2 BL C S BO S X S P S BO S2 X S P S BO S3 J WA S J WA S J WA S2 BR S2 BR C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 BL S2 BL C B B S OL S2 PI S2 B B S OR S2 B S2 SB S G112 PZ12 C S2 T2 PI T2 S X T3 SP S T2 BR S2 BR C S2 PI S SP S2 PI S SP S2 BO S2 B S3 B S3 B S5 F' }
+  { id: 'o93', name: 'Rocket Valley', diff: 'Marathon', env: 'desert', author: 207200, seq: 'ST S2 B S3 B S3 B S3 B S K G S3 B S K G2 S3 B S K G S3 BL S2 BL C S2 LU S2 J WA S2 LD S2 U S PI S D S2 B S2 SB S G112 PZ12 C S4 SP S2 SP S SP S2 SP S2 B S2 BR S2 BR C S2 PI S PI S2 PI PI S2 PI S2 B S2 SB S G112 PZ12 C S5 J WA S3 J WA S3 J WA S2 BL S2 BL C S BO S X S P S BO S2 X S P S BO S3 J WA S J WA S J WA S2 BR S2 BR C B S V V S2 SP S2 PI S2 J WA S2 BO S2 SP S2 VD VD S2 BL S2 BL C B B S OL S2 PI S2 B B S OR S2 B S2 SB S G112 PZ12 C S2 T2 PI T2 S X T3 SP S T2 BR S2 BR C S2 PI S SP S2 PI S SP S2 BO S2 B S3 B S3 B S5 F' },
+  // Extreme: short and brutal. Boost jumps (kickers, steep launches onto raised
+  // road and drops back down), jumps straight into corners, loops, wall rides,
+  // hairpins, spinners and presses, and a super boost leap or two that lands you
+  // right before a corner.
+  { id: 'o94', name: 'Breakneck', diff: 'Extreme', env: 'summer', author: 98000, seq: 'ST S2 B2 S2 V G2 S3 G Z Z S4 SP PI S B S OL S3 C B S K G S3 U S QL S D B S K G S2 K G S2 C S SP S B S OR S3 B2 S2 V G2 S3 VD S2 C B2 S MR S4 BR S3 J WA S2 B S2 SB S G112 PZ12 C S L S2 SP PI S2 R R S2 C S L S2 BR S BO S X S C BO S X S B S K G S L S3 PI S C B S K G S5 F' },
+  { id: 'o95', name: 'Razor Edge', diff: 'Extreme', env: 'desert', author: 102300, seq: 'ST S2 B2 S MR S3 B2 S2 V G2 S3 R S2 VD S2 B2 S2 V G2 S3 G Z Z S3 C S PI S BO S X S B S2 SB S G112 PZ12 C S BR S SP PI S B S K G S3 C S BR S2 L L S2 B S K G2 S3 C S R L S B S K G S R S2 B S OL S3 C S PI S LU S LU S2 WL S2 LD S LD S L R S C B2 S2 V G2 S3 R S2 VD S2 B S OL S3 B2 S2 V G2 S3 VD S4 F' },
+  { id: 'o96', name: 'Free Fall', diff: 'Extreme', env: 'winter', author: 106300, seq: 'ST S2 B2 S MR S3 B2 S2 V G2 S3 L S2 VD S2 B S K G S R S2 C B2 S ML S3 B2 S2 V G2 S3 L S2 VD S2 B S OL S3 C S R L S3 J WA S2 B S K G S L S2 B S2 SB S G112 PZ12 C S R S B S K G S2 K G S2 B3 S2 V2 G2 Z S4 VD S2 D S2 C S R L S B S K G S L S3 R L S C S2 J WA S2 B S OR S4 R L S C BO S X S3 F' },
+  { id: 'o97', name: 'Bone Shaker', diff: 'Extreme', env: 'summer', author: 107700, seq: 'ST S2 LU S LU S2 WR S2 LD S LD S R R S2 B S K G S L S2 C B S OL S3 LU S LU S2 WL S2 LD S LD LU S LU S2 WL S2 LD S LD B S2 SB S G112 PZ12 C S R S B S K G S R S3 L R S C S BL S X S P S L R S C B S K G S3 B S K G S5 J WA S2 C B2 S2 V G2 S3 G Z Z S3 B2 S2 V G2 S3 R S2 VD S2 B S OL S3 C B2 S2 V G2 S3 L S2 VD S3 BR S3 F' },
+  { id: 'o98', name: 'Nosedive', diff: 'Extreme', env: 'desert', author: 109800, seq: 'ST S2 B S OL S3 LU S LU S2 WR S2 LD S LD B2 S2 V G2 S3 R S2 VD S2 C B S K G S3 B S OR S3 B S K G S R S2 B S2 SB S G112 PZ12 C S L S2 BR S2 SP S C S L S2 SP S B2 S MR S3 C S PI S B2 S ML S4 SP PI S C B S K G S2 K G S2 B2 S MR S4 SP PI S C B2 S2 V G2 S3 L S2 VD S2 B S K G S R S4 F' },
+  { id: 'o99', name: 'Tightrope', diff: 'Extreme', env: 'winter', author: 109900, seq: 'ST S2 B S K G S R S3 BL S U S QL S D C B3 S2 V2 G2 Z S4 VD S2 D S2 B S K G S3 B2 S2 V G2 S3 VD S2 C LU S LU S2 WL S2 LD S LD B S2 SB S G112 PZ12 C S R S B S K G2 S3 B2 S2 V G2 S3 G Z Z S3 C B S K G S2 K G S2 B2 S MR S4 R S C B S OL S4 L L S4 J WA S2 C S R R S3 PI S B2 S2 V G2 S3 VD S2 C S L L S2 B S K G S2 K G S4 F' },
+  { id: 'o100', name: 'Catapult', diff: 'Extreme', env: 'summer', author: 110200, seq: 'ST S3 BL S2 R R S3 PI S C B S K G S2 K G S2 B2 S ML S3 B S2 SB S G112 PZ12 C S BR U S QL S D B2 S2 V G2 S3 R S2 VD S2 C B2 S2 V G2 S3 G Z Z S3 B S K G2 S3 B2 S2 V G2 S3 R S2 VD S2 C B S K G S2 K G S2 B S OL S4 SP PI S C S R L S LU S LU S2 WR S2 LD S LD S2 J WA S2 C S L L S2 B3 S2 V2 G2 Z S4 VD S2 D S2 B S K G S2 K G S4 F' },
+  { id: 'o101', name: 'Slingshot', diff: 'Extreme', env: 'desert', author: 110500, seq: 'ST S2 B2 S2 V G2 S3 R S2 VD S2 B2 S2 V G2 S3 R S2 VD S2 BO S X S B S2 SB S G112 PZ12 C S BR X S P B S K G S3 C S L S B2 S ML S3 B S2 SB S G112 PZ12 C S BR BO S X S B S K G S R S2 C S SP PI S2 L S B2 S2 V G2 S3 VD S2 C S L R S2 SP PI S B S K G S2 K G S2 C S SP S2 R L S3 F' },
+  { id: 'o102', name: 'Black Ice', diff: 'Extreme', env: 'winter', author: 114100, seq: 'ST S2 B2 S2 V G2 S3 VD S2 B2 S2 V G2 S3 L S2 VD S2 B2 S2 V G2 S3 R S2 VD S2 C S2 J WA S3 R S B3 S2 V2 G2 Z S4 VD S2 D S2 C B S OL S4 SP S2 L R S C U S QL S D U S QR S D U S QL S D C S SP S B S K G S2 K G S3 R L S B S2 SB S G112 PZ12 C S R S2 R L S B S K G S L S2 C S R L S B S K G2 S3 BO S X S3 F' },
+  { id: 'o103', name: 'Sidewinder', diff: 'Extreme', env: 'summer', author: 118400, seq: 'ST S2 BO S X S2 L L S3 SP PI S C B S K G S L S2 B S K G S2 K G S2 B S2 SB S G112 PZ12 C S BR S PI S B S2 SB S G112 PZ12 C S BR S BR S B S OL S3 C S2 J WA S2 B2 S ML S4 L S C B2 S ML S4 L R S2 BR S C B2 S2 V G2 S3 L S2 VD S2 LU S LU S2 WR S2 LD S LD U S QL S D C S2 J WA S2 B S OR S5 J WA S2 C S L S3 F' },
+  { id: 'o104', name: 'Rattlesnake', diff: 'Extreme', env: 'desert', author: 119800, seq: 'ST S2 B2 S2 V G2 S3 G Z Z S4 SP S LU S LU S2 WR S2 LD S LD C S BL S B S OL S3 B2 S2 V G2 S3 G Z Z S3 B S2 SB S G112 PZ12 C S R S X S P LU S LU S2 WR S2 LD S LD C B2 S2 V G2 S3 VD S2 BO S X S B S2 SB S G112 PZ12 C S R S B3 S2 V2 G2 Z S4 VD S2 D S3 BL S C B S K G S L S2 B S K G2 S5 J WA S2 C S R L S2 L R S2 L L S2 C B S K G S5 F' },
+  { id: 'o105', name: 'Maelstrom', diff: 'Extreme', env: 'winter', author: 122000, seq: 'ST S4 J WA S2 B2 S2 V G2 S3 VD S3 SP S C S L L S2 B S K G S2 K G S2 B2 S2 V G2 S3 R S2 VD S2 C B2 S2 V G2 S3 R S2 VD S3 L L S2 B S2 SB S G112 PZ12 C S L S LU S LU S2 WR S2 LD S LD B2 S2 V G2 S3 VD S2 C B2 S ML S3 B2 S MR S4 PI S C S R S B2 S ML S3 B S K G S3 C B2 S2 V G2 S3 R S2 VD S2 B S K G2 S3 B S OR S3 C S R L S2 L S3 F' },
+  { id: 'o106', name: 'Avalanche', diff: 'Extreme', env: 'summer', author: 122100, seq: 'ST S2 B2 S ML S4 BR S2 BL S C B2 S2 V G2 S3 G Z Z S3 B S2 SB S G112 PZ12 C S L S B2 S2 V G2 S3 VD S2 B2 S2 V G2 S3 R S2 VD S2 C S2 J WA S2 B S K G S2 K G S2 B3 S2 V2 G2 Z S4 VD S2 D S2 C B2 S2 V G2 S3 R S2 VD S2 B2 S2 V G2 S3 VD S2 LU S LU S2 WL S2 LD S LD C LU S LU S2 WR S2 LD S LD S L R S B S K G S2 K G S2 C B2 S2 V G2 S3 G Z Z S3 BO S X S B S OR S3 C X S P S2 F' },
+  { id: 'o107', name: 'Thunderclap', diff: 'Extreme', env: 'desert', author: 122400, seq: 'ST S2 B2 S2 V G2 S3 VD S2 B S K G2 S4 L L S2 B S2 SB S G112 PZ12 C S R S B S K G S3 B2 S2 V G2 S3 L S2 VD S2 C S L L S3 SP S B3 S2 V2 G2 Z S4 VD S2 D S2 C S L L S3 R S B2 S2 V G2 S3 R S2 VD S2 C S L S3 J WA S3 R S B S2 SB S G112 PZ12 C S BR B S K G S R S2 LU S LU S2 WL S2 LD S LD C B2 S2 V G2 S3 G Z Z S3 X S P B2 S2 V G2 S3 G Z Z S5 F' },
+  { id: 'o108', name: 'Hammerhead', diff: 'Extreme', env: 'winter', author: 122700, seq: 'ST S2 B S OL S3 LU S LU S2 WL S2 LD S LD BO S X S C B2 S2 V G2 S3 R S2 VD S3 SP PI S B2 S ML S3 C B S K G2 S3 BO S X S B2 S2 V G2 S3 VD S2 C S SP S2 L L S4 J WA S2 C LU S LU S2 WR S2 LD S LD B S2 SB S G112 PZ12 C S BR S L R S BO S X S C S BR S2 R L S LU S LU S2 WL S2 LD S LD C B2 S2 V G2 S3 R S2 VD S2 B S K G S3 B2 S ML S5 F' },
+  { id: 'o109', name: 'Overdrive', diff: 'Extreme', env: 'summer', author: 122800, seq: 'ST S2 B2 S MR S4 SP PI S X S P C B S K G S L S2 B S OR S3 U S QR S D C S PI S B S K G S2 K G S2 B S K G S R S2 C S SP S3 J WA S2 B S K G2 S3 C BO S X S B S K G S L S2 B2 S2 V G2 S3 L S2 VD S2 C S2 J WA S2 B3 S2 V2 G2 Z S4 VD S2 D S2 B S2 SB S G112 PZ12 C S BR S2 J WA S2 B S2 SB S G112 PZ12 C S BL S SP S2 L R S C X S P S2 F' },
+  { id: 'o110', name: 'Redline', diff: 'Extreme', env: 'desert', author: 123900, seq: 'ST S2 B2 S MR S4 R L S B S K G S R S2 C B3 S2 V2 G2 Z S4 VD S2 D S2 BO S X S B S2 SB S G112 PZ12 C S BR B3 S2 V2 G2 Z S4 VD S2 D S4 J WA S2 C B S K G S2 K G S2 B S OL S3 X S P C S R S B S OL S4 PI S C B S K G S L S2 B2 S2 V G2 S3 R S2 VD S2 B2 S2 V G2 S3 L S2 VD S2 C S R S B S K G2 S3 B2 S2 V G2 S3 L S2 VD S2 C B2 S2 V G2 S3 G Z Z S3 U S QR S D S2 F' },
+  { id: 'o111', name: 'Tailspin', diff: 'Extreme', env: 'winter', author: 124400, seq: 'ST S3 R L S3 J WA S3 BL S C B S K G S L S2 B S2 SB S G112 PZ12 C S L S2 BR S B S2 SB S G112 PZ12 C S R S B S K G S3 B2 S2 V G2 S3 VD S2 C BO S X S B S K G S R S3 L L S2 C S SP PI S2 L R S B S K G S2 K G S2 C B S OR S3 B2 S MR S4 SP PI S C B2 S ML S3 B S K G S L S2 B2 S2 V G2 S3 R S2 VD S2 C S R R S4 F' },
+  { id: 'o112', name: 'Supernova', diff: 'Extreme', env: 'summer', author: 124500, seq: 'ST S3 SP PI S2 BL S2 R S C S R S B S OL S4 PI S C B2 S2 V G2 S3 R S2 VD S2 B2 S ML S3 B2 S2 V G2 S3 R S2 VD S2 C B S K G2 S3 BO S X S B S K G S R S2 C B S K G S L S2 B S2 SB S G112 PZ12 C S R S U S QL S D S L S B S2 SB S G112 PZ12 C S BR S SP PI S B S K G S R S2 C B S K G S R S3 PI S B2 S2 V G2 S3 G Z Z S5 F' },
+  { id: 'o113', name: 'Sky Splitter', diff: 'Extreme', env: 'desert', author: 126800, seq: 'ST S2 B S K G S2 K G S2 B2 S2 V G2 S3 VD S2 B2 S2 V G2 S3 G Z Z S3 C B2 S2 V G2 S3 R S2 VD S2 B S2 SB S G112 PZ12 C S BL B2 S2 V G2 S3 R S2 VD S2 B S K G S R S2 C S BR S2 L L S2 B2 S2 V G2 S3 R S2 VD S2 C U S QR S D B S OL S3 B S K G2 S3 C S SP PI S LU S LU S2 WR S2 LD S LD B S OR S3 C B S K G S L S2 B S K G S R S2 B S OR S3 C BO S X S2 BL S2 R R S2 C B S OR S5 F' },
+  { id: 'o114', name: 'Firestorm', diff: 'Extreme', env: 'winter', author: 127300, seq: 'ST S2 B S K G S3 B2 S2 V G2 S3 L S2 VD S3 L R S C S2 J WA S2 LU S LU S2 WR S2 LD S LD B S2 SB S G112 PZ12 C S L S2 BR S LU S LU S2 WL S2 LD S LD C S R L S B S K G2 S3 LU S LU S2 WL S2 LD S LD C S L L S2 B S K G S R S2 B S K G S3 C B S OL S4 R S B S OR S3 C X S P S PI S B S2 SB S G112 PZ12 C S L S B2 S2 V G2 S3 G Z Z S3 B2 S ML S3 C B2 S2 V G2 S3 G Z Z S5 F' },
+  { id: 'o115', name: 'Widowmaker', diff: 'Extreme', env: 'summer', author: 132700, seq: 'ST S3 L S2 BL S LU S LU S2 WL S2 LD S LD C B S OL S5 J WA S2 B2 S2 V G2 S3 R S2 VD S2 C B S K G S L S2 B S K G S R S3 L R S C S PI S B2 S2 V G2 S3 L S2 VD S2 B2 S2 V G2 S3 R S2 VD S2 B S2 SB S G112 PZ12 C S R S2 BL S B S2 SB S G112 PZ12 C S BL B3 S2 V2 G2 Z S4 VD S2 D S3 BL S C S R R S2 B2 S2 V G2 S3 L S2 VD S2 B S K G S R S2 C S R L S2 BR S B2 S2 V G2 S3 L S2 VD S4 F' },
+  { id: 'o116', name: 'Gravity Well', diff: 'Extreme', env: 'desert', author: 135300, seq: 'ST S2 B S OR S3 LU S LU S2 WR S2 LD S LD B S K G S2 K G S2 C S SP PI S B2 S2 V G2 S3 R S2 VD S2 B3 S2 V2 G2 Z S4 VD S2 D S2 C B2 S2 V G2 S3 VD S2 B2 S2 V G2 S3 G Z Z S3 B S2 SB S G112 PZ12 C S BL S SP PI S B2 S MR S3 C LU S LU S2 WL S2 LD S LD B S K G S2 K G S2 B2 S2 V G2 S3 VD S2 C S SP PI S2 L R S B S OR S3 C S R R S2 LU S LU S2 WL S2 LD S LD B2 S2 V G2 S3 VD S2 C S R R S4 F' },
+  { id: 'o117', name: 'Last Gasp', diff: 'Extreme', env: 'winter', author: 137500, seq: 'ST S2 B2 S2 V G2 S3 L S2 VD S2 LU S LU S2 WR S2 LD S LD LU S LU S2 WL S2 LD S LD B S2 SB S G112 PZ12 C S R S B2 S ML S4 R L S C B2 S ML S5 J WA S2 U S QL S D C B2 S2 V G2 S3 R S2 VD S3 BL S LU S LU S2 WR S2 LD S LD C X S P B S K G S R S3 SP S C U S QL S D X S P B S K G S L S2 C S SP PI S B2 S2 V G2 S3 R S2 VD S2 B S OR S3 C B3 S2 V2 G2 Z S4 VD S2 D S2 B S K G S5 F' }
 ].map(t => ({ ...t, tiles: turtle(t.seq), official: true }));
 
 // ============================================================================
@@ -886,14 +914,16 @@ const OFFICIAL = [
 // buildings to jump between and parks full of ramps. No clock and no finish.
 // ============================================================================
 function cityTiles() {
-  const cells = new Map(), out = new Set();
+  const cells = new Map(), out = new Set(), clashes = [];
   const put = (type, x, z, l = 0, r = 0, extra) => {
     const t = { type, x, z, l, r, ...extra };
-    for (const [fx, fz] of footprint(t)) { const o = cells.get(fx + ',' + fz); if (o) { out.delete(o); for (const [ox, oz] of footprint(o)) cells.delete(ox + ',' + oz); } }
+    for (const [fx, fz] of footprint(t)) { const o = cells.get(fx + ',' + fz); if (o) { if (o.type !== 'plaza') clashes.push(`${type} over ${o.type} at ${fx},${fz}`); out.delete(o); for (const [ox, oz] of footprint(o)) cells.delete(ox + ',' + oz); } }
     for (const [fx, fz] of footprint(t)) cells.set(fx + ',' + fz, t);
     out.add(t);
   };
   const rect = (x0, z0, x1, z1, l = 0) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) put('plaza', x, z, l); };
+  // A turtle sequence laid from (x0, z0) facing h (0 south, 1 east, 2 north, 3 west).
+  const lay = (seq, x0, z0, h, extra) => { for (const t of turtle(seq)) { const [dx, dz] = rotXZ(t.x, t.z, h); put(t.type, x0 + Math.round(dx), z0 + Math.round(dz), t.l, (t.r + h) % 4, extra && extra(t)); } };
   rect(-26, 0, 31, 31); // the city floor (the Obstacle District is the west end)
   // Rooftop Run (north): boosts and two steep ramps up onto a 20 m roof, then
   // jumps from roof to roof across the alleys, each roof a storey lower.
@@ -919,15 +949,33 @@ function cityTiles() {
   rect(12, 24, 17, 28, 4);
   // The skyline: tall buildings round the edge.
   rect(0, 29, 2, 31, 7); rect(27, 0, 31, 2, 8); rect(29, 27, 31, 31, 6); rect(23, 28, 26, 31, 5);
-  // Super boost runways at the south and east edges: they fire you out of town.
-  for (const [x, z, r] of [[20, 28, 0], [28, 22, 1]]) { const [dx, dz] = DIRS[r]; put('straight', x, z, 0, r); put('straight', x + dx, z + dz, 0, r); put('superboost', x + 2 * dx, z + 2 * dz, 0, r); put('straight', x + 3 * dx, z + 3 * dz, 0, r); }
   // The timed courses (see CITY_COURSES), with open ground around to drive back up.
   rect(-32, -50, 33, -1); // the Course Park's floor, north of town
-  for (const [id, name, seq, x0, z0, h] of CITY_COURSES) for (const t of turtle(seq)) {
-    const [x, z] = h ? [x0 - t.x, z0 - t.z] : [x0 + t.x, z0 + t.z];
-    put(t.type, x, z, t.l, (t.r + h) % 4, t.type === 'cgate' || t.type === 'cgoal' ? { course: id, cname: name } : null);
-  }
+  for (const [id, name, seq, x0, z0, h] of CITY_COURSES) lay(seq, x0, z0, h, t => t.type === 'cgate' || t.type === 'cgoal' ? { course: id, cname: name } : null);
+  // Jump Park (east): big jumps and ramps. The lane along z = 20..24 stays low,
+  // since the east runway's flight passes over it.
+  rect(32, -50, 60, 31);
+  lay('B3 S V V V G4 VD VD VD S3', 56, -49, 0); // the mega ramp: 30 m up, a gap, and a ramp back down
+  lay('B2 S V G3 VD S2 B2 S V G3 VD S2', 35, -44, 1); // ramp to ramp, twice
+  lay('B S K G S2 K G S2 K G2 S3 K G S2', 55, -31, 3); // a line of kickers
+  lay('B S J S2 J S2 J S2 J S2 J S2', 38, -25, 0); // a bounce line of jump pads
+  lay('B2 S OL S2 B2 S OR S2 B2 S ML S3', 52, -2, 2); // two loops and a massive loop
+  lay('B2 S K G2 S3 B2 S K G2 S3', 35, 5, 1); // big boost kickers
+  lay('B2 S V G2 S3 VD S2', 57, 17, 2); // a steep launch onto a raised road
+  // The pad tower: jump pads hop you from roof to roof up four storeys, and two
+  // steep ramps bring you back down.
+  put('jumppad', 45, -2, 0, 2);
+  for (let k = 0; k < 4; k++) { const z1 = -3 - 5 * k; rect(44, z1 - 4 - (k === 3 ? 1 : 0), 46, z1, k + 1); if (k < 3) put('jumppad', 45, z1 - 4, k + 1, 2); }
+  put('steep', 45, -24, 2, 0); put('steep', 45, -25, 0, 0);
+  // A mesa with steep ramps up every side.
+  rect(47, 9, 50, 13, 2);
+  for (let z = 9; z <= 13; z++) { put('steep', 46, z, 0, 1); put('steep', 51, z, 0, 3); }
+  for (let x = 47; x <= 50; x++) { put('steep', x, 8, 0, 0); put('steep', x, 14, 0, 2); }
+  // Super boost runways: out of town at the south, east, west and north edges,
+  // two in the Jump Park, and two that fire you right over the city.
+  for (const [x, z, h] of [[20, 28, 0], [28, 22, 1], [-29, -48, 3], [8, -47, 2], [57, -15, 1], [50, 28, 0], [37, 12, 3], [-1, 31, 2]]) lay('S2 SB S', x, z, h);
   put('start', 15, 22, 0, 2); // spawn, facing the park
+  if (clashes.length) console.warn('City pieces overlap:', clashes);
   // Pavement under everything narrower than a plaza, so the floor has no gaps.
   const paved = new Set([...out].filter(t => t.type === 'plaza' && !t.l).map(t => t.x + ',' + t.z));
   for (const t of [...out]) if (t.type !== 'plaza') for (const [x, z] of footprint(t)) if (!paved.has(x + ',' + z)) { paved.add(x + ',' + z); out.add({ type: 'pave', x, z, l: 0, r: 0 }); }
@@ -3496,7 +3544,7 @@ function mpTrackOptions() {
   const o = (v, label) => `<option value="${v}">${escapeHtml(label)}</option>`;
   mp.commOpts = community.db ? communityTracks() : [];
   let html = `<optgroup label="Daily &amp; random">${o('d', dailyTrack().name)}${o('r', 'Random track')}</optgroup>`;
-  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
+  for (const d of ['Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon', 'Extreme']) html += `<optgroup label="${d}">${OFFICIAL.filter(t => t.diff === d).map(t => o('o:' + t.id, t.name)).join('')}</optgroup>`;
   if (mp.commOpts.length) html += `<optgroup label="Community">${mp.commOpts.map((t, i) => o('p:' + i, t.name)).join('')}</optgroup>`;
   return html;
 }
@@ -3887,7 +3935,7 @@ function trackCard(tr, ref, actions) {
   </div>`;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon', 'Yours'];
+const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon', 'Extreme', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
 function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
