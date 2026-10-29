@@ -923,7 +923,7 @@ function cityTiles() {
   };
   const rect = (x0, z0, x1, z1, l = 0) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) put('plaza', x, z, l); };
   // A turtle sequence laid from (x0, z0) facing h (0 south, 1 east, 2 north, 3 west).
-  const lay = (seq, x0, z0, h, extra) => { for (const t of turtle(seq)) { const [dx, dz] = rotXZ(t.x, t.z, h); put(t.type, x0 + Math.round(dx), z0 + Math.round(dz), t.l, (t.r + h) % 4, extra && extra(t)); } };
+  const lay = (seq, x0, z0, h, extra, l0 = 0) => { for (const t of turtle(seq)) { const [dx, dz] = rotXZ(t.x, t.z, h); put(t.type, x0 + Math.round(dx), z0 + Math.round(dz), t.l + l0, (t.r + h) % 4, extra && extra(t)); } };
   rect(-26, 0, 31, 31); // the city floor (the Obstacle District is the west end)
   // Rooftop Run (north): boosts and two steep ramps up onto a 20 m roof, then
   // jumps from roof to roof across the alleys, each roof a storey lower.
@@ -971,9 +971,23 @@ function cityTiles() {
   rect(47, 9, 50, 13, 2);
   for (let z = 9; z <= 13; z++) { put('steep', 46, z, 0, 1); put('steep', 51, z, 0, 3); }
   for (let x = 47; x <= 50; x++) { put('steep', x, 8, 0, 0); put('steep', x, 14, 0, 2); }
-  // Super boost runways: out of town at the south, east, west and north edges,
-  // two in the Jump Park, and two that fire you right over the city.
-  for (const [x, z, h] of [[20, 28, 0], [28, 22, 1], [-29, -48, 3], [8, -47, 2], [57, -15, 1], [50, 28, 0], [37, 12, 3], [-1, 31, 2]]) lay('S2 SB S', x, z, h);
+  // Launch Fields (south): more big jumps. The lanes x = 19..21 and 49..51 stay
+  // low near town, since the south runways' flights pass over them.
+  rect(-32, 32, 60, 62);
+  lay('B3 S V V V S2 VD VD VD S2 B S V G4 VD S3', -30, 40, 1); // the ski jump: up 30 m, down, and off a launch ramp
+  lay('B3 S V2 G3 VD VD S2', 16, 50, 3); // over the buildings: a launch 20 m up, a row of buildings, and ramps down
+  rect(8, 49, 10, 51, 2);
+  // The rooftop pad run: up onto a roof 20 m high, then jump pads hop you down
+  // four roofs across the alleys, a storey lower each time.
+  lay('B2 S V V', -30, 55, 1);
+  for (let k = 0; k < 4; k++) { const x0 = -25 + 5 * k; rect(x0, 54, x0 + 3, 56, 4 - k); put('jumppad', x0 + 3, 55, 4 - k, 1); }
+  lay('B S K G S2 K G S2 K G S2 K G S2', 24, 34, 1); // a kicker field
+  lay('B S K G S2 K G S2 K G2 S3', 24, 37, 1);
+  lay('B3 S V2 G2', 58, 45, 3); rect(46, 44, 50, 46, 3); lay('VD D S2', 45, 45, 3, null, 3); // a launch onto a raised platform, and ramps down
+  // Super boost runways: out of town on every side, three in the Jump Park, five
+  // in the Launch Fields, and two that fire you right over the city.
+  for (const [x, z, h] of [[20, 28, 0], [28, 22, 1], [-29, -48, 3], [8, -47, 2], [57, -15, 1], [50, 28, 0], [37, 12, 3], [-1, 31, 2],
+    [-15, -47, 2], [24, -47, 2], [40, -47, 2], [57, 25, 1], [-20, 59, 0], [5, 59, 0], [35, 59, 0], [-29, 45, 3], [57, 52, 1]]) lay('S2 SB S', x, z, h);
   put('start', 15, 22, 0, 2); // spawn, facing the park
   if (clashes.length) console.warn('City pieces overlap:', clashes);
   // Pavement under everything narrower than a plaza, so the floor has no gaps.
@@ -1231,6 +1245,7 @@ const headlight = new THREE.SpotLight(0xfff1d0, 0, 90, 0.55, 0.5, 1.2);
 scene.add(headlight); scene.add(headlight.target);
 
 let skyTex = null;
+let themeFog = null;
 function applyTheme() {
   const th = THEMES[settings.theme] || THEMES.day; const env = ENVS[world.env] || ENVS.summer;
   const dim = settings.theme === 'night' ? 0.32 : settings.theme === 'sunset' ? 0.8 : 1;
@@ -1243,7 +1258,7 @@ function applyTheme() {
   if (skyTex) skyTex.dispose();
   skyTex = new THREE.CanvasTexture(c);
   scene.background = skyTex;
-  scene.fog = new THREE.Fog(fogCol, 160, 900);
+  themeFog = new THREE.Fog(fogCol, 160, 900); scene.fog = game.state === 'editor' ? null : themeFog; // the editor shows the whole track clearly
   hemi.color.set(th.hemiSky); hemi.groundColor.set(th.hemiGround); hemi.intensity = th.hemiI;
   sun.color.set(th.sun); sun.intensity = th.sunI;
   headlight.intensity = th.night ? 2.2 : 0;
@@ -1555,7 +1570,7 @@ function buildScenery(tiles) {
       b.position.set(j * 8 - 12, rand() * 4, (rand() - 0.5) * 8); cl.add(b);
     }
     cl.position.set(cx + (rand() - 0.5) * 900, 90 + rand() * 60, cz + (rand() - 0.5) * 900);
-    cl.userData.drift = 1 + rand() * 2;
+    cl.userData.drift = 1 + rand() * 2; cl.visible = game.state !== 'editor';
     scenery.add(cl);
   }
 }
@@ -2006,10 +2021,16 @@ function buildTrackPhysics(tiles, landings) {
     phys.v2.setValue(x0, GROUND_Y, z1); meshes.ground.addTriangle(phys.v1, phys.v3, phys.v2, false); count.ground += 2;
   };
   const m = 12, gx0 = (minX - m - 0.5) * S, gx1 = (maxX + m + 0.5) * S, gz0 = (minZ - m - 0.5) * S, gz1 = (maxZ + m + 0.5) * S, far = 4000;
-  if (!holes.size) quad(gx0, gz0, gx1, gz1);
+  // Big flat stretches go in as squares of 400 m at most: Bullet loses precision
+  // on triangles kilometres across, and a small car can sink through one.
+  const area = (x0, z0, x1, z1) => {
+    const nx = Math.ceil((x1 - x0) / 400), nz = Math.ceil((z1 - z0) / 400);
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) quad(x0 + (x1 - x0) * i / nx, z0 + (z1 - z0) * j / nz, x0 + (x1 - x0) * (i + 1) / nx, z0 + (z1 - z0) * (j + 1) / nz);
+  };
+  if (!holes.size) area(gx0, gz0, gx1, gz1);
   else for (let x = minX - m; x <= maxX + m; x++) for (let z = minZ - m; z <= maxZ + m; z++) if (!holes.has(x + ',' + z)) quad((x - 0.5) * S, (z - 0.5) * S, (x + 0.5) * S, (z + 0.5) * S);
   const fx0 = gx0 - far, fx1 = gx1 + far, fz0 = gz0 - far, fz1 = gz1 + far; // plus a wide margin all round
-  quad(fx0, fz0, fx1, gz0); quad(fx0, gz1, fx1, fz1); quad(fx0, gz0, gx0, gz1); quad(gx1, gz0, fx1, gz1);
+  area(fx0, fz0, fx1, gz0); area(fx0, gz1, fx1, fz1); area(fx0, gz0, gx0, gz1); area(gx1, gz0, fx1, gz1);
   // Collision comes straight from each piece's centre-line frames: the drivable
   // top surface (and a tunnel's roof). No end caps or undersides, so wheels never
   // catch a seam between two pieces.
@@ -3073,6 +3094,10 @@ function setState(s) {
   $('modal').hidden = true;
   editor.cursor.visible = s === 'editor';
   editor.grid.visible = s === 'editor';
+  // The editor has no fog or clouds, so the whole track is clear when you zoom out.
+  scene.fog = s === 'editor' ? null : themeFog;
+  if (s !== 'editor' && (camera.near !== 0.1 || camera.far !== 2500)) { camera.near = 0.1; camera.far = 2500; camera.updateProjectionMatrix(); }
+  for (const o of scenery.children) if (o.userData.drift) o.visible = s !== 'editor';
   game.car.mesh.visible = s !== 'editor';
   if (s !== 'race') { game.ghost.visible = false; for (const r of game.rivals) r.mesh.visible = r.tag.visible = false; }
   $('online').hidden = s !== 'online'; mpInvite();
@@ -4199,7 +4224,7 @@ function openEditor(tr) {
   if (!editor.tiles.length) editor.tiles.push({ type: 'start', x: 0, z: 0, l: 0, r: 0 });
   const xs = editor.tiles.map(t => t.x), zs = editor.tiles.map(t => t.z);
   editor.target.set((Math.min(...xs) + Math.max(...xs)) / 2 * S, 0, (Math.min(...zs) + Math.max(...zs)) / 2 * S);
-  editor.dist = clamp(Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) * S * 1.1 + 80, 80, 700);
+  editor.dist = clamp(Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) * S * 1.1 + 80, 80, 4000);
   world.track = null; world.group.clear(); world.cells.clear();
   setState('editor'); rebuildEditor(); renderPalette();
 }
@@ -4313,7 +4338,10 @@ function editorCamera(dt) {
   camera.up.set(0, 1, 0);
   camera.position.set(editor.target.x + Math.sin(editor.yaw) * cp * editor.dist, editor.target.y + spn * editor.dist, editor.target.z + Math.cos(editor.yaw) * cp * editor.dist);
   camera.lookAt(editor.target);
-  if (Math.abs(camera.fov - 55) > 0.1) { camera.fov = 55; camera.updateProjectionMatrix(); }
+  // Zoomed far out, the view reaches further and the near plane moves out with it
+  // (so the road doesn't flicker against the ground).
+  const near = Math.max(0.1, editor.dist / 200), far = Math.max(2500, editor.dist * 5);
+  if (Math.abs(camera.fov - 55) > 0.1 || camera.near !== near || camera.far !== far) { camera.fov = 55; camera.near = near; camera.far = far; camera.updateProjectionMatrix(); }
   editor.grid.position.y = editor.level * H + 0.03;
   placeSun(editor.target);
 }
@@ -4355,7 +4383,7 @@ canvas.addEventListener('pointermove', e => {
   if (edPointers.has(e.pointerId)) edPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (game.state === 'editor' && editor.pinch && edPointers.size >= 2) {
     const p = pinchOf();
-    editor.dist = clamp(editor.dist * editor.pinch.d / Math.max(10, p.d), 40, 900);
+    editor.dist = clamp(editor.dist * editor.pinch.d / Math.max(10, p.d), 40, 4000);
     panEditor(p.x - editor.pinch.x, p.y - editor.pinch.y);
     editor.pinch = p; return;
   }
@@ -4389,7 +4417,7 @@ canvas.addEventListener('pointerup', e => {
 });
 canvas.addEventListener('pointercancel', e => { edPointers.delete(e.pointerId); if (edPointers.size < 2) editor.pinch = null; editor.drag = null; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('wheel', e => { if (game.state !== 'editor') return; e.preventDefault(); editor.dist = clamp(editor.dist * Math.exp(e.deltaY * 0.0012), 40, 900); }, { passive: false });
+canvas.addEventListener('wheel', e => { if (game.state !== 'editor') return; e.preventDefault(); editor.dist = clamp(editor.dist * Math.exp(e.deltaY * 0.0012), 40, 4000); }, { passive: false });
 
 // ============================================================================
 // Keyboard
@@ -4587,6 +4615,7 @@ function frame(now) {
     editorCamera(dt); editorHover(); updateAudio(car, false, 0);
   }
   ground.position.x = camera.position.x; ground.position.z = camera.position.z; // the ground goes wherever you do (super boosts go a long way)
+  const gs = st === 'editor' ? Math.max(1, camera.far / 2500) : 1; if (ground.scale.x !== gs) ground.scale.set(gs, gs, 1); // and reaches the horizon when the editor is zoomed out
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
