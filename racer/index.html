@@ -3321,18 +3321,18 @@ let profileReady = Promise.resolve();
 function watchPlayers(db) {
   db.collection('players').onSnapshot(snap => {
     const m = new Map();
-    for (const d of snap.docs) { const n = d.exists && cleanText((d.data() || {}).nick || '', NICK_MAX); if (n) m.set(d.id, n); }
+    for (const d of snap.docs) { const data = (d.exists && d.data()) || {}, n = cleanText(data.nick || '', NICK_MAX); if (n) m.set(d.id, { n, cr: data.cr }); }
     players.nicks = m; players.on = true;
     syncNick(); refreshTimes(); refreshCommunity();
     mp.chatVer++; if (game.state === 'online') mpRender();
   }, () => {});
 }
-function nickOf(uid) { return (uid && players.nicks.get(uid)) || ''; }
+function nickOf(uid) { const e = uid && players.nicks.get(uid); return e ? fairNick(e.n, uid, e.cr) : ''; }
 function syncNick() {
-  const nick = settings.nick;
-  if (!players.on || !community.me || community.canWrite === false || players.failed || players.writing || !nick || nickOf(community.me) === nick || players.sent === nick) return;
+  const nick = settings.nick, mine = players.nicks.get(community.me);
+  if (!players.on || !community.me || community.canWrite === false || players.failed || players.writing || !nick || (mine && mine.n === nick) || players.sent === nick) return;
   players.writing = true;
-  community.db.doc('players/' + community.me).set({ nick, updated: Date.now() })
+  community.db.doc('players/' + community.me).set({ nick, updated: Date.now(), ...(creator.sig ? { cr: creator.sig } : {}) })
     .then(() => { players.sent = nick; }, () => { players.failed = true; })
     .finally(() => { players.writing = false; syncNick(); });
 }
@@ -3347,7 +3347,8 @@ function askName(first) {
     <div class="row"><button class="btn primary" id="m-nick-ok">${first ? 'Let’s race' : 'Save'}</button>${first ? '' : '<button class="btn" id="m-nick-cancel">Cancel</button>'}</div>`, { locked: first });
   const input = $('m-nick'); input.value = settings.nick || '';
   const ok = () => {
-    const n = cleanText(input.value, NICK_MAX); if (!n) { $('m-nick-err').hidden = false; input.focus(); return; }
+    const n = cleanText(input.value, NICK_MAX), err = !n ? 'Pick a name to race with.' : !nameAllowed(n) ? 'Names with “Rauf” in them are taken. Pick another.' : '';
+    if (err) { $('m-nick-err').textContent = err; $('m-nick-err').hidden = false; input.focus(); return; }
     closeModal(); setNick(n); if (first) toast('Welcome, ' + n + '!');
   };
   $('m-nick-ok').onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape' && !first) closeModal(); };
@@ -3709,38 +3710,56 @@ async function creatorSign() {
   }
   if (run !== creator.run) return; // a newer check has taken over
   creator.owner = owner; creator.sig = sig;
-  // Your times carry the signature, so the boards show your times in the creator's car.
-  if (sig && community.db && community.canWrite !== false) community.db.doc('times/' + community.me).update({ cr: sig }).catch(() => {});
+  // Your times and name carry the signature, so everyone sees them as the creator's.
+  if (sig && community.db && community.canWrite !== false) for (const c of ['times', 'players']) community.db.doc(c + '/' + community.me).update({ cr: sig }).catch(() => {});
   creatorChanged();
 }
 // Without the key, the creator's car goes back in the garage.
 function creatorChanged() {
   if (!game.car) return;
   if (!carAllowed(settings.car)) { selectCar('street'); toast(carById('agent').name + ' is locked'); }
+  if (settings.nick && !nameAllowed(settings.nick)) { settings.nick = ''; saveSettings(); renderRacingAs(); askName(true); }
   if (game.state === 'garage') renderGarage();
   if (times.on) refreshTimes();
 }
 // The creator's car needs the creator's key (from the password).
 function carAllowed(id) { return !carById(id).creatorOnly || creator.owner; }
-// Whether a signature on an id is the creator's (false until it has been checked; then() runs once it passes).
+// Whether a signature on an id is the creator's (false until it has been
+// checked; each then() runs once it passes).
 function creatorOk(id, sig, then) {
   if (!id || typeof sig !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(sig)) return false;
-  const k = id + ' ' + sig;
-  if (!creator.known.has(k)) {
+  const k = id + ' ' + sig; let v = creator.known.get(k);
+  if (v === true || v === false) return v;
+  if (!v) {
     if (creator.known.size > 200) creator.known.clear();
-    creator.known.set(k, null);
-    creatorVerify(id, sig).then(ok => { creator.known.set(k, ok); if (ok) then(); });
+    const waiting = v = new Set(); creator.known.set(k, v);
+    creatorVerify(id, sig).then(ok => { creator.known.set(k, ok); if (ok) waiting.forEach(f => f()); });
   }
-  return creator.known.get(k) === true;
+  if (then) v.add(then);
+  return false;
+}
+// Once a player turns out to be the creator, show them as such everywhere.
+function creatorFound() {
+  refreshTimes(); refreshCommunity(); mpLobbyChanged(); mp.chatVer++;
+  if (!mp.r) return;
+  mpSyncCars(); creatorWelcome(); mp.hudAt = 0; if (game.state === 'online') mpRender(); if (mp.city) cityChatRender();
 }
 // Whether a player in the room is the creator.
 function isCreator(p) {
   if (p.sameTab) return !!creator.sig;
-  return p.kind === 'viewer' && creatorOk(p.by, p.presence && p.presence.cr, () => {
-    if (!mp.r) return;
-    mpSyncCars(); creatorWelcome(); mp.hudAt = 0; if (game.state === 'online') mpRender();
-  });
+  return p.kind === 'viewer' && creatorOk(p.by, p.presence && p.presence.cr, creatorFound);
 }
+// Names with "Rauf" in them are the creator's, however they're written: any
+// case, accents, spaces or dots between the letters, a 4 for the a, or
+// look-alike letters from other alphabets.
+const LOOKALIKE = { '4': 'a', '@': 'a', 'а': 'a', 'α': 'a', 'ɑ': 'a', 'ᴀ': 'a', 'ʀ': 'r', 'г': 'r', 'ɾ': 'r', 'υ': 'u', 'ս': 'u', 'μ': 'u', 'ᴜ': 'u', 'ʋ': 'u', 'ƒ': 'f', 'ғ': 'f', 'ꜰ': 'f', 'ϝ': 'f' };
+function reservedName(n) {
+  let t = ''; for (const ch of String(n).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()) t += LOOKALIKE[ch] || ch;
+  return t.replace(/[^a-z]/g, '').includes('rauf');
+}
+function nameAllowed(n) { return !reservedName(n) || creator.owner; }
+// Another player's name as everyone sees it: a creator's name only when it's theirs.
+function fairNick(n, id, sig) { return n && reservedName(n) && !creatorOk(id, sig, creatorFound) ? '' : n; }
 // The car someone in the room is driving, as everyone sees it: the creator's car only for the creator.
 function mpCar(p) { const c = CAR_BY_ID[p.presence.c]; return c && c.creatorOnly && !isCreator(p) ? 'street' : p.presence.c; }
 // The creator driving into a room where others already are: five seconds of the
@@ -3806,7 +3825,7 @@ function mpOpenRaces() {
     const a = p.presence && p.presence.race;
     if (!a || p.sameTab || typeof a.room !== 'string' || !/^race-[a-z0-9]{6}$/.test(a.room) || seen.has(a.room)) continue;
     seen.add(a.room);
-    out.push({ room: a.room, by: p.by, nm: cleanText(a.nm || '', NICK_MAX), track: cleanText(a.tr || '', 60), n: clamp(a.n | 0, 1, 99), live: !!a.live });
+    out.push({ room: a.room, by: p.by, nm: fairNick(cleanText(a.nm || '', NICK_MAX), p.by, p.presence.cr), track: cleanText(a.tr || '', 60), n: clamp(a.n | 0, 1, 99), live: !!a.live });
   }
   return out;
 }
@@ -3876,7 +3895,7 @@ function mpHost() {
 }
 function mpIsHost() { const h = mpHost(); return !!(h && h.sameTab); }
 function mpLive() { return mp.lastN > 0 && mp.peers.some(p => p.presence.st === 'race' && p.presence.n === mp.lastN); }
-function mpName(p) { return p.sameTab ? 'You' : cleanText(p.presence.nm || '', NICK_MAX) || nickOf(p.by) || (p.by && mp.names.get(p.by)) || 'Player'; }
+function mpName(p) { return p.sameTab ? 'You' : fairNick(cleanText(p.presence.nm || '', NICK_MAX), p.by, p.presence.cr) || nickOf(p.by) || (p.by && mp.names.get(p.by)) || 'Player'; }
 function mpPaint(p) { const k = p.presence.k; return typeof k === 'string' && /^#[0-9a-f]{6}$/i.test(k) ? k : '#ffffff'; }
 function mpNames() {
   const ids = [...new Set(mp.peers.map(p => p.by).filter(b => b && !mp.names.has(b)))];
@@ -3934,8 +3953,8 @@ function mpAdvertise() {
   if (!mp.room) return;
   let ad = null;
   if (mp.r && !mp.city && mpIsHost()) { const tr = mpTrack(mp.sel); ad = { room: mp.name, nm: settings.nick || null, tr: tr ? tr.name : '', n: mpPlayers().length, live: mpLive() }; }
-  const s = JSON.stringify([ad, mp.city]); if (s === mp.ad) return;
-  mp.ad = s; mp.room.presence({ race: ad, city: mp.city ? 1 : null }).catch(() => {}); // the lobby counts who's in the City
+  const s = JSON.stringify([ad, mp.city, creator.sig]); if (s === mp.ad) return;
+  mp.ad = s; mp.room.presence({ race: ad, city: mp.city ? 1 : null, cr: creator.sig }).catch(() => {}); // the lobby counts who's in the City
 }
 // This page's presence in the race room: its car, and while racing where it is.
 function mpSend(force) {
@@ -4087,7 +4106,7 @@ function mpReadChat() {
       if (!Array.isArray(m) || typeof m[1] !== 'string') continue;
       const key = p.peer + ':' + m[0]; if (mp.chatSeen.has(key)) continue;
       mp.chatSeen.add(key);
-      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, nm: cleanText(p.presence.nm || '', NICK_MAX), me: p.isMe, text, ts: +m[2] || 0, at: Date.now() });
+      const text = cleanChat(m[1]); if (text) fresh.push({ by: p.by, nm: cleanText(p.presence.nm || '', NICK_MAX), cr: p.presence.cr, me: p.isMe, text, ts: +m[2] || 0, at: Date.now() });
     }
   }
   if (!fresh.length) return;
@@ -4105,7 +4124,7 @@ function mpChatChanged(incoming, n = 0) {
 function mpRenderChat() {
   const el = $('mp-chat'); if (!el || +el.dataset.ver === mp.chatVer) return;
   const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(c.me ? 'You' : c.nm || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('')
+  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(c.me ? 'You' : fairNick(c.nm, c.by, c.cr) || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('')
     : '<p class="empty-note">No messages yet. Say hello.</p>';
   el.dataset.ver = mp.chatVer;
   if (atEnd || !el.dataset.seen) { el.scrollTop = el.scrollHeight; el.dataset.seen = '1'; }
@@ -4148,7 +4167,7 @@ function cityChatRender() {
   $('city-chat').hidden = !show; $('touch-chat').hidden = !show;
   if (!show) return;
   $('city-chat').classList.toggle('open', cityChat.open);
-  const now = Date.now(), html = mp.chat.slice(-6).map(c => `<div class="${c.me ? 'me' : ''}${now - (c.at || 0) > 20000 ? ' old' : ''}"><b>${escapeHtml(c.me ? 'You' : c.nm || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('');
+  const now = Date.now(), html = mp.chat.slice(-6).map(c => `<div class="${c.me ? 'me' : ''}${now - (c.at || 0) > 20000 ? ' old' : ''}"><b>${escapeHtml(c.me ? 'You' : fairNick(c.nm, c.by, c.cr) || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('');
   if (html !== cityChat.html) { cityChat.html = html; $('cc-log').innerHTML = html; }
 }
 function cityChatOpen() {
@@ -4408,7 +4427,10 @@ function showSettings() {
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
   $('m-theme').value = settings.theme; $('m-cam').value = settings.cam; $('m-touch').value = settings.touch;
   $('m-name').value = settings.nick || '';
-  $('m-name').onchange = e => { const n = cleanText(e.target.value, NICK_MAX); if (n) setNick(n); else e.target.value = settings.nick || ''; };
+  $('m-name').onchange = e => {
+    const n = cleanText(e.target.value, NICK_MAX);
+    if (n && nameAllowed(n)) setNick(n); else { if (n) toast('Names with “Rauf” in them are taken'); e.target.value = settings.nick || ''; }
+  };
   $('m-touch').onchange = e => { settings.touch = e.target.value; saveSettings(); document.body.classList.toggle('touchui', touchUI()); };
   $('m-ghost').checked = settings.ghost; $('m-sound').checked = settings.sound; $('m-shadows').checked = settings.shadows;
   $('m-theme').onchange = e => { settings.theme = e.target.value; saveSettings(); applyTheme(); };
@@ -4417,7 +4439,7 @@ function showSettings() {
   $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
-  if ($('m-lock')) $('m-lock').onclick = () => { creatorLock(); $('m-lock').closest('.toggle').remove(); };
+  if ($('m-lock')) $('m-lock').onclick = () => { $('m-lock').closest('.toggle').remove(); creatorLock(); }; // which may ask for a new name
   $('m-reset').onclick = () => confirmModal('Delete every time and ghost saved on this device?' + (times.on ? ' Your times on the leaderboard stay.' : ''), 'Delete times', () => {
     try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
     toast('All times cleared'); if (game.state === 'menu') renderMenu();
@@ -4926,6 +4948,7 @@ function start() {
   requestAnimationFrame(t => { last = t; frame(t); });
   profileReady = initCommunity().catch(() => {});
   profileReady.then(initOnline);
+  if (settings.nick && !nameAllowed(settings.nick)) { settings.nick = ''; saveSettings(); }
   renderRacingAs(); if (!settings.nick) askName(true);
 }
 $('btn-name').onclick = () => askName(false);
