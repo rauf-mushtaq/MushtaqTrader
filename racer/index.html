@@ -112,8 +112,7 @@
   .car-card { text-align: left; padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px; background: rgba(255,255,255,0.03); display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .car-card:hover { border-color: rgba(255,255,255,0.4); }
   .car-card.sel { border-color: var(--signal); background: rgba(255,210,63,0.1); }
-  .car-card.locked { opacity: 0.5; cursor: not-allowed; border-style: dashed; }
-  .car-card.locked:hover { border-color: var(--line); }
+  .car-card.locked { opacity: 0.6; border-style: dashed; }
   .car-card .nm { font-family: var(--display); font-weight: 700; font-size: 15px; }
   .car-card .cl { color: var(--muted); font-size: 12px; }
   .chip { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
@@ -3641,40 +3640,59 @@ function nameTag(name, color, title) {
 // The game's creator. In a live race or the City everyone sees them as
 // "Rauf Mushtaq The Creator", with a beam of light over their car and a gold
 // ring on the minimap, and when they drive in, everyone already there hears
-// the first five seconds of the Silver Agent's theme. Their browser gets a key
-// from a one-time link (…#creator=KEY; #creator=off removes it) and signs its
-// own player id with it. Everyone checks that signature against this public
-// key, and the live room stamps each player's id itself, so a copied signature
-// is no use to anyone else.
+// the first five seconds of the Silver Agent's theme. The creator's password
+// unlocks the creator's key (kept here encrypted with it, so the password itself
+// isn't in the code), and the browser signs its own player id with the key.
+// Everyone checks that signature against this public key, and the live room
+// stamps each player's id itself, so a copied signature is no use to anyone else.
 // ============================================================================
-const CREATOR = { title: 'Rauf Mushtaq The Creator', x: '0pEzjzUWvs4CEqh4IjWfYDZyy6FNGCbfs_gLHA7Mgy8', y: '0xCI4LOONiDIR36RFaduOCTBB7JN5zeHuJcBQLpd8u4' };
+const CREATOR = { title: 'Rauf Mushtaq The Creator', x: '0pEzjzUWvs4CEqh4IjWfYDZyy6FNGCbfs_gLHA7Mgy8', y: '0xCI4LOONiDIR36RFaduOCTBB7JN5zeHuJcBQLpd8u4',
+  lock: { salt: 'MEss9EU7J9gS0OjEv7Cw9Q', iv: 'xVuxZZ80qGOLTq1_', data: 'GNTPMFWabRXvEO2NEuUHJjK-nt6A-XbVGPrPchlAMS2ddGnQc03E1W9S8SyEPg_KOLZFkJ6WPgE1D90' } };
 // owner: this browser holds the creator's key (assumed from storage until it's
 // checked), which unlocks the creator's car; sig: its signed player id, online.
-// wanted: a saved creator's car waiting at start-up until the game knows whether
-// this player may drive it.
-const creator = { owner: !!store.get('mt.creator', null), sig: null, fresh: false, run: 0, pub: null, known: new Map(), playedAt: 0, pulseUntil: 0, wanted: null };
-// The link, when the page opens or (in a tab that already has the game) when it changes.
-function creatorLink() {
-  const m = /(?:^#|&)creator=([A-Za-z0-9_-]{43}|off)(?:&|$)/.exec(location.hash); if (!m) return false;
-  if (m[1] === 'off') store.del('mt.creator'); else { store.set('mt.creator', m[1]); creator.fresh = true; }
-  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* not allowed here */ }
-  return m[1];
-}
-creatorLink();
-addEventListener('hashchange', async () => {
-  const link = creatorLink(); if (!link) return;
-  const was = creator.owner; await creatorSign();
-  if (was && link === 'off') toast('This browser no longer shows you as the creator');
-  if (mp.r) mpSend(true);
-});
+const creator = { owner: !!store.get('mt.creator', null), sig: null, fresh: false, run: 0, pub: null, known: new Map(), playedAt: 0, pulseUntil: 0 };
 const ECDSA = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
 const creatorMsg = id => new TextEncoder().encode('mushtaqtrack-creator:' + id);
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 async function creatorVerify(id, sig) {
   try {
     creator.pub = creator.pub || await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: CREATOR.x, y: CREATOR.y }, ECDSA, false, ['verify']);
-    return await crypto.subtle.verify(ECDSA, creator.pub, Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0)), creatorMsg(id));
+    return await crypto.subtle.verify(ECDSA, creator.pub, unb64u(sig), creatorMsg(id));
   } catch (e) { return false; }
+}
+// The password (capitals, spaces and dashes don't matter) opens the creator's
+// key; this device keeps the key, so it's asked for once.
+async function creatorUnlock(password) {
+  try {
+    const pw = new TextEncoder().encode(password.toLowerCase().replace(/[\s-]+/g, '')), L = CREATOR.lock;
+    const base = await crypto.subtle.importKey('raw', pw, 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: unb64u(L.salt), iterations: 600000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    const d = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(L.iv) }, key, unb64u(L.data)));
+    if (!/^[A-Za-z0-9_-]{43}$/.test(d)) return false;
+    store.set('mt.creator', d); creator.fresh = true; await creatorSign();
+    if (mp.r) mpSend(true);
+    return creator.owner;
+  } catch (e) { return false; } // the wrong password doesn't decrypt
+}
+function creatorLock() { store.del('mt.creator'); creatorSign().then(() => { if (mp.r) mpSend(true); }); }
+function askCreatorPassword() {
+  openModal(`<div class="eyebrow">${carById('agent').name}</div><h2>This car needs a password</h2>
+    <div class="field"><label for="m-pw">Password</label><input id="m-pw" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false"></div>
+    <p class="empty-note">The right password unlocks it on this device.</p>
+    <p class="modal-err" id="m-pw-err" hidden>That’s not the password.</p>
+    <div class="row"><button class="btn primary" id="m-pw-ok">Unlock</button><button class="btn" id="m-pw-cancel">Cancel</button></div>`);
+  const input = $('m-pw'), btn = $('m-pw-ok'); let busy = false;
+  const ok = async () => {
+    if (busy || !input.value.trim()) return;
+    busy = true; btn.textContent = 'Checking…'; $('m-pw-err').hidden = true;
+    const yes = await creatorUnlock(input.value);
+    busy = false; btn.textContent = 'Unlock';
+    if (!yes) { $('m-pw-err').hidden = false; input.select(); return; }
+    closeModal(); selectCar('agent'); if (game.state === 'garage') { showroomCar(); renderGarage(); }
+  };
+  btn.onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape') closeModal(); };
+  $('m-pw-cancel').onclick = closeModal;
 }
 // Check this browser's creator key: it unlocks the creator's car (offline too)
 // and, once there's a player id, signs it for the live rooms and the leaderboards.
@@ -3686,8 +3704,8 @@ async function creatorSign() {
       const s = b64u(await crypto.subtle.sign(ECDSA, key, creatorMsg(id)));
       if (!(await creatorVerify(id, s))) throw new Error('not the creator key');
       owner = true; sig = id ? s : null;
-      if (creator.fresh) { creator.fresh = false; toast('This browser now shows you as ' + CREATOR.title); }
-    } catch (e) { store.del('mt.creator'); if (creator.fresh) { creator.fresh = false; toast('That creator link isn’t right.'); } }
+      if (creator.fresh) { creator.fresh = false; toast(carById('agent').name + ' unlocked. You show as ' + CREATOR.title); }
+    } catch (e) { store.del('mt.creator'); creator.fresh = false; }
   }
   if (run !== creator.run) return; // a newer check has taken over
   creator.owner = owner; creator.sig = sig;
@@ -3696,17 +3714,14 @@ async function creatorSign() {
   creatorChanged();
 }
 // Without the key, the creator's car goes back in the garage.
-function creatorChanged(settled) {
+function creatorChanged() {
   if (!game.car) return;
-  const w = creator.wanted;
-  if (w && carAllowed(w)) { creator.wanted = null; selectCar(w); }
-  else if (w && settled) { creator.wanted = null; saveSettings(); toast(carById(w).name + ' is only for ' + CREATOR.title); }
-  if (!carAllowed(settings.car)) { selectCar('street'); toast(carById('agent').name + ' is only for ' + CREATOR.title); }
+  if (!carAllowed(settings.car)) { selectCar('street'); toast(carById('agent').name + ' is locked'); }
   if (game.state === 'garage') renderGarage();
   if (times.on) refreshTimes();
 }
-// The creator's car: for the creator's key, or for the owner of the game's page.
-function carAllowed(id) { return !carById(id).creatorOnly || creator.owner || community.owner; }
+// The creator's car needs the creator's key (from the password).
+function carAllowed(id) { return !carById(id).creatorOnly || creator.owner; }
 // Whether a signature on an id is the creator's (false until it has been checked; then() runs once it passes).
 function creatorOk(id, sig, then) {
   if (!id || typeof sig !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(sig)) return false;
@@ -4336,8 +4351,8 @@ function renderGarage() {
     row('Grip', st.grip, c.df >= 0.5 ? 'downforce' : c.grip >= 2 ? 'sticky' : 'road') + row('Drift', st.drift, c.rear < 0.95 ? 'loose' : c.rear > 1.05 ? 'planted' : 'balanced') +
     `<span>Drive</span><span style="grid-column: span 2; color: var(--muted)">${drive}</span>`;
   $('g-paint').innerHTML = CAR_COLORS.map(col => `<button class="${col === 'factory' ? 'factory' : ''} ${col === (settings.paint || 'factory') ? 'sel' : ''}" ${col === 'factory' ? '' : `style="background:${col}"`} data-paint="${col}" aria-label="${col === 'factory' ? 'Factory paint' : 'Paint ' + col}" title="${col === 'factory' ? 'Factory paint' : col}"></button>`).join('');
-  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car), locked = !carAllowed(car.id); return `<button class="car-card ${car.id === c.id ? 'sel' : ''}${locked ? ' locked' : ''}" data-car="${car.id}"${locked ? ` disabled title="Only ${CREATOR.title} can drive this car"` : ''}>
-    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${locked ? 'Creator only' : car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
+  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car), locked = !carAllowed(car.id); return `<button class="car-card ${car.id === c.id ? 'sel' : ''}${locked ? ' locked' : ''}" data-car="${car.id}"${locked ? ' title="Needs a password"' : ''}>
+    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${locked ? 'Locked: needs a password' : car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
     <span class="mini" title="Speed, acceleration, grip, drift">${['speed', 'accel', 'grip', 'drift'].map(k => `<i><b style="width:${Math.round(s2[k] * 100)}%"></b></i>`).join('')}</span></button>`; }).join('');
 }
 function openGarage() {
@@ -4347,7 +4362,11 @@ function openGarage() {
   renderGarage();
 }
 function showroomCar() { const { p, yaw } = spawnPoint(); p.addScaledVector(new V3(Math.sin(yaw), 0, Math.cos(yaw)), 16); game.car.reset(p, yaw); }
-$('g-cars').addEventListener('click', e => { const b = e.target.closest('[data-car]'); if (!b) return; selectCar(b.dataset.car); showroomCar(); renderGarage(); blip(560, 0.06); });
+$('g-cars').addEventListener('click', e => {
+  const b = e.target.closest('[data-car]'); if (!b) return;
+  if (!carAllowed(b.dataset.car)) { askCreatorPassword(); return; }
+  selectCar(b.dataset.car); showroomCar(); renderGarage(); blip(560, 0.06);
+});
 $('g-paint').addEventListener('click', e => { const b = e.target.closest('[data-paint]'); if (!b) return; settings.paint = b.dataset.paint; saveSettings(); game.car.setColor(paintFor(game.car.spec)); renderGarage(); });
 $('g-done').onclick = () => { setState('menu'); loadDemo(); };
 
@@ -4385,6 +4404,7 @@ function showSettings() {
     <label class="toggle"><span>Race against my best ghost</span><input type="checkbox" id="m-ghost"></label>
     <label class="toggle"><span>Engine sound</span><input type="checkbox" id="m-sound"></label>
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
+    ${creator.owner ? `<div class="toggle"><span>${carById('agent').name} unlocked on this device</span><button class="btn" id="m-lock">Lock it</button></div>` : ''}
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
   $('m-theme').value = settings.theme; $('m-cam').value = settings.cam; $('m-touch').value = settings.touch;
   $('m-name').value = settings.nick || '';
@@ -4397,6 +4417,7 @@ function showSettings() {
   $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
+  if ($('m-lock')) $('m-lock').onclick = () => { creatorLock(); $('m-lock').closest('.toggle').remove(); };
   $('m-reset').onclick = () => confirmModal('Delete every time and ghost saved on this device?' + (times.on ? ' Your times on the leaderboard stay.' : ''), 'Delete times', () => {
     try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
     toast('All times cleared'); if (game.state === 'menu') renderMenu();
@@ -4899,12 +4920,12 @@ window.addEventListener('resize', resize);
 
 function start() {
   resize(); applyTheme();
-  if (!carAllowed(settings.car)) { creator.wanted = settings.car; settings.car = 'street'; } // until it's known whether it's theirs
+  if (!carAllowed(settings.car)) { settings.car = 'street'; saveSettings(); setTimeout(() => toast(carById('agent').name + ' is locked: it needs a password'), 1500); }
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
   setState('menu'); loadDemo(); updateCarTheme(); creatorSign();
   requestAnimationFrame(t => { last = t; frame(t); });
   profileReady = initCommunity().catch(() => {});
-  profileReady.then(() => creatorChanged(true)); profileReady.then(initOnline);
+  profileReady.then(initOnline);
   renderRacingAs(); if (!settings.nick) askName(true);
 }
 $('btn-name').onclick = () => askName(false);
