@@ -3347,8 +3347,10 @@ function askName(first) {
     <div class="row"><button class="btn primary" id="m-nick-ok">${first ? 'Let’s race' : 'Save'}</button>${first ? '' : '<button class="btn" id="m-nick-cancel">Cancel</button>'}</div>`, { locked: first });
   const input = $('m-nick'); input.value = settings.nick || '';
   const ok = () => {
-    const n = cleanText(input.value, NICK_MAX), err = !n ? 'Pick a name to race with.' : !nameAllowed(n) ? 'Names with “Rauf” in them are taken. Pick another.' : '';
-    if (err) { $('m-nick-err').textContent = err; $('m-nick-err').hidden = false; input.focus(); return; }
+    const n = cleanText(input.value, NICK_MAX);
+    if (!n) { $('m-nick-err').hidden = false; input.focus(); return; }
+    // The creator's name: their password logs them in.
+    if (!nameAllowed(n)) { askCreatorPassword({ name: n, first, back: () => askName(first) }); return; }
     closeModal(); setNick(n); if (first) toast('Welcome, ' + n + '!');
   };
   $('m-nick-ok').onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape' && !first) closeModal(); };
@@ -3676,24 +3678,38 @@ async function creatorUnlock(password) {
     return creator.owner;
   } catch (e) { return false; } // the wrong password doesn't decrypt
 }
-function creatorLock() { store.del('mt.creator'); creatorSign().then(() => { if (mp.r) mpSend(true); }); }
-function askCreatorPassword() {
-  openModal(`<div class="eyebrow">${carById('agent').name}</div><h2>This car needs a password</h2>
+function creatorLock() { store.del('mt.creator'); creatorSign().then(() => { toast('Logged out of the creator account'); if (mp.r) mpSend(true); }); }
+// The password, asked for by the creator's car in the garage, or by the
+// creator's name (opts.name): that's the creator logging in, so they get the
+// name, the Silver Agent and its theme. opts.back runs on "Pick another name",
+// opts.then after logging in; opts.first is the first-visit name question,
+// which can't be dismissed.
+function askCreatorPassword(opts = {}) {
+  const login = !!opts.name, label = login ? 'Log in' : 'Unlock';
+  openModal((login ? `<div class="eyebrow">Creator account</div><h2>That’s the creator’s name</h2>
+    <p class="empty-note">Type the password to log in as the creator on this device. It also unlocks the ${carById('agent').name} and its theme.</p>` :
+    `<div class="eyebrow">${carById('agent').name}</div><h2>This car needs a password</h2>`) + `
     <div class="field"><label for="m-pw">Password</label><input id="m-pw" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false"></div>
-    <p class="empty-note">The right password unlocks it on this device.</p>
+    ${login ? '' : '<p class="empty-note">The right password unlocks it on this device.</p>'}
     <p class="modal-err" id="m-pw-err" hidden>That’s not the password.</p>
-    <div class="row"><button class="btn primary" id="m-pw-ok">Unlock</button><button class="btn" id="m-pw-cancel">Cancel</button></div>`);
+    <div class="row"><button class="btn primary" id="m-pw-ok">${label}</button><button class="btn" id="m-pw-cancel">${login ? 'Pick another name' : 'Cancel'}</button></div>`, { locked: !!opts.first });
   const input = $('m-pw'), btn = $('m-pw-ok'); let busy = false;
+  const cancel = () => { if (busy) return; if (opts.back) opts.back(); else closeModal(); };
   const ok = async () => {
     if (busy || !input.value.trim()) return;
     busy = true; btn.textContent = 'Checking…'; $('m-pw-err').hidden = true;
     const yes = await creatorUnlock(input.value);
-    busy = false; btn.textContent = 'Unlock';
-    if (!yes) { $('m-pw-err').hidden = false; input.select(); return; }
-    closeModal(); selectCar('agent'); if (game.state === 'garage') { showroomCar(); renderGarage(); }
+    busy = false; btn.textContent = label;
+    if (!yes) { if (input.isConnected) { $('m-pw-err').hidden = false; input.select(); } return; }
+    closeModal();
+    // The car changes now unless a race is under way: then it waits in the garage.
+    if (game.state === 'race' || game.state === 'paused') toast('Logged in as the creator. The ' + carById('agent').name + ' is unlocked in the garage');
+    else { selectCar('agent'); if (game.state === 'garage') { showroomCar(); renderGarage(); } }
+    if (login) setNick(opts.name); else if (mp.r) mpSend(true);
+    if (opts.then) opts.then();
   };
-  btn.onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape') closeModal(); };
-  $('m-pw-cancel').onclick = closeModal;
+  btn.onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape' && !opts.first) cancel(); };
+  $('m-pw-cancel').onclick = cancel;
 }
 // Check this browser's creator key: it unlocks the creator's car (offline too)
 // and, once there's a player id, signs it for the live rooms and the leaderboards.
@@ -3705,7 +3721,7 @@ async function creatorSign() {
       const s = b64u(await crypto.subtle.sign(ECDSA, key, creatorMsg(id)));
       if (!(await creatorVerify(id, s))) throw new Error('not the creator key');
       owner = true; sig = id ? s : null;
-      if (creator.fresh) { creator.fresh = false; toast(carById('agent').name + ' unlocked. You show as ' + CREATOR.title); }
+      if (creator.fresh) { creator.fresh = false; toast('Logged in as ' + CREATOR.title + ', with the ' + carById('agent').name); }
     } catch (e) { store.del('mt.creator'); creator.fresh = false; }
   }
   if (run !== creator.run) return; // a newer check has taken over
@@ -4423,13 +4439,15 @@ function showSettings() {
     <label class="toggle"><span>Race against my best ghost</span><input type="checkbox" id="m-ghost"></label>
     <label class="toggle"><span>Engine sound</span><input type="checkbox" id="m-sound"></label>
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
-    ${creator.owner ? `<div class="toggle"><span>${carById('agent').name} unlocked on this device</span><button class="btn" id="m-lock">Lock it</button></div>` : ''}
+    ${creator.owner ? `<div class="toggle"><span>Logged in as the creator on this device</span><button class="btn" id="m-lock">Log out</button></div>` : ''}
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
   $('m-theme').value = settings.theme; $('m-cam').value = settings.cam; $('m-touch').value = settings.touch;
   $('m-name').value = settings.nick || '';
   $('m-name').onchange = e => {
     const n = cleanText(e.target.value, NICK_MAX);
-    if (n && nameAllowed(n)) setNick(n); else { if (n) toast('Names with “Rauf” in them are taken'); e.target.value = settings.nick || ''; }
+    if (n && nameAllowed(n)) setNick(n);
+    else if (n) askCreatorPassword({ name: n, back: showSettings, then: showSettings }); // the creator's name: log in
+    else e.target.value = settings.nick || '';
   };
   $('m-touch').onchange = e => { settings.touch = e.target.value; saveSettings(); document.body.classList.toggle('touchui', touchUI()); };
   $('m-ghost').checked = settings.ghost; $('m-sound').checked = settings.sound; $('m-shadows').checked = settings.shadows;
