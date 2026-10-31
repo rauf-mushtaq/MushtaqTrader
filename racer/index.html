@@ -978,9 +978,10 @@ function cityTiles() {
   lay('B3 S V2 G3 VD VD S2', 16, 50, 3); // over the buildings: a launch 20 m up, a row of buildings, and ramps down
   rect(8, 49, 10, 51, 2);
   // The rooftop pad run: up onto a roof 20 m high, then jump pads hop you down
-  // four roofs across the alleys, a storey lower each time.
+  // four roofs across the alleys, a storey lower each time. The first roof is
+  // long enough for the fastest cars to land on it.
   lay('B2 S V V', -30, 55, 1);
-  for (let k = 0; k < 4; k++) { const x0 = -25 + 5 * k; rect(x0, 54, x0 + 3, 56, 4 - k); put('jumppad', x0 + 3, 55, 4 - k, 1); }
+  for (let k = 0; k < 4; k++) { const x0 = k ? -23 + 5 * k : -25, x1 = -20 + 5 * k; rect(x0, 54, x1, 56, 4 - k); put('jumppad', x1, 55, 4 - k, 1); }
   lay('B S K G S2 K G S2 K G S2 K G S2', 24, 34, 1); // a kicker field
   lay('B S K G S2 K G S2 K G2 S3', 24, 37, 1);
   lay('B3 S V2 G2', 58, 45, 3); rect(46, 44, 50, 46, 3); lay('VD D S2', 45, 45, 3, null, 3); // a launch onto a raised platform, and ramps down
@@ -1669,6 +1670,8 @@ const CARS = [
   { id: 'truck', name: 'Trail Pickup', cls: 'Off-road pickup', model: 'truck', color: '#b06bff', accent: '#20242c', comY: 1.1, height: 2.45, vmax: 47, accel: 23, grip: 1.7, rear: 1.0, drive: 0.5, steer: 0.55, steerFall: 20, df: 0, brake: 44, hb: 0.30, grassGrip: 1.0, grassV: 46 },
   { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 47, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
   { id: 'kart', name: 'Kart', cls: 'Go-kart', model: 'kart', color: '#3ee38a', accent: '#20242c', comY: 0.38, height: 1.2, vmax: 46, accel: 30, grip: 2.25, rear: 1.0, drive: 1, steer: 0.68, steerFall: 32, df: 0, brake: 50, hb: 0.14, grassGrip: 0.6, grassV: 22 },
+  // The special one: a touch quicker than the Formula Racer, and it plays its theme on repeat while it's your car.
+  { id: 'agent', name: 'Silver Agent', cls: '1960s British spy GT', model: 'agent', color: '#9da5ab', accent: '#7a1f26', comY: 0.62, height: 1.5, vmax: 57, accel: 37, grip: 2.15, rear: 1.07, drive: 1, steer: 0.52, steerFall: 26, df: 0.9, brake: 66, hb: 0.34, grassGrip: 0.45, grassV: 20, theme: 'agent-theme.mp3' },
 ];
 const CAR_BY_ID = Object.fromEntries(CARS.map(c => [c.id, c]));
 function carById(id) { return CAR_BY_ID[id] || CARS[0]; }
@@ -1865,6 +1868,21 @@ const MODELS = {
     const sw = add(new THREE.TorusGeometry(0.15, 0.03, 4, 10), M.dark, 0, 0.7, 0.2); sw.rotation.x = -0.6;
     add(B(1.4, 0.1, 0.15), M.paint, 0, 0.35, -1.05);
     for (const x of [-0.7, 0.7]) { wheel(x, 0.75, 0.24, 0.24, true); wheel(x, -0.72, 0.26, 0.32, false); }
+  },
+  agent({ add, B, M, wheel }) {
+    add(B(2.0, 0.58, 4.55, { tf: 0.22, tb: 0.2 }), M.paint, 0, 0.68, 0);
+    add(B(1.62, 0.5, 2.0, { nt: 0.18, sf: 0.5, sb: 0.75 }), M.glass, 0, 1.22, -0.35);
+    add(B(1.38, 0.05, 0.8), M.paint, 0, 1.48, -0.3);
+    add(B(0.55, 0.1, 0.7, { tf: 0.05 }), M.paint, 0, 1.0, 1.35);
+    add(B(0.66, 0.3, 0.06, { nt: 0.25 }), M.dark, 0, 0.64, 2.28);
+    add(B(0.74, 0.04, 0.07), M.chrome, 0, 0.8, 2.28);
+    const hl = new THREE.CylinderGeometry(0.15, 0.15, 0.1, 12); hl.rotateX(Math.PI / 2);
+    for (const x of [-0.66, 0.66]) { add(hl, M.light, x, 0.74, 2.22); add(B(0.22, 0.12, 0.06), M.tail, x, 0.66, -2.28); }
+    for (const z of [2.3, -2.3]) for (const x of [-0.6, 0.6]) add(B(0.62, 0.09, 0.1), M.chrome, x, 0.48, z);
+    for (const x of [-1.01, 1.01]) for (const z of [1.0, 1.12, 1.24]) add(B(0.02, 0.12, 0.06), M.chrome, x, 0.78, z);
+    const ex = new THREE.CylinderGeometry(0.06, 0.06, 0.25, 8); ex.rotateX(Math.PI / 2);
+    for (const x of [-0.42, -0.28]) add(ex, M.chrome, x, 0.36, -2.3);
+    for (const x of [-1.02, 1.02]) { wheel(x, 1.45, 0.44, 0.34, true); wheel(x, -1.4, 0.44, 0.36, false); }
   },
 };
 
@@ -2666,6 +2684,23 @@ function blip(freq, dur = 0.12, type = 'triangle', vol = 0.18) {
   g.gain.setValueAtTime(vol, audio.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.ctx.currentTime + dur);
   o.connect(g); g.connect(audio.master); o.start(); o.stop(audio.ctx.currentTime + dur);
 }
+// A car with a theme plays it on repeat for as long as it's your car (with the
+// sound on and the game in view). Browsers only start it after a click or key press.
+const carTheme = { src: null, el: null, waiting: false };
+function updateCarTheme() {
+  const src = carById(settings.car).theme || null;
+  if (src !== carTheme.src) { if (carTheme.el) carTheme.el.pause(); carTheme.el = src ? Object.assign(new Audio(src), { loop: true, volume: 0.5 }) : null; carTheme.src = src; }
+  if (!carTheme.el) return;
+  if (!settings.sound || document.hidden) { carTheme.el.pause(); return; }
+  if (!carTheme.el.paused) return;
+  const p = carTheme.el.play();
+  if (p && p.catch) p.catch(() => {
+    if (carTheme.waiting) return; carTheme.waiting = true;
+    const evs = ['pointerup', 'touchend', 'keydown'];
+    const go = () => { carTheme.waiting = false; evs.forEach(ev => removeEventListener(ev, go, true)); updateCarTheme(); };
+    evs.forEach(ev => addEventListener(ev, go, true));
+  });
+}
 function updateAudio(car, active, thr) {
   if (!audio.ctx) return;
   const t = audio.ctx.currentTime; const on = active && settings.sound;
@@ -2773,7 +2808,7 @@ setGhostCar(settings.car);
 function selectCar(id) {
   settings.car = id; saveSettings();
   game.car.setSpec(carById(id), paintFor(carById(id)));
-  game.demo.idx = 0;
+  game.demo.idx = 0; updateCarTheme();
 }
 
 // v4 keys: the cars got slower, so older times no longer compare.
@@ -4058,7 +4093,7 @@ document.querySelector('#menu .tracks').addEventListener('keydown', e => {
 // ============================================================================
 function renderGarage() {
   const c = carById(settings.car); const st = carStats(c);
-  $('g-name').textContent = c.name; $('g-cls').textContent = c.cls;
+  $('g-name').textContent = c.name; $('g-cls').textContent = c.cls + (c.theme ? ' · plays its theme music on repeat (M mutes)' : '');
   const drive = c.drive >= 0.9 ? 'Rear-wheel drive' : c.drive <= 0.1 ? 'Front-wheel drive' : 'All-wheel drive';
   const row = (label, v, txt) => `<span>${label}</span><div class="bar"><b style="width:${Math.round(v * 100)}%"></b></div><span class="v">${txt}</span>`;
   $('g-stats').innerHTML = row('Top speed', st.speed, Math.round(c.vmax * 3.6 * SPEEDO) + ' km/h') + row('Acceleration', st.accel, c.accel >= 34 ? 'explosive' : c.accel >= 29 ? 'quick' : c.accel >= 25 ? 'brisk' : 'gentle') +
@@ -4123,7 +4158,7 @@ function showSettings() {
   $('m-theme').onchange = e => { settings.theme = e.target.value; saveSettings(); applyTheme(); };
   $('m-cam').onchange = e => { settings.cam = +e.target.value; game.camMode = settings.cam; saveSettings(); };
   $('m-ghost').onchange = e => { settings.ghost = e.target.checked; saveSettings(); };
-  $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); };
+  $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
   $('m-reset').onclick = () => confirmModal('Delete every time and ghost saved on this device?' + (times.on ? ' Your times on the leaderboard stay.' : ''), 'Delete times', () => {
@@ -4429,7 +4464,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyT' && game.state === 'race' && mp.city && world.track.free) { e.preventDefault(); cityChatOpen(); return; }
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-  if (e.code === 'KeyM') { settings.sound = !settings.sound; saveSettings(); toast(settings.sound ? 'Sound on' : 'Sound off'); if (settings.sound) initAudio(); }
+  if (e.code === 'KeyM') { settings.sound = !settings.sound; saveSettings(); toast(settings.sound ? 'Sound on' : 'Sound off'); if (settings.sound) initAudio(); updateCarTheme(); }
   const st = game.state;
   if (st === 'race') {
     if (e.code === 'KeyR') mp.race ? respawn() : restartRace(); // no fresh starts in a live race
@@ -4465,7 +4500,7 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => keys.delete(e.code));
 window.addEventListener('pointerdown', () => initAudio());
 window.addEventListener('blur', () => { keys.clear(); if (game.state === 'race') togglePause(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'race') togglePause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'race') togglePause(); updateCarTheme(); });
 
 $('btn-play').onclick = () => { initAudio(); startTrack(OFFICIAL[0]); };
 $('btn-editor').onclick = () => openEditor({ name: 'My track', tiles: [] });
@@ -4629,7 +4664,7 @@ window.addEventListener('resize', resize);
 function start() {
   resize(); applyTheme();
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
-  setState('menu'); loadDemo();
+  setState('menu'); loadDemo(); updateCarTheme();
   requestAnimationFrame(t => { last = t; frame(t); });
   profileReady = initCommunity().catch(() => {});
   profileReady.then(initOnline);
