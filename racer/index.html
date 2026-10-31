@@ -226,6 +226,8 @@
   body.touchui #city-chat { top: calc(max(14px, env(safe-area-inset-top, 0px)) + 64px); bottom: auto; width: min(380px, 45vw); }
   body.touchui #hud-mp.city div:not(:first-child) { display: none; }
   #hud-mp div span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+  #hud-mp div span.cr { max-width: 230px; }
+  .cr { color: var(--signal); font-weight: 700; }
   #hud-mp .me { color: var(--signal); }
   .mp-chat { min-height: 44px; max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.25); font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; margin-top: -6px; }
   .mp-chat b { font-family: var(--display); font-weight: 600; color: var(--muted); margin-right: 6px; }
@@ -3108,7 +3110,10 @@ function drawMinimap() {
   const dot = (p, col, r) => { const [x, y] = mmXform(p.x, p.z); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = col; g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke(); };
   if (game.ghost.visible) dot(game.ghost.position, 'rgba(255,255,255,0.75)', 6);
   for (const r of game.rivals) if (r.mesh.visible) dot(r.mesh.position, r.color, 6);
-  for (const c of mp.cars.values()) if (c.mesh.visible) dot(c.mesh.position, c.paint, 7);
+  for (const c of mp.cars.values()) if (c.mesh.visible) {
+    if (c.cr) { const [x, y] = mmXform(c.mesh.position.x, c.mesh.position.z); g.beginPath(); g.arc(x, y, 13, 0, Math.PI * 2); g.lineWidth = 4; g.strokeStyle = '#ffd23f'; g.stroke(); }
+    dot(c.mesh.position, c.paint, c.cr ? 8 : 7);
+  }
   dot(game.car.pos, paintFor(game.car.spec), 8);
 }
 
@@ -3136,7 +3141,7 @@ function setState(s) {
   game.car.mesh.visible = s !== 'editor';
   if (s !== 'race') { game.ghost.visible = false; for (const r of game.rivals) r.mesh.visible = r.tag.visible = false; }
   $('online').hidden = s !== 'online'; mpInvite();
-  if (s !== 'race' && s !== 'finished') for (const c of mp.cars.values()) c.mesh.visible = c.tag.visible = false;
+  if (s !== 'race' && s !== 'finished') for (const c of mp.cars.values()) { c.mesh.visible = c.tag.visible = false; if (c.beam) c.beam.visible = false; }
   if (s === 'menu') renderMenu();
   if (s !== 'race' && s !== 'paused' && cityChat.open) cityChatClose(); else cityChatRender();
 }
@@ -3518,18 +3523,115 @@ function syncRivals() {
     return { g, mesh, tag, color: spec.color };
   });
 }
-// A name label that floats over a ghost.
-function nameTag(name, color) {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 96; const g = c.getContext('2d');
+// A name label that floats over a ghost, with an optional gold title above the name.
+function nameTag(name, color, title) {
+  const W = title ? 640 : 512, y0 = title ? 60 : 0, c = document.createElement('canvas'); c.width = W; c.height = 96 + y0; const g = c.getContext('2d');
+  if (title) {
+    g.font = '700 42px system-ui, sans-serif'; const fs = Math.min(42, Math.floor(42 * (W - 40) / g.measureText(title).width));
+    g.font = `700 ${fs}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    g.lineWidth = 10; g.strokeStyle = 'rgba(8,14,26,0.85)'; g.strokeText(title, W / 2, 32); g.fillStyle = '#ffd23f'; g.fillText(title, W / 2, 32); g.textAlign = 'left';
+  }
   g.font = '600 44px system-ui, sans-serif'; let s = name;
   while (g.measureText(s).width > 400 && s.length > 2) s = s.slice(0, -2) + '…';
-  const w = g.measureText(s).width + 80, x0 = (512 - w) / 2;
-  g.fillStyle = 'rgba(8,14,26,0.6)'; g.beginPath(); g.moveTo(x0 + 24, 12); g.arcTo(x0 + w, 12, x0 + w, 84, 24); g.arcTo(x0 + w, 84, x0, 84, 24); g.arcTo(x0, 84, x0, 12, 24); g.arcTo(x0, 12, x0 + w, 12, 24); g.fill();
-  g.fillStyle = color; g.beginPath(); g.arc(x0 + 34, 48, 12, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#fff'; g.textBaseline = 'middle'; g.fillText(s, x0 + 58, 50);
+  const w = g.measureText(s).width + 80, x0 = (W - w) / 2;
+  g.fillStyle = 'rgba(8,14,26,0.6)'; g.beginPath(); g.moveTo(x0 + 24, y0 + 12); g.arcTo(x0 + w, y0 + 12, x0 + w, y0 + 84, 24); g.arcTo(x0 + w, y0 + 84, x0, y0 + 84, 24); g.arcTo(x0, y0 + 84, x0, y0 + 12, 24); g.arcTo(x0, y0 + 12, x0 + w, y0 + 12, 24); g.fill();
+  g.fillStyle = color; g.beginPath(); g.arc(x0 + 34, y0 + 48, 12, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#fff'; g.textBaseline = 'middle'; g.fillText(s, x0 + 58, y0 + 50);
   const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  tag.scale.set(5.6, 1.05, 1); tag.renderOrder = 10;
+  tag.scale.set(5.6 * W / 512, 1.05 * c.height / 96, 1); tag.renderOrder = 10; tag.userData.lift = (tag.scale.y - 1.05) / 2;
   return tag;
+}
+
+// ============================================================================
+// The game's creator. In a live race or the City everyone sees them as
+// "Rauf Mushtaq The Creator", with a beam of light over their car and a gold
+// ring on the minimap, and when they drive in, everyone already there hears
+// the first five seconds of the Silver Agent's theme. Their browser gets a key
+// from a one-time link (…#creator=KEY; #creator=off removes it) and signs its
+// own player id with it. Everyone checks that signature against this public
+// key, and the live room stamps each player's id itself, so a copied signature
+// is no use to anyone else.
+// ============================================================================
+const CREATOR = { title: 'Rauf Mushtaq The Creator', x: '0pEzjzUWvs4CEqh4IjWfYDZyy6FNGCbfs_gLHA7Mgy8', y: '0xCI4LOONiDIR36RFaduOCTBB7JN5zeHuJcBQLpd8u4' };
+const creator = { sig: null, fresh: false, pub: null, known: new Map(), playedAt: 0, pulseUntil: 0 };
+// The link, when the page opens or (in a tab that already has the game) when it changes.
+function creatorLink() {
+  const m = /(?:^#|&)creator=([A-Za-z0-9_-]{43}|off)(?:&|$)/.exec(location.hash); if (!m) return false;
+  if (m[1] === 'off') store.del('mt.creator'); else { store.set('mt.creator', m[1]); creator.fresh = true; }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* not allowed here */ }
+  return m[1];
+}
+creatorLink();
+addEventListener('hashchange', async () => {
+  const link = creatorLink(); if (!link) return;
+  const was = creator.sig; creator.sig = null; await creatorSign();
+  if (was && link === 'off') toast('This browser no longer shows you as the creator');
+  if (mp.r) mpSend(true);
+});
+const ECDSA = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
+const creatorMsg = id => new TextEncoder().encode('mushtaqtrack-creator:' + id);
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function creatorVerify(id, sig) {
+  try {
+    creator.pub = creator.pub || await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: CREATOR.x, y: CREATOR.y }, ECDSA, false, ['verify']);
+    return await crypto.subtle.verify(ECDSA, creator.pub, Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0)), creatorMsg(id));
+  } catch (e) { return false; }
+}
+// On the creator's browser: sign this player's id, to show in the live rooms.
+async function creatorSign() {
+  const d = store.get('mt.creator', null);
+  if (!d || !community.me || !(window.crypto && crypto.subtle)) return;
+  try {
+    const key = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: CREATOR.x, y: CREATOR.y, d }, ECDSA, false, ['sign']);
+    const sig = b64u(await crypto.subtle.sign(ECDSA, key, creatorMsg(community.me)));
+    if (!(await creatorVerify(community.me, sig))) throw new Error('not the creator key');
+    creator.sig = sig; if (creator.fresh) toast('This browser now shows you as ' + CREATOR.title);
+  } catch (e) { store.del('mt.creator'); if (creator.fresh) toast('That creator link isn’t right.'); }
+}
+// Whether a player in the room is the creator (false until their signature has been checked).
+function isCreator(p) {
+  if (p.sameTab) return !!creator.sig;
+  const sig = p.presence && p.presence.cr;
+  if (!p.by || p.kind !== 'viewer' || typeof sig !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(sig)) return false;
+  const k = p.by + ' ' + sig;
+  if (!creator.known.has(k)) {
+    if (creator.known.size > 200) creator.known.clear();
+    creator.known.set(k, null);
+    creatorVerify(p.by, sig).then(ok => {
+      creator.known.set(k, ok); if (!ok || !mp.r) return;
+      mpSyncCars(); creatorWelcome(); mp.hudAt = 0; if (game.state === 'online') mpRender();
+    });
+  }
+  return creator.known.get(k) === true;
+}
+// The creator driving into a room where others already are: five seconds of the
+// theme for everyone. Players there from the start of this page's time in the
+// room don't count as arriving.
+function creatorWelcome() {
+  if (!mp.r || !mp.heardAt) return;
+  const now = Date.now();
+  for (const p of mp.peers) if (!mp.firstSeen.has(p.peer)) mp.firstSeen.set(p.peer, now);
+  const others = mpPlayers().filter(p => !p.sameTab && !p.isMe);
+  if (creator.sig && others.length && !mp.welcomed.has('') && now - mp.heardAt < 3000) { mp.welcomed.add(''); creatorFanfare(); toast('Everyone here sees you as ' + CREATOR.title); }
+  for (const p of others) if (!mp.welcomed.has(p.peer) && mp.firstSeen.get(p.peer) - mp.heardAt > 1000 && isCreator(p)) { mp.welcomed.add(p.peer); creatorFanfare(); }
+}
+function creatorFanfare() {
+  creator.pulseUntil = performance.now() + 5000;
+  const now = Date.now();
+  if (!settings.sound || now - creator.playedAt < 20000 || (carTheme.el && !carTheme.el.paused)) return; // already hearing it
+  creator.playedAt = now;
+  const a = new Audio(carById('agent').theme + '#t=0.4'); a.volume = 0.7;
+  const p = a.play(); if (p && p.catch) p.catch(() => {});
+  const stop = () => { clearInterval(iv); a.pause(); };
+  const iv = setInterval(() => { const t = a.currentTime - 0.4; if (t >= 5) stop(); else if (t > 4.4) a.volume = 0.7 * (5 - t) / 0.6; }, 50);
+  setTimeout(stop, 9000);
+}
+// A tall gold beam with a ring at its foot, over the creator's car.
+function creatorBeam() {
+  const g = new THREE.Group(), mat = () => new THREE.MeshBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 160, 16, 1, true), mat()); beam.position.y = 80; g.add(beam);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(2.6, 3.4, 32), mat()); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.15; ring.material.opacity = 0.75; g.add(ring);
+  return g;
 }
 
 // ============================================================================
@@ -3552,6 +3654,7 @@ const mp = {
 };
 async function initOnline() {
   if (!window.claude || !window.claude.use) return;
+  await creatorSign();
   const room = await window.claude.use('room'); if (!room) return;
   mp.room = room;
   room.onPeers(ch => { mp.lobby = ch.peers; mpLobbyChanged(); }, () => { mp.room = null; mpLobbyChanged(); });
@@ -3653,8 +3756,8 @@ async function mpJoin(name, hosting) {
   catch (e) { toast(e && e.code === 'not_permitted' ? 'Live races aren’t available to you here.' : 'Could not join that race. Try again.'); return; }
   finally { mp.joining = false; }
   Object.assign(mp, { r, name, peers: r.peers(), joinedAt: Date.now(), hs: hosting ? Date.now() : 0, sel: hosting ? { k: 'o', id: OFFICIAL[0].id } : null,
-    go: null, lastN: 0, synced: hosting, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
-  mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mpPeersChanged(); }, () => {
+    go: null, lastN: 0, synced: hosting, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0, heardAt: 0, firstSeen: new Map(), welcomed: new Set() });
+  mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mp.heardAt = mp.heardAt || Date.now(); mpPeersChanged(); }, () => {
     if (mp.r !== r) return;
     toast('Lost the connection to the race.'); mpLeave(); if (game.state === 'online') mpRender();
   });
@@ -3670,6 +3773,7 @@ function mpLeave() {
 }
 function mpPeersChanged() {
   if (!mp.r) return;
+  creatorWelcome();
   if (mp.city) { mpNames(); mpReadChat(); mpSend(false); mpSyncCars(); cityChatRender(); return; } // the City has no host or races
   const host = mpHost();
   // Taking over from a host who left: carry on from the races already seen.
@@ -3700,7 +3804,7 @@ function mpSend(force) {
   const now = performance.now();
   if (!force && now - mp.sentAt < MP_SEND_MS) { if (!mp.trail) mp.trail = setTimeout(() => { mp.trail = 0; mpSend(false); }, MP_SEND_MS); return; }
   const c = game.car, racing = (mp.status === 'race' || mp.status === 'city') && (game.state === 'race' || game.state === 'paused');
-  const pr = { v: 1, nm: settings.nick || null, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
+  const pr = { v: 1, nm: settings.nick || null, cr: creator.sig, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
     cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null,
     m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP) };
   if (racing) { const q = c.q, m = new V3(0, -c.spec.comY, 0).applyQuaternion(q).add(c.pos); pr.s = [m.x, m.y, m.z, q.x, q.y, q.z, q.w].map((v, i) => Math.round(v * (i < 3 ? 100 : 1000)) / (i < 3 ? 100 : 1000)); }
@@ -3745,7 +3849,7 @@ function mpStandings() {
   for (const p of mp.peers) {
     const pr = p.presence; if (p.sameTab || pr.n !== n || (pr.st !== 'race' && pr.st !== 'done')) continue;
     const done = pr.st === 'done' && Number.isFinite(pr.f);
-    rows.push({ name: mpName(p), car: pr.c, done, f: done ? pr.f : null, cp: pr.cp | 0, prog: +pr.p || 0, me: false });
+    rows.push({ name: mpName(p), cr: isCreator(p), car: pr.c, done, f: done ? pr.f : null, cp: pr.cp | 0, prog: +pr.p || 0, me: false });
   }
   if (mp.race && mp.race.n === n && mp.status !== 'room') rows.push({ name: 'You', car: game.car.spec.id, done: mp.fin != null, f: mp.fin, cp: game.cpHit.size, prog: mp.prog, me: true });
   return rows.sort((a, b) => (b.done - a.done) || (a.done ? a.f - b.f : (b.cp - a.cp) || (b.prog - a.prog)));
@@ -3761,16 +3865,18 @@ function mpSyncCars() {
   else if (mp.race) for (const p of mp.peers) if (!p.sameTab && p.presence.n === mp.race.n && p.presence.st === 'race') want.set(p.peer, p);
   for (const [peer, car] of mp.cars) {
     const p = want.get(peer);
-    if (!p || car.spec !== p.presence.c || car.paint !== mpPaint(p) || car.name !== mpName(p)) {
+    if (!p || car.spec !== p.presence.c || car.paint !== mpPaint(p) || car.name !== mpName(p) || car.cr !== isCreator(p)) {
       scene.remove(car.mesh, car.tag); disposeTree(car.mesh); car.tag.material.map.dispose(); car.tag.material.dispose(); mp.cars.delete(peer);
+      if (car.beam) { scene.remove(car.beam); disposeTree(car.beam); }
     }
   }
   for (const [peer, p] of want) {
     let car = mp.cars.get(peer);
     if (!car) {
-      const paint = mpPaint(p), name = mpName(p);
-      car = { spec: p.presence.c, paint, name, mesh: buildCarModel(carById(p.presence.c), { ghost: true, color: paint, opacity: 0.6 }), tag: nameTag(name, paint), samples: [], pres: null };
+      const paint = mpPaint(p), name = mpName(p), cr = isCreator(p);
+      car = { spec: p.presence.c, paint, name, cr, mesh: buildCarModel(carById(p.presence.c), { ghost: true, color: paint, opacity: 0.6 }), tag: nameTag(name, paint, cr ? CREATOR.title : null), beam: cr ? creatorBeam() : null, samples: [], pres: null };
       car.mesh.visible = car.tag.visible = false; scene.add(car.mesh, car.tag); mp.cars.set(peer, car);
+      if (car.beam) { car.beam.visible = false; scene.add(car.beam); }
     }
     if (p.presence !== car.pres) {
       car.pres = p.presence; const s = p.presence.s;
@@ -3782,13 +3888,18 @@ function mpUpdateCars() {
   const show = game.state === 'race' || game.state === 'finished', t = Date.now() - MP_DELAY;
   for (const car of mp.cars.values()) {
     const sm = car.samples; car.mesh.visible = car.tag.visible = show && sm.length > 0;
+    if (car.beam) car.beam.visible = car.mesh.visible;
     if (!car.mesh.visible) continue;
     let j = sm.findIndex(x => x.at > t), a, b, k = 0;
     if (j === -1) a = b = sm[sm.length - 1]; else if (j === 0) a = b = sm[0]; else { a = sm[j - 1]; b = sm[j]; k = clamp((t - a.at) / Math.max(1, b.at - a.at), 0, 1); }
     if (Math.hypot(b.s[0] - a.s[0], b.s[1] - a.s[1], b.s[2] - a.s[2]) > 30) k = k < 0.5 ? 0 : 1; // a respawn: jump, don't slide
     car.mesh.position.set(a.s[0] + (b.s[0] - a.s[0]) * k, a.s[1] + (b.s[1] - a.s[1]) * k, a.s[2] + (b.s[2] - a.s[2]) * k);
     car.mesh.quaternion.copy(new THREE.Quaternion(a.s[3], a.s[4], a.s[5], a.s[6]).slerp(new THREE.Quaternion(b.s[3], b.s[4], b.s[5], b.s[6]), k)).normalize();
-    car.tag.position.set(car.mesh.position.x, car.mesh.position.y + 2.6, car.mesh.position.z);
+    car.tag.position.set(car.mesh.position.x, car.mesh.position.y + 2.6 + car.tag.userData.lift, car.mesh.position.z);
+    if (car.beam) { // it pulses while the creator's welcome plays
+      const now = performance.now(); car.beam.position.copy(car.mesh.position);
+      car.beam.children[0].material.opacity = now < creator.pulseUntil ? 0.6 + 0.2 * Math.sin(now / 90) : 0.38 + 0.08 * Math.sin(now / 400);
+    }
   }
 }
 function mpHud() {
@@ -3797,14 +3908,15 @@ function mpHud() {
     const now = performance.now(); if (now - mp.hudAt < 400) return; mp.hudAt = now;
     const others = mpPlayers().filter(p => !p.sameTab && p.presence.st === 'city');
     el.hidden = false; el.classList.add('city');
-    el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + ['You', ...others.slice(0, 7).map(mpName)].map(n => `<div><span>${escapeHtml(n)}</span><span></span></div>`).join('');
+    el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + [['You', false], ...others.slice(0, 7).map(p => [mpName(p), isCreator(p)])]
+      .map(([n, cr]) => `<div><span${cr ? ' class="cr"' : ''}>${escapeHtml(cr ? CREATOR.title : n)}</span><span></span></div>`).join('');
     cityChatRender(); return;
   }
   if (!mp.race || game.state !== 'race') { if (!el.hidden) el.hidden = true; return; }
   const now = performance.now(); if (now - mp.hudAt < 200) return; mp.hudAt = now;
   const rows = mpStandings(), cps = world.cps.length;
   el.hidden = false; el.classList.remove('city');
-  el.innerHTML = rows.slice(0, 8).map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${i + 1}. ${escapeHtml(r.name)}</span><span>${mpRaceCell(r, cps)}</span></div>`).join('');
+  el.innerHTML = rows.slice(0, 8).map((r, i) => `<div class="${r.me ? 'me' : ''}"><span${r.cr ? ' class="cr"' : ''}>${i + 1}. ${escapeHtml(r.cr ? CREATOR.title : r.name)}</span><span>${mpRaceCell(r, cps)}</span></div>`).join('');
 }
 function mpTick() {
   if (!mp.r) return;
@@ -3874,8 +3986,8 @@ async function cityJoin() {
     try { r = await mp.room.join(CITY_ROOM); } catch (e) { toast('Could not reach the online City, so you’re driving it on your own.'); }
     finally { mp.joining = false; }
     if (r) {
-      Object.assign(mp, { r, name: CITY_ROOM, city: true, peers: r.peers(), joinedAt: Date.now(), hs: 0, sel: null, go: null, lastN: 0, synced: true, race: null, status: 'city', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0 });
-      mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mpPeersChanged(); }, () => {
+      Object.assign(mp, { r, name: CITY_ROOM, city: true, peers: r.peers(), joinedAt: Date.now(), hs: 0, sel: null, go: null, lastN: 0, synced: true, race: null, status: 'city', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0, heardAt: 0, firstSeen: new Map(), welcomed: new Set() });
+      mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mp.heardAt = mp.heardAt || Date.now(); mpPeersChanged(); }, () => {
         if (mp.r !== r) return;
         toast('Lost the connection to the City. You can keep driving on your own.'); mpLeave();
       });
@@ -3966,9 +4078,9 @@ function mpRender() {
   const raceN = mp.race ? mp.race.n : mp.lastN, cps = mpCps(mp.race ? mp.race.tr : mp.go && mp.go.tr), standings = mpStandings();
   const inRace = p => p.sameTab ? !!(mp.race && mp.status !== 'room') : raceN > 0 && p.presence.n === raceN && (p.presence.st === 'race' || p.presence.st === 'done');
   const others = mpPlayers().filter(p => !inRace(p));
-  const row = (rk, name, carId, st, me) => `<tr class="${me ? 'me' : ''}"><td class="rk">${rk}</td><td class="who">${escapeHtml(name)}</td><td class="car">${CAR_BY_ID[carId] ? CAR_BY_ID[carId].name : ''}</td><td class="st">${st}</td></tr>`;
-  $('mp-players').innerHTML = standings.map((r, i) => row(i + 1, r.name, r.car, mpRaceCell(r, cps), r.me)).join('') +
-    others.map(p => row('', mpName(p), p.sameTab ? game.car.spec.id : p.presence.c, p === host ? 'Host' : 'In room', p.sameTab)).join('');
+  const row = (rk, name, carId, st, me, cr) => `<tr class="${me ? 'me' : ''}"><td class="rk">${rk}</td><td class="who${cr ? ' cr' : ''}">${escapeHtml(cr ? CREATOR.title : name)}</td><td class="car">${CAR_BY_ID[carId] ? CAR_BY_ID[carId].name : ''}</td><td class="st">${st}</td></tr>`;
+  $('mp-players').innerHTML = standings.map((r, i) => row(i + 1, r.name, r.car, mpRaceCell(r, cps), r.me, r.cr)).join('') +
+    others.map(p => row('', mpName(p), p.sameTab ? game.car.spec.id : p.presence.c, p === host ? 'Host' : 'In room', p.sameTab, !p.sameTab && isCreator(p))).join('');
   const n = mpPlayers().length; $('mp-count').textContent = n + (n === 1 ? ' player' : ' players');
   const start = $('mp-start'); if (start) start.textContent = live ? 'Start a new race' : mp.lastN ? 'Start next race' : 'Start race';
   $('mp-status').textContent = view === 'host' ? (n < 2 ? 'Waiting for players. Anyone who opens the game can join from Race online. You can also start on your own.' : 'Everyone races when you press Start.')
