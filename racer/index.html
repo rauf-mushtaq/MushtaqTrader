@@ -112,6 +112,8 @@
   .car-card { text-align: left; padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px; background: rgba(255,255,255,0.03); display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .car-card:hover { border-color: rgba(255,255,255,0.4); }
   .car-card.sel { border-color: var(--signal); background: rgba(255,210,63,0.1); }
+  .car-card.locked { opacity: 0.5; cursor: not-allowed; border-style: dashed; }
+  .car-card.locked:hover { border-color: var(--line); }
   .car-card .nm { font-family: var(--display); font-weight: 700; font-size: 15px; }
   .car-card .cl { color: var(--muted); font-size: 12px; }
   .chip { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
@@ -1683,7 +1685,7 @@ const CARS = [
   { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 47, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
   { id: 'kart', name: 'Kart', cls: 'Go-kart', model: 'kart', color: '#3ee38a', accent: '#20242c', comY: 0.38, height: 1.2, vmax: 46, accel: 30, grip: 2.25, rear: 1.0, drive: 1, steer: 0.68, steerFall: 32, df: 0, brake: 50, hb: 0.14, grassGrip: 0.6, grassV: 22 },
   // The special one: by far the fastest (about 30% quicker than the Formula Racer), and it plays its theme on repeat while it's your car.
-  { id: 'agent', name: 'Silver Agent', cls: '1960s British spy GT', model: 'agent', color: '#9da5ab', accent: '#3b4048', comY: 0.56, height: 1.5, vmax: 71.25, accel: 46, grip: 2.15, rear: 1.07, drive: 1, steer: 0.52, steerFall: 26, df: 0.9, brake: 82, hb: 0.34, grassGrip: 0.45, grassV: 20, theme: 'agent-theme.mp3' },
+  { id: 'agent', name: 'Silver Agent', cls: '1960s British spy GT', model: 'agent', creatorOnly: true, color: '#9da5ab', accent: '#3b4048', comY: 0.56, height: 1.5, vmax: 71.25, accel: 46, grip: 2.15, rear: 1.07, drive: 1, steer: 0.52, steerFall: 26, df: 0.9, brake: 82, hb: 0.34, grassGrip: 0.45, grassV: 20, theme: 'agent-theme.mp3' },
 ];
 const CAR_BY_ID = Object.fromEntries(CARS.map(c => [c.id, c]));
 function carById(id) { return CAR_BY_ID[id] || CARS[0]; }
@@ -2898,6 +2900,7 @@ function setGhostCar(id) {
 }
 setGhostCar(settings.car);
 function selectCar(id) {
+  if (!carAllowed(id)) id = 'street';
   settings.car = id; saveSettings();
   game.car.setSpec(carById(id), paintFor(carById(id)));
   game.demo.idx = 0; updateCarTheme();
@@ -3386,18 +3389,18 @@ function sweepOldTimes(snap) {
   const ref = community.db.doc('times/' + community.me);
   times.queue = times.queue.catch(() => {}).then(async () => {
     const cur = await ref.get();
-    await ref.set({ best: dropOldTimes({ ...((cur.exists && cur.data().best) || {}) }, community.me), updated: Date.now() });
+    await ref.set({ best: dropOldTimes({ ...((cur.exists && cur.data().best) || {}) }, community.me), updated: Date.now(), ...(creator.sig ? { cr: creator.sig } : {}) });
   }).catch(() => {});
 }
 function watchTimes(db) {
   db.collection('times').onSnapshot(snap => {
     const boards = new Map();
     for (const d of snap.docs) {
-      const best = d.exists && d.data().best; if (!best || typeof best !== 'object') continue;
+      const data = d.exists && d.data(), best = data && data.best; if (!best || typeof best !== 'object') continue;
       for (const k in best) {
         const e = best[k]; if (!e || !Number.isFinite(e.t)) continue;
         if (!boards.has(k)) boards.set(k, []);
-        boards.get(k).push({ uid: d.id, t: Math.round(e.t), c: String(e.c || ''), a: +e.a || 0, g: !!e.g });
+        boards.get(k).push({ uid: d.id, t: Math.round(e.t), c: String(e.c || ''), a: +e.a || 0, g: !!e.g, cr: data.cr });
       }
     }
     for (const rows of boards.values()) rows.sort((x, y) => x.t - y.t || x.a - y.a);
@@ -3408,11 +3411,13 @@ function watchTimes(db) {
   }, () => { times.on = false; refreshTimes(); });
 }
 // One track's board, fastest first, one row per player. Shared data is
-// untrusted, so times far quicker than the author medal are left out.
+// untrusted, so times far quicker than the author medal are left out, and so
+// are times in the creator's car by anyone but the creator.
 function boardFor(tr, medals) {
   if (!times.on || !medals) return null;
   const key = boardKey(tr), floor = medals.author * 0.4;
-  let rows = (times.boards.get(key) || []).filter(r => r.t >= floor && r.t < 3600000);
+  const fair = r => !carById(r.c).creatorOnly || (r.uid === community.me ? carAllowed(r.c) : creatorOk(r.uid, r.cr, refreshTimes));
+  let rows = (times.boards.get(key) || []).filter(r => r.t >= floor && r.t < 3600000 && fair(r));
   const p = times.pending.get(key);
   if (p && community.me) { rows = rows.filter(r => r.uid !== community.me); rows.push({ uid: community.me, ...p }); rows.sort((x, y) => x.t - y.t || x.a - y.a); }
   return rows;
@@ -3431,7 +3436,7 @@ function postTime(tr, t, car, rec) {
   times.queue = times.queue.catch(() => {}).then(async () => {
     const snap = await ref.get();
     const best = dropOldTimes({ ...((snap.exists && snap.data().best) || {}) }, community.me);
-    if (best[key] && best[key].t <= t) return;
+    if (best[key] && best[key].t <= t && carAllowed(best[key].c)) return;
     if (ghost) {
       try { await ghostRef(community.me, key).set(ghost); }
       catch (e) { delete entry.g; if (e && e.code === 'quota_exceeded') toast('Your time is on the board, but there was no room for its ghost.'); }
@@ -3442,7 +3447,7 @@ function postTime(tr, t, car, rec) {
       if (best[k] && best[k].g) ghostRef(community.me, k).delete().catch(() => {});
       delete best[k];
     }
-    await ref.set({ best, updated: Date.now() });
+    await ref.set({ best, updated: Date.now(), ...(creator.sig ? { cr: creator.sig } : {}) });
   }).catch(e => {
     times.pending.delete(key);
     if (e && e.code === 'invalid_argument') times.canPost = false;
@@ -3643,7 +3648,11 @@ function nameTag(name, color, title) {
 // is no use to anyone else.
 // ============================================================================
 const CREATOR = { title: 'Rauf Mushtaq The Creator', x: '0pEzjzUWvs4CEqh4IjWfYDZyy6FNGCbfs_gLHA7Mgy8', y: '0xCI4LOONiDIR36RFaduOCTBB7JN5zeHuJcBQLpd8u4' };
-const creator = { sig: null, fresh: false, pub: null, known: new Map(), playedAt: 0, pulseUntil: 0 };
+// owner: this browser holds the creator's key (assumed from storage until it's
+// checked), which unlocks the creator's car; sig: its signed player id, online.
+// wanted: a saved creator's car waiting at start-up until the game knows whether
+// this player may drive it.
+const creator = { owner: !!store.get('mt.creator', null), sig: null, fresh: false, run: 0, pub: null, known: new Map(), playedAt: 0, pulseUntil: 0, wanted: null };
 // The link, when the page opens or (in a tab that already has the game) when it changes.
 function creatorLink() {
   const m = /(?:^#|&)creator=([A-Za-z0-9_-]{43}|off)(?:&|$)/.exec(location.hash); if (!m) return false;
@@ -3654,7 +3663,7 @@ function creatorLink() {
 creatorLink();
 addEventListener('hashchange', async () => {
   const link = creatorLink(); if (!link) return;
-  const was = creator.sig; creator.sig = null; await creatorSign();
+  const was = creator.owner; await creatorSign();
   if (was && link === 'off') toast('This browser no longer shows you as the creator');
   if (mp.r) mpSend(true);
 });
@@ -3667,33 +3676,58 @@ async function creatorVerify(id, sig) {
     return await crypto.subtle.verify(ECDSA, creator.pub, Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0)), creatorMsg(id));
   } catch (e) { return false; }
 }
-// On the creator's browser: sign this player's id, to show in the live rooms.
+// Check this browser's creator key: it unlocks the creator's car (offline too)
+// and, once there's a player id, signs it for the live rooms and the leaderboards.
 async function creatorSign() {
-  const d = store.get('mt.creator', null);
-  if (!d || !community.me || !(window.crypto && crypto.subtle)) return;
-  try {
-    const key = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: CREATOR.x, y: CREATOR.y, d }, ECDSA, false, ['sign']);
-    const sig = b64u(await crypto.subtle.sign(ECDSA, key, creatorMsg(community.me)));
-    if (!(await creatorVerify(community.me, sig))) throw new Error('not the creator key');
-    creator.sig = sig; if (creator.fresh) toast('This browser now shows you as ' + CREATOR.title);
-  } catch (e) { store.del('mt.creator'); if (creator.fresh) toast('That creator link isn’t right.'); }
+  const d = store.get('mt.creator', null), run = ++creator.run; let owner = false, sig = null;
+  if (d && window.crypto && crypto.subtle) {
+    try {
+      const key = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: CREATOR.x, y: CREATOR.y, d }, ECDSA, false, ['sign']), id = community.me || '';
+      const s = b64u(await crypto.subtle.sign(ECDSA, key, creatorMsg(id)));
+      if (!(await creatorVerify(id, s))) throw new Error('not the creator key');
+      owner = true; sig = id ? s : null;
+      if (creator.fresh) { creator.fresh = false; toast('This browser now shows you as ' + CREATOR.title); }
+    } catch (e) { store.del('mt.creator'); if (creator.fresh) { creator.fresh = false; toast('That creator link isn’t right.'); } }
+  }
+  if (run !== creator.run) return; // a newer check has taken over
+  creator.owner = owner; creator.sig = sig;
+  // Your times carry the signature, so the boards show your times in the creator's car.
+  if (sig && community.db && community.canWrite !== false) community.db.doc('times/' + community.me).update({ cr: sig }).catch(() => {});
+  creatorChanged();
 }
-// Whether a player in the room is the creator (false until their signature has been checked).
-function isCreator(p) {
-  if (p.sameTab) return !!creator.sig;
-  const sig = p.presence && p.presence.cr;
-  if (!p.by || p.kind !== 'viewer' || typeof sig !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(sig)) return false;
-  const k = p.by + ' ' + sig;
+// Without the key, the creator's car goes back in the garage.
+function creatorChanged(settled) {
+  if (!game.car) return;
+  const w = creator.wanted;
+  if (w && carAllowed(w)) { creator.wanted = null; selectCar(w); }
+  else if (w && settled) { creator.wanted = null; saveSettings(); toast(carById(w).name + ' is only for ' + CREATOR.title); }
+  if (!carAllowed(settings.car)) { selectCar('street'); toast(carById('agent').name + ' is only for ' + CREATOR.title); }
+  if (game.state === 'garage') renderGarage();
+  if (times.on) refreshTimes();
+}
+// The creator's car: for the creator's key, or for the owner of the game's page.
+function carAllowed(id) { return !carById(id).creatorOnly || creator.owner || community.owner; }
+// Whether a signature on an id is the creator's (false until it has been checked; then() runs once it passes).
+function creatorOk(id, sig, then) {
+  if (!id || typeof sig !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(sig)) return false;
+  const k = id + ' ' + sig;
   if (!creator.known.has(k)) {
     if (creator.known.size > 200) creator.known.clear();
     creator.known.set(k, null);
-    creatorVerify(p.by, sig).then(ok => {
-      creator.known.set(k, ok); if (!ok || !mp.r) return;
-      mpSyncCars(); creatorWelcome(); mp.hudAt = 0; if (game.state === 'online') mpRender();
-    });
+    creatorVerify(id, sig).then(ok => { creator.known.set(k, ok); if (ok) then(); });
   }
   return creator.known.get(k) === true;
 }
+// Whether a player in the room is the creator.
+function isCreator(p) {
+  if (p.sameTab) return !!creator.sig;
+  return p.kind === 'viewer' && creatorOk(p.by, p.presence && p.presence.cr, () => {
+    if (!mp.r) return;
+    mpSyncCars(); creatorWelcome(); mp.hudAt = 0; if (game.state === 'online') mpRender();
+  });
+}
+// The car someone in the room is driving, as everyone sees it: the creator's car only for the creator.
+function mpCar(p) { const c = CAR_BY_ID[p.presence.c]; return c && c.creatorOnly && !isCreator(p) ? 'street' : p.presence.c; }
 // The creator driving into a room where others already are: five seconds of the
 // theme for everyone. Players there from the start of this page's time in the
 // room don't count as arriving.
@@ -3939,7 +3973,7 @@ function mpStandings() {
   for (const p of mp.peers) {
     const pr = p.presence; if (p.sameTab || pr.n !== n || (pr.st !== 'race' && pr.st !== 'done')) continue;
     const done = pr.st === 'done' && Number.isFinite(pr.f);
-    rows.push({ name: mpName(p), cr: isCreator(p), car: pr.c, done, f: done ? pr.f : null, cp: pr.cp | 0, prog: +pr.p || 0, me: false });
+    rows.push({ name: mpName(p), cr: isCreator(p), car: mpCar(p), done, f: done ? pr.f : null, cp: pr.cp | 0, prog: +pr.p || 0, me: false });
   }
   if (mp.race && mp.race.n === n && mp.status !== 'room') rows.push({ name: 'You', car: game.car.spec.id, done: mp.fin != null, f: mp.fin, cp: game.cpHit.size, prog: mp.prog, me: true });
   return rows.sort((a, b) => (b.done - a.done) || (a.done ? a.f - b.f : (b.cp - a.cp) || (b.prog - a.prog)));
@@ -3955,7 +3989,7 @@ function mpSyncCars() {
   else if (mp.race) for (const p of mp.peers) if (!p.sameTab && p.presence.n === mp.race.n && p.presence.st === 'race') want.set(p.peer, p);
   for (const [peer, car] of mp.cars) {
     const p = want.get(peer);
-    if (!p || car.spec !== p.presence.c || car.paint !== mpPaint(p) || car.name !== mpName(p) || car.cr !== isCreator(p)) {
+    if (!p || car.spec !== mpCar(p) || car.paint !== mpPaint(p) || car.name !== mpName(p) || car.cr !== isCreator(p)) {
       scene.remove(car.mesh, car.tag); disposeTree(car.mesh); car.tag.material.map.dispose(); car.tag.material.dispose(); mp.cars.delete(peer);
       if (car.beam) { scene.remove(car.beam); disposeTree(car.beam); }
     }
@@ -3964,7 +3998,7 @@ function mpSyncCars() {
     let car = mp.cars.get(peer);
     if (!car) {
       const paint = mpPaint(p), name = mpName(p), cr = isCreator(p);
-      car = { spec: p.presence.c, paint, name, cr, mesh: buildCarModel(carById(p.presence.c), { ghost: true, color: paint, opacity: 0.6 }), tag: nameTag(name, paint, cr ? CREATOR.title : null), beam: cr ? creatorBeam() : null, samples: [], pres: null };
+      car = { spec: mpCar(p), paint, name, cr, mesh: buildCarModel(carById(mpCar(p)), { ghost: true, color: paint, opacity: 0.6 }), tag: nameTag(name, paint, cr ? CREATOR.title : null), beam: cr ? creatorBeam() : null, samples: [], pres: null };
       car.mesh.visible = car.tag.visible = false; scene.add(car.mesh, car.tag); mp.cars.set(peer, car);
       if (car.beam) { car.beam.visible = false; scene.add(car.beam); }
     }
@@ -4131,7 +4165,7 @@ function mpRender() {
       <div class="row"><button class="btn primary" id="mp-host">Host a race</button><button class="btn" id="mp-back">Back</button></div>`
       : `<div class="eyebrow" id="mp-eyebrow">Live race</div><h2 id="mp-trackname"></h2>
       ${view === 'host' ? `<div class="field"><label for="mp-track">Track</label><select id="mp-track">${mpTrackOptions()}</select></div>` : ''}
-      <div class="field"><label for="mp-car">Your car</label><select id="mp-car">${CARS.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+      <div class="field"><label for="mp-car">Your car</label><select id="mp-car">${CARS.filter(c => carAllowed(c.id)).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
       <div class="lb-head"><span>Players</span><span id="mp-count"></span></div><table class="lb world" id="mp-players"></table>
       <p class="lb-note" id="mp-status"></p>
       <div class="lb-head"><span>Chat</span></div>
@@ -4170,7 +4204,7 @@ function mpRender() {
   const others = mpPlayers().filter(p => !inRace(p));
   const row = (rk, name, carId, st, me, cr) => `<tr class="${me ? 'me' : ''}"><td class="rk">${rk}</td><td class="who${cr ? ' cr' : ''}">${escapeHtml(cr ? CREATOR.title : name)}</td><td class="car">${CAR_BY_ID[carId] ? CAR_BY_ID[carId].name : ''}</td><td class="st">${st}</td></tr>`;
   $('mp-players').innerHTML = standings.map((r, i) => row(i + 1, r.name, r.car, mpRaceCell(r, cps), r.me, r.cr)).join('') +
-    others.map(p => row('', mpName(p), p.sameTab ? game.car.spec.id : p.presence.c, p === host ? 'Host' : 'In room', p.sameTab, !p.sameTab && isCreator(p))).join('');
+    others.map(p => row('', mpName(p), p.sameTab ? game.car.spec.id : mpCar(p), p === host ? 'Host' : 'In room', p.sameTab, !p.sameTab && isCreator(p))).join('');
   const n = mpPlayers().length; $('mp-count').textContent = n + (n === 1 ? ' player' : ' players');
   const start = $('mp-start'); if (start) start.textContent = live ? 'Start a new race' : mp.lastN ? 'Start next race' : 'Start race';
   $('mp-status').textContent = view === 'host' ? (n < 2 ? 'Waiting for players. Anyone who opens the game can join from Race online. You can also start on your own.' : 'Everyone races when you press Start.')
@@ -4302,8 +4336,8 @@ function renderGarage() {
     row('Grip', st.grip, c.df >= 0.5 ? 'downforce' : c.grip >= 2 ? 'sticky' : 'road') + row('Drift', st.drift, c.rear < 0.95 ? 'loose' : c.rear > 1.05 ? 'planted' : 'balanced') +
     `<span>Drive</span><span style="grid-column: span 2; color: var(--muted)">${drive}</span>`;
   $('g-paint').innerHTML = CAR_COLORS.map(col => `<button class="${col === 'factory' ? 'factory' : ''} ${col === (settings.paint || 'factory') ? 'sel' : ''}" ${col === 'factory' ? '' : `style="background:${col}"`} data-paint="${col}" aria-label="${col === 'factory' ? 'Factory paint' : 'Paint ' + col}" title="${col === 'factory' ? 'Factory paint' : col}"></button>`).join('');
-  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car); return `<button class="car-card ${car.id === c.id ? 'sel' : ''}" data-car="${car.id}">
-    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
+  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car), locked = !carAllowed(car.id); return `<button class="car-card ${car.id === c.id ? 'sel' : ''}${locked ? ' locked' : ''}" data-car="${car.id}"${locked ? ` disabled title="Only ${CREATOR.title} can drive this car"` : ''}>
+    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${locked ? 'Creator only' : car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
     <span class="mini" title="Speed, acceleration, grip, drift">${['speed', 'accel', 'grip', 'drift'].map(k => `<i><b style="width:${Math.round(s2[k] * 100)}%"></b></i>`).join('')}</span></button>`; }).join('');
 }
 function openGarage() {
@@ -4865,11 +4899,12 @@ window.addEventListener('resize', resize);
 
 function start() {
   resize(); applyTheme();
+  if (!carAllowed(settings.car)) { creator.wanted = settings.car; settings.car = 'street'; } // until it's known whether it's theirs
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
-  setState('menu'); loadDemo(); updateCarTheme();
+  setState('menu'); loadDemo(); updateCarTheme(); creatorSign();
   requestAnimationFrame(t => { last = t; frame(t); });
   profileReady = initCommunity().catch(() => {});
-  profileReady.then(initOnline);
+  profileReady.then(() => creatorChanged(true)); profileReady.then(initOnline);
   renderRacingAs(); if (!settings.nick) askName(true);
 }
 $('btn-name').onclick = () => askName(false);
