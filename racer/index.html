@@ -139,6 +139,11 @@
   #hud-cp { font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; padding: 3px 9px; background: rgba(0,0,0,0.42); border-radius: 3px; }
   #hud-hint { position: absolute; top: 38%; left: 50%; transform: translateX(-50%); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 16px; background: rgba(0,0,0,0.5); border-radius: 4px; white-space: nowrap; }
   #hud-hint b { color: var(--signal); }
+  #hud-tip { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: calc(100% - 32px); width: max-content; padding: 10px 18px; border-radius: 8px; background: rgba(8,14,26,0.78); border: 1px solid rgba(255,210,63,0.55); font-family: var(--body); font-size: 20px; text-align: center; line-height: 1.35; }
+  #hud-tip small { font-family: var(--display); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--signal); }
+  #hud-tip b { color: var(--signal); }
+  #hud-tip kbd { font-family: var(--mono); font-size: 15px; padding: 1px 7px; border-radius: 4px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); }
+  @media (max-width: 560px) { #hud-tip { font-size: 16px; top: 24%; } }
   .hud-left { position: absolute; left: max(14px, env(safe-area-inset-left, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: 6px; }
   #hud-track { font-weight: 700; font-size: 16px; text-shadow: 0 1px 0 rgba(0,0,0,0.5); }
   #hud-medals { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,0.38); padding: 6px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; }
@@ -335,6 +340,7 @@
   </div>
   <div id="flash"></div>
   <div id="hud-hint">Press <b>W</b> or <b>↑</b> to launch</div>
+  <div id="hud-tip" role="status" aria-live="polite" hidden></div>
   <div id="hud-drift" hidden><span id="drift-label">Drift</span><div class="meter"><i id="drift-bar"></i></div></div>
   <canvas id="minimap" width="300" height="300"></canvas>
   <div id="hud-speed"><span id="spd">0</span><small>KM/H</small><div class="bar"><i id="spd-bar"></i></div></div>
@@ -1229,7 +1235,7 @@ const MEDAL_NAMES = { author: 'Author', gold: 'Gold', silver: 'Silver', bronze: 
 // Settings
 // ============================================================================
 const CAR_COLORS = ['factory', '#ff5a36', '#d4121c', '#ffd23f', '#3ee38a', '#2a6b3f', '#3fa7ff', '#1c63d8', '#b06bff', '#ff7ad9', '#c9ced6', '#f2f4f8', '#20242c'];
-const settings = Object.assign({ car: 'street', paint: 'factory', theme: 'day', cam: 0, ghost: true, sound: true, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
+const settings = Object.assign({ car: 'street', paint: 'factory', theme: 'day', cam: 0, ghost: true, sound: true, music: true, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
 function paintFor(spec) { return settings.paint && settings.paint !== 'factory' ? settings.paint : spec.color; }
 function saveSettings() { store.set('mt.settings', settings); }
 
@@ -2447,6 +2453,7 @@ class Car {
     // boost's first quarter second at full speed).
     if (this.vel.lengthSq() > 90 * 90 && this.padCool < 0.95) this.vel.multiplyScalar(Math.exp(-2.2 * dt));
     const boostOn = this.wheels.some(w => w.contact && w.surf === 'boost');
+    if (boostOn && !this.onBoost && !events.pad) events.pad = 'boost'; this.onBoost = boostOn;
     if (boostOn && fs < Math.max(sp.vmax * 1.15, 56)) F.addScaledVector(fwd, 60);
     if (this.boostT > 0) { this.boostT -= dt; if (fs < sp.vmax * 1.15) F.addScaledVector(fwd, this.boostAmt / 0.5); }
     if (fs > sp.vmax && contacts) F.addScaledVector(fwd, -(fs - sp.vmax) * 0.5);
@@ -2593,7 +2600,7 @@ class Car {
       const ln = this.landing ? this.landing.n : this.n, vn = this.vel.dot(ln);
       if (vn < -12) { this.vel.addScaledVector(ln, -12 - vn); this.pushVelocities(); }
       if (vn < -6) this.settleT = 0.4;
-      if (this.airTime > 0.3) { events.land = true; this.landT = 0.12; }
+      if (this.airTime > 0.3) { events.land = clamp(this.airTime / 1.2, 0.35, 1); this.landT = 0.12; }
     }
     this.airTime = this.grounded ? 0 : this.airTime + dt;
     const fwdNow = new V3(0, 0, 1).applyQuaternion(this.q), leftNow = new V3(1, 0, 0).applyQuaternion(this.q);
@@ -2773,32 +2780,151 @@ function updateSmoke(dt) {
 }
 
 // ============================================================================
-// Audio: synthesized engine + tyre noise. Starts after the first input.
+// Audio, all made in the browser: the engine, tyres and wind, one-off sounds
+// (landings, hits, pads, chimes, fanfares), and the background music. Starts
+// after the first click or key press, as browsers require.
 // ============================================================================
 const audio = { ctx: null };
 function initAudio() {
-  if (audio.ctx || !settings.sound) return;
+  if (audio.ctx) { if (audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {}); return; }
+  if (!settings.sound) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
-    const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 900; filt.connect(master);
+    // Everything but the music goes through a gentle limiter, so stacked sounds don't crackle.
+    const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -8; lim.ratio.value = 8; lim.attack.value = 0.003; lim.release.value = 0.2; lim.connect(ctx.destination);
+    const master = ctx.createGain(); master.gain.value = 0.5; master.connect(lim);
+    const sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
+    const musicBus = ctx.createGain(); musicBus.gain.value = 1; musicBus.connect(ctx.destination);
+    // Engine: two slightly detuned saws, a square an octave down and a sub, through a
+    // resonant low-pass and a touch of drive.
+    const shaper = ctx.createWaveShaper(); const curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2); }
+    shaper.curve = curve; shaper.connect(master);
+    const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 900; filt.Q.value = 2.5; filt.connect(shaper);
     const eg = ctx.createGain(); eg.gain.value = 0; eg.connect(filt);
-    const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.connect(eg); o1.start();
-    const o2 = ctx.createOscillator(); o2.type = 'square'; const g2 = ctx.createGain(); g2.gain.value = 0.35; o2.connect(g2); g2.connect(eg); o2.start();
-    const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true;
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 0.8;
-    const ng = ctx.createGain(); ng.gain.value = 0; noise.connect(bp); bp.connect(ng); ng.connect(master); noise.start();
-    Object.assign(audio, { ctx, master, eg, o1, o2, ng, filt });
+    const osc = (type, g) => { const o = ctx.createOscillator(); o.type = type; const gn = ctx.createGain(); gn.gain.value = g; o.connect(gn); gn.connect(eg); o.start(); return o; };
+    const o1 = osc('sawtooth', 0.6), o1b = osc('sawtooth', 0.45), o2 = osc('square', 0.3), o3 = osc('sine', 0.5);
+    // One loop of noise feeds the tyres, the wind and the one-off sounds.
+    const nbuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), nd = nbuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource(); noise.buffer = nbuf; noise.loop = true; noise.start();
+    const filter = (type, f, q) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+    const tbp = filter('bandpass', 1300, 1.1), ng = ctx.createGain(); ng.gain.value = 0; noise.connect(tbp); tbp.connect(ng); ng.connect(master);
+    const sq = ctx.createOscillator(); sq.type = 'triangle'; sq.frequency.value = 820; const sqg = ctx.createGain(); sqg.gain.value = 0; sq.connect(sqg); sqg.connect(master); sq.start();
+    const wlp = filter('lowpass', 400, 0.6), wg = ctx.createGain(); wg.gain.value = 0; noise.connect(wlp); wlp.connect(wg); wg.connect(master);
+    Object.assign(audio, { ctx, master, sfx, musicBus, eg, filt, o1, o1b, o2, o3, ng, tbp, sq, sqg, wg, wlp, nbuf });
   } catch (e) { audio.ctx = null; }
+  updateMusic();
 }
-function blip(freq, dur = 0.12, type = 'triangle', vol = 0.18) {
+// A short synth note (kept for the small sounds around the game).
+function blip(freq, dur = 0.12, type = 'triangle', vol = 0.18) { tone(freq, dur, type, vol * 0.8); }
+function tone(freq, dur, type = 'triangle', vol = 0.15, delay = 0, to = 0) {
   if (!audio.ctx || !settings.sound) return;
-  const o = audio.ctx.createOscillator(), g = audio.ctx.createGain(); o.type = type; o.frequency.value = freq;
-  g.gain.setValueAtTime(vol, audio.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.ctx.currentTime + dur);
-  o.connect(g); g.connect(audio.master); o.start(); o.stop(audio.ctx.currentTime + dur);
+  const c = audio.ctx, t = c.currentTime + delay, o = c.createOscillator(), g = c.createGain(); o.type = type;
+  o.frequency.setValueAtTime(freq, t); if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(audio.sfx); o.start(t); o.stop(t + dur + 0.02);
 }
+// A burst of filtered noise, its filter optionally sweeping from f to f2.
+function noiseHit(dur, f, q, vol, type = 'bandpass', f2 = 0, delay = 0) {
+  if (!audio.ctx || !settings.sound) return;
+  const c = audio.ctx, t = c.currentTime + delay, src = c.createBufferSource(), b = c.createBiquadFilter(), g = c.createGain();
+  src.buffer = audio.nbuf; b.type = type; b.Q.value = q; b.frequency.setValueAtTime(f, t); if (f2) b.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(b); b.connect(g); g.connect(audio.sfx); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+}
+// A struck bell: a sine whose brightness fades.
+function bell(freq, dur = 0.7, vol = 0.14, delay = 0) {
+  if (!audio.ctx || !settings.sound) return;
+  const c = audio.ctx, t = c.currentTime + delay, car = c.createOscillator(), mod = c.createOscillator(), mg = c.createGain(), g = c.createGain();
+  car.frequency.value = freq; mod.frequency.value = freq * 3.5; mg.gain.setValueAtTime(freq * 2.2, t); mg.gain.exponentialRampToValueAtTime(freq * 0.05, t + dur);
+  mod.connect(mg); mg.connect(car.frequency); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  car.connect(g); g.connect(audio.sfx); car.start(t); mod.start(t); car.stop(t + dur + 0.02); mod.stop(t + dur + 0.02);
+}
+const SFX = {
+  land(p = 1) { noiseHit(0.28, 380, 0.7, 0.32 * p, 'lowpass'); tone(85, 0.25, 'sine', 0.45 * p, 0, 42); },
+  wall(p = 1) { noiseHit(0.14, 1500, 1.4, 0.35 * p); noiseHit(0.22, 500, 0.8, 0.25 * p, 'lowpass'); tone(130, 0.12, 'square', 0.08 * p, 0, 70); },
+  boost() { noiseHit(0.5, 450, 1.3, 0.22, 'bandpass', 3800); tone(330, 0.4, 'sawtooth', 0.05, 0, 990); },
+  jump() { noiseHit(0.35, 700, 1, 0.18, 'bandpass', 3000); tone(280, 0.28, 'square', 0.06, 0, 840); },
+  superBoost() { noiseHit(1.1, 260, 0.9, 0.35, 'bandpass', 6500); tone(110, 1.0, 'sawtooth', 0.12, 0, 990); tone(220, 0.9, 'square', 0.05, 0.05, 1760); },
+  driftBoost(i = 0) { const base = [784, 988, 1175][i] || 784; tone(base, 0.12, 'triangle', 0.12); tone(base * 1.26, 0.16, 'triangle', 0.12, 0.06); if (i) tone(base * 1.5, 0.2, 'triangle', 0.1, 0.12); noiseHit(0.3, 900, 1, 0.12, 'bandpass', 4000); },
+  checkpoint() { bell(1046.5, 0.8, 0.13); bell(1568, 0.9, 0.11, 0.08); },
+  miss() { tone(196, 0.3, 'sawtooth', 0.09, 0, 130); },
+  count(n) { if (n) tone(587, 0.14, 'square', 0.1); else { tone(1175, 0.45, 'square', 0.09); tone(1760, 0.45, 'triangle', 0.06); } },
+  finish() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => { tone(f, 0.22, 'square', 0.07, i * 0.09); tone(f, 0.3, 'triangle', 0.1, i * 0.09); });
+    [523.25, 659.25, 783.99].forEach(f => tone(f * 2, 0.9, 'triangle', 0.06, 0.4)); noiseHit(0.9, 3000, 0.5, 0.08, 'highpass', 0, 0.36); },
+  medal(kind) { const n = { bronze: 2, silver: 3, gold: 4, author: 6 }[kind] || 0; for (let i = 0; i < n; i++) bell(1318.5 * Math.pow(1.12246, i * 2), 0.6, 0.08, 0.75 + i * 0.07); },
+  respawn() { tone(880, 0.22, 'sine', 0.08, 0, 330); noiseHit(0.22, 2500, 1, 0.06, 'bandpass', 600); },
+  unlock() { [784, 988, 1175, 1568].forEach((f, i) => bell(f, 0.7, 0.09, i * 0.08)); },
+  click() { tone(2200, 0.025, 'square', 0.025); },
+};
+function updateAudio(car, active, thr) {
+  if (!audio.ctx) return;
+  const t = audio.ctx.currentTime, on = active && settings.sound;
+  const sp = Math.abs(car.fs) / car.spec.vmax, kmh = car.speedKmh();
+  // Revs climb through each gear and drop at the change.
+  const gearPos = (sp * 5) % 1, rpm = 0.35 + 0.65 * (sp < 0.2 ? sp / 0.2 : gearPos * 0.7 + 0.3), f = 50 + rpm * 125 + sp * 55;
+  audio.o1.frequency.setTargetAtTime(f, t, 0.04); audio.o1b.frequency.setTargetAtTime(f * 1.006, t, 0.04);
+  audio.o2.frequency.setTargetAtTime(f * 0.5, t, 0.04); audio.o3.frequency.setTargetAtTime(f * 0.5, t, 0.04);
+  audio.filt.frequency.setTargetAtTime(420 + thr * 1100 + sp * 900, t, 0.06);
+  audio.eg.gain.setTargetAtTime(on ? 0.045 + thr * 0.06 : 0, t, 0.08);
+  // Tyres: a roar of noise when sliding, and a squeal through a drift.
+  const slide = on && car.grounded && car.surf !== 'grass' ? clamp((car.slip - 4) / 12, 0, 1) : 0;
+  audio.ng.gain.setTargetAtTime(slide * 0.11, t, 0.05);
+  const squeal = on && car.grounded && car.surf !== 'grass' && (car.drifting || car.slip > 7) && kmh > 25 ? clamp((car.slip - 3) / 14, 0.25, 1) : 0;
+  audio.sq.frequency.setTargetAtTime(640 + Math.min(car.slip, 25) * 14 + Math.sin(t * 31) * 18, t, 0.03);
+  audio.sqg.gain.setTargetAtTime(squeal * 0.035, t, 0.06);
+  // Wind rises with speed, more so in the air.
+  const w = on ? clamp(kmh / 260, 0, 1) : 0;
+  audio.wlp.frequency.setTargetAtTime(250 + w * 2200, t, 0.1);
+  audio.wg.gain.setTargetAtTime(w * w * (car.grounded ? 0.07 : 0.12), t, 0.12);
+}
+
+// Background music: a relaxed theme on the menus and a racing theme on the track
+// (both made for the game, music-menu.mp3 and music-race.mp3), faded from one to
+// the other, quieter while paused, and off while your car plays its own theme.
+// It goes through the sound engine where it can, so its volume works on iPhones
+// and iPads too (a web page can't set an audio element's volume there).
+const MUSIC = { menu: 'music-menu.mp3', race: 'music-race.mp3' };
+const music = { tracks: {}, cur: '', waiting: false };
+function musicTrack(name) {
+  if (music.tracks[name]) return music.tracks[name];
+  const el = new Audio(MUSIC[name]); el.loop = true; el.preload = 'auto';
+  const t = music.tracks[name] = { el, gain: null, vol: 0, fade: 0, stop: 0 };
+  if (location.protocol !== 'file:') { // (a page opened from a file can't route its audio)
+    try { const src = audio.ctx.createMediaElementSource(el); t.gain = audio.ctx.createGain(); t.gain.gain.value = 0; src.connect(t.gain); t.gain.connect(audio.musicBus); } catch (e) { t.gain = null; }
+  }
+  if (!t.gain) el.volume = 0;
+  return t;
+}
+function musicVol(t, v, secs) {
+  t.vol = v;
+  if (t.gain) { const now = audio.ctx.currentTime; t.gain.gain.cancelScheduledValues(now); t.gain.gain.setValueAtTime(t.gain.gain.value, now); t.gain.gain.linearRampToValueAtTime(v, now + secs); return; }
+  clearInterval(t.fade); const from = t.el.volume, t0 = performance.now();
+  t.fade = setInterval(() => { const k = Math.min(1, (performance.now() - t0) / (secs * 1000)); t.el.volume = clamp(from + (v - from) * k, 0, 1); if (k >= 1) clearInterval(t.fade); }, 50);
+}
+function updateMusic() {
+  if (!audio.ctx) return; // until the first click or key press
+  const s = game.state, racing = s === 'race' || s === 'paused' || s === 'finished';
+  const want = !settings.sound || !settings.music || document.hidden || carById(settings.car).theme ? '' : racing ? 'race' : 'menu';
+  for (const [name, t] of Object.entries(music.tracks)) if (name !== want && t.vol > 0) {
+    musicVol(t, 0, 0.9); clearTimeout(t.stop); t.stop = setTimeout(() => { if (t.vol === 0) t.el.pause(); }, 1000);
+  }
+  if (!want) { music.cur = ''; return; }
+  const t = musicTrack(want), v = want === 'menu' ? (s === 'editor' ? 0.32 : 0.5) : s === 'paused' ? 0.12 : s === 'finished' ? 0.24 : 0.3;
+  clearTimeout(t.stop);
+  if (t.el.paused) {
+    if (music.cur !== want) t.el.currentTime = 0; // each new race starts its music from the top
+    const p = t.el.play();
+    if (p && p.catch) p.catch(() => {
+      if (music.waiting) return; music.waiting = true;
+      const evs = ['pointerup', 'touchend', 'keydown'], go = () => { music.waiting = false; evs.forEach(ev => removeEventListener(ev, go, true)); updateMusic(); };
+      evs.forEach(ev => addEventListener(ev, go, true));
+    });
+  }
+  music.cur = want; musicVol(t, v, 0.9);
+}
+
 // A car with a theme plays it on repeat for as long as it's your car (with the
 // sound on and the game in view). Browsers only start it after a click or key press.
 const carTheme = { src: null, el: null, waiting: false };
@@ -2816,19 +2942,6 @@ function updateCarTheme() {
     evs.forEach(ev => addEventListener(ev, go, true));
   });
 }
-function updateAudio(car, active, thr) {
-  if (!audio.ctx) return;
-  const t = audio.ctx.currentTime; const on = active && settings.sound;
-  const sp = Math.abs(car.fs) / car.spec.vmax;
-  const gearPos = (sp * 5) % 1; const rpm = 0.35 + 0.65 * (sp < 0.2 ? sp / 0.2 : gearPos * 0.7 + 0.3);
-  const f = 55 + rpm * 120 + sp * 60;
-  audio.o1.frequency.setTargetAtTime(f, t, 0.05); audio.o2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
-  audio.filt.frequency.setTargetAtTime(500 + thr * 900 + sp * 800, t, 0.08);
-  audio.eg.gain.setTargetAtTime(on ? 0.05 + thr * 0.05 : 0, t, 0.08);
-  const sk = on && car.grounded && car.surf !== 'grass' ? clamp((car.slip - 4) / 12, 0, 1) * 0.12 : 0;
-  audio.ng.gain.setTargetAtTime(sk, t, 0.05);
-}
-
 // ============================================================================
 // Input: keyboard, touch, gamepad
 // ============================================================================
@@ -2924,7 +3037,7 @@ function selectCar(id) {
   if (!carUsable(id)) id = 'street';
   settings.car = id; saveSettings();
   game.car.setSpec(carById(id), paintFor(carById(id)));
-  game.demo.idx = 0; updateCarTheme();
+  game.demo.idx = 0; updateCarTheme(); updateMusic();
 }
 
 // v4 keys: the cars got slower, so older times no longer compare.
@@ -3052,6 +3165,9 @@ function restartRace() {
   $('hud-keys').innerHTML = free ? '<kbd>R</kbd> back to the start · <kbd>Enter</kbd> back on your wheels · <kbd>Space</kbd> handbrake / drift · <kbd>C</kbd> camera · <kbd>Esc</kbd> pause and courses' : HUD_KEYS;
   if (free) $('hud-hint').innerHTML = `Drive anywhere: jumps, parks and ${CITY_COURSES.length} obstacle courses. ` + $('hud-hint').innerHTML;
   updateHudStatic();
+  // The first race shows its own tips instead.
+  tut.on = world.track.id === TUTORIAL.id; $('hud-tip').hidden = true;
+  if (tut.on) { tutSetup(); $('hud-hint').hidden = true; }
 }
 const HUD_KEYS = $('hud-keys').innerHTML;
 function setCpMat(t, done) {
@@ -3061,6 +3177,7 @@ function setCpMat(t, done) {
 }
 function respawn() {
   if (game.state !== 'race') return;
+  SFX.respawn();
   // In free roam the car is put back on its wheels where it is.
   if (world.track.free) { const c = game.car; game.car.reset(c.pos.clone().add(new V3(0, 1.5, 0)), c.yaw, 0); clearSkids(); return; }
   if (!game.lastCp) {
@@ -3088,7 +3205,7 @@ function startTrack(track, fromEditor = false) {
 function courseStart(t) {
   const c = game.course, again = c && c.id === t.course && game.time - c.t0 < 1000;
   game.course = { id: t.course, name: t.cname, t0: game.time };
-  if (!again) { flash(t.cname + ' · go!', 'var(--signal)'); blip(660, 0.12); }
+  if (!again) { flash(t.cname + ' · go!', 'var(--signal)'); SFX.count(0); }
 }
 function courseEnd(t) {
   const c = game.course; if (!c || c.id !== t.course) return;
@@ -3097,7 +3214,7 @@ function courseEnd(t) {
   if (pb) store.set(key, time);
   flash(c.name + ' ' + fmtTime(time), pb ? 'var(--go)' : 'var(--text)');
   toast(pb ? (best == null ? 'First run of ' : 'New best on ') + c.name + '!' : 'Your best on ' + c.name + ' is ' + fmtTime(best));
-  blip(880, 0.15); setTimeout(() => blip(1320, 0.2), 110);
+  SFX.finish();
   if (mp.city) mpSay('🏁 ' + c.name + ' in ' + fmtTime(time) + (pb && best != null ? ' (personal best)' : ''));
   rallyFinish(c.id, time);
 }
@@ -3130,13 +3247,14 @@ function onCheckpoint(t) {
     el.hidden = false; el.textContent = fmtDelta(dlt); el.className = dlt <= 0 ? 'ahead' : 'behind';
   }
   flash('Checkpoint ' + game.cpHit.size + ' / ' + world.cps.length, 'var(--author)');
-  blip(880, 0.15); setTimeout(() => blip(1320, 0.12), 90);
+  SFX.checkpoint();
   updateHudStatic();
 }
 
 function onFinish() {
   if (game.cpHit.size < world.cps.length) {
     flash('Missed ' + (world.cps.length - game.cpHit.size) + ' checkpoint' + (world.cps.length - game.cpHit.size > 1 ? 's' : ''), 'var(--stop)');
+    if (performance.now() - (game.missAt || 0) > 1500) { game.missAt = performance.now(); SFX.miss(); }
     return;
   }
   const time = Math.round(game.time);
@@ -3154,13 +3272,18 @@ function onFinish() {
   if (mp.race && mp.status === 'race') mpFinished(time);
   // Anything this run earned: cars (Gold medals) and the daily streak (and its paints).
   const extra = [];
+  if (world.track.id === TUTORIAL.id) {
+    store.set('mt.tutorial', 'done');
+    extra.push('<b class="new">That’s the basics!</b> Next, race the official tracks: Gold medals unlock new cars.');
+    extra.push(`You’re racing as <b>${escapeHtml(settings.nick || 'Player')}</b> · <button class="link" data-rename>Change name</button>`);
+  }
   for (const c of claimCars()) extra.push(`<b class="new">New car unlocked: the ${escapeHtml(c.name)}!</b> It’s in the Garage.`);
   const sk = streakFinish(world.track);
   if (sk) {
     extra.push(`<b class="new">🔥 ${sk.n}-day daily streak!</b> ${sk.won.length ? '' : 'Come back tomorrow to keep it going.'}`);
     for (const p of sk.won) extra.push(`<b class="new">New paint unlocked: ${p.name}.</b> It’s in the Garage.`);
   }
-  blip(660, 0.2); setTimeout(() => blip(990, 0.25), 140); setTimeout(() => blip(1320, 0.4), 300);
+  SFX.finish(); if (extra.some(x => x.includes('unlocked'))) setTimeout(() => SFX.unlock(), 1400);
   setState('finished');
   showFinish(time, prev ? prev.time : null, isPB, board, extra);
 }
@@ -3354,6 +3477,8 @@ function setState(s) {
   if (s !== 'race' && s !== 'finished') for (const c of mp.cars.values()) { c.mesh.visible = c.tag.visible = false; if (c.beam) c.beam.visible = false; }
   if (s === 'menu') renderMenu();
   if (s !== 'race' && s !== 'paused' && cityChat.open) cityChatClose(); else cityChatRender();
+  if (s !== 'race' && s !== 'paused') $('hud-tip').hidden = true;
+  updateMusic();
 }
 function togglePause() {
   if (game.state === 'race') {
@@ -3454,7 +3579,7 @@ function syncNick() {
     .then(() => { players.sent = nick; }, () => { players.failed = true; })
     .finally(() => { players.writing = false; syncNick(); });
 }
-function setNick(nick) { settings.nick = nick; saveSettings(); renderRacingAs(); syncNick(); mpSend(true); mpAdvertise(); }
+function setNick(nick, auto = false) { settings.nick = nick; settings.autoNick = auto; saveSettings(); renderRacingAs(); syncNick(); mpSend(true); mpAdvertise(); }
 function renderRacingAs() { $('racing-as').hidden = !settings.nick; $('racing-as-name').textContent = settings.nick || ''; }
 // Ask for a name: on the first visit (it can't be skipped), or to change it.
 function askName(first) {
@@ -3660,6 +3785,7 @@ function renderFinishBoard() {
   $('fin-lb-note').hidden = !(times.on && community.me && !canPostTimes() && !game.fromEditor);
 }
 $('fin-lb').addEventListener('click', e => { const g = e.target.closest('[data-ghost]'); if (g) toggleGhost(boardKey(world.track), g.dataset.ghost); });
+$('fin-notes').addEventListener('click', e => { if (e.target.closest('[data-rename]')) askName(false); });
 const secs = ms => (ms / 1000).toFixed(2) + ' s';
 // Under the time: a challenge's result, anything the run earned, and how close
 // it came to the next medal and the next place up on the board.
@@ -3819,7 +3945,7 @@ async function creatorUnlock(password) {
     return creator.owner;
   } catch (e) { return false; } // the wrong password doesn't decrypt
 }
-function creatorLock() { store.del('mt.creator'); creatorSign().then(() => { toast('Logged out of the creator account'); if (mp.r) mpSend(true); }); }
+function creatorLock() { store.del('mt.creator'); creatorSign().then(() => { toast('Logged out of the creator account' + (settings.autoNick ? ' · you’re ' + settings.nick + ' now' : '')); if (mp.r) mpSend(true); }); }
 // The password, asked for by the creator's car in the garage, or by the
 // creator's name (opts.name): that's the creator logging in, so they get the
 // name, the Silver Agent and its theme. opts.back runs on "Pick another name",
@@ -3875,7 +4001,7 @@ async function creatorSign() {
 function creatorChanged() {
   if (!game.car) return;
   if (!carUsable(settings.car)) { const was = carById(settings.car).name; selectCar('street'); toast(was + ' is locked'); }
-  if (settings.nick && !nameAllowed(settings.nick)) { settings.nick = ''; saveSettings(); renderRacingAs(); askName(true); }
+  if (settings.nick && !nameAllowed(settings.nick)) { setNick(defaultNick(), true); toast('“Rauf” is the creator’s name, so you’re ' + settings.nick + ' for now. Change it any time.'); }
   if (game.state === 'garage') renderGarage();
   if (times.on) refreshTimes();
 }
@@ -4671,10 +4797,11 @@ function showFinish(time, prevPB, isPB, board, extra = []) {
   game.finish = { time, board, extra }; renderFinishBoard();
   $('btn-fin-edit').hidden = !game.fromEditor;
   const live = !!mp.race;
-  $('btn-challenge').hidden = live || game.fromEditor || !trackRef(world.track);
+  $('btn-challenge').hidden = live || game.fromEditor || !trackRef(world.track) || world.track.id === TUTORIAL.id;
+  $('hud-tip').hidden = true;
   $('btn-again').hidden = live; $('btn-fin-room').hidden = !live; $('btn-fin-menu').textContent = live ? 'Leave race' : 'Main menu';
-  $('btn-next').hidden = live || !world.track.official;
-  if (medal !== 'none') flash(MEDAL_NAMES[medal] + ' medal', `var(--${medal})`);
+  $('btn-next').hidden = live || !(world.track.official || world.track.id === TUTORIAL.id);
+  if (medal !== 'none') { flash(MEDAL_NAMES[medal] + ' medal', `var(--${medal})`); SFX.medal(medal); }
 }
 
 // ============================================================================
@@ -4791,6 +4918,51 @@ function pendingChallenge(text) {
   tick();
 }
 
+// ============================================================================
+// The first race: a new player starts straight away on a short track that
+// teaches the controls as they reach each part of it (no name to type first:
+// they get one to start with, and can change it any time).
+// ============================================================================
+const TUTORIAL = { id: 't_first', name: 'First Race', diff: 'Tutorial', env: 'summer', tiles: turtle('ST S3 BR S2 BL S2 C S2 R S L S2 B S K G S3 C S2 B S OL S2 F'), official: false };
+// [where on the route (a piece type, and which one of them), with a keyboard, on a touchscreen]
+const TUT_TIPS = [
+  ['start', 1, 'Hold <kbd>W</kbd> or <kbd>↑</kbd> to drive', 'Hold <b>Gas</b> to drive'],
+  ['bigturn', 1, 'Steer with <kbd>A</kbd> <kbd>D</kbd> or <kbd>←</kbd> <kbd>→</kbd>', 'Steer with <b>◀</b> and <b>▶</b>'],
+  ['checkpoint', 1, 'Checkpoint! If you crash, <kbd>Enter</kbd> puts you back here', 'Checkpoint! If you flip over, you’re put back here'],
+  ['turn', 1, 'Tight turns: brake with <kbd>S</kbd>, or hold <kbd>Space</kbd> as you turn to drift', 'Tight turns: <b>Brake</b>, or hold <b>Drift</b> as you turn'],
+  ['boost', 1, 'Boost pad, then a ramp: stay flat out!', 'Boost pad, then a ramp: keep holding <b>Gas</b>!'],
+  ['gap', 1, 'In the air, steer to line up your landing', 'In the air, steer to line up your landing'],
+  ['loop', 1, 'Keep your foot down through the loop!', 'Keep holding <b>Gas</b> through the loop!'],
+  ['finish', 1, 'Cross the finish line!', 'Cross the finish line!'],
+];
+const tut = { on: false, tips: [], next: 0, idx: 0, cur: -1, at: 0 };
+function startTutorial() { store.set('mt.tutorial', 'seen'); closeModal(); initAudio(); startTrack(TUTORIAL); }
+// Where on the route each tip comes up: a little before its piece.
+function tutSetup() {
+  const r = world.route; tut.tips = []; tut.next = 0; tut.idx = 0; tut.cur = -1;
+  if (!r || !r.ok) return;
+  for (const [type, nth, key, touch] of TUT_TIPS) {
+    let at = 0;
+    if (type !== 'start') {
+      const seg = r.segs.filter(g => g.type === type)[nth - 1]; if (!seg) continue;
+      at = Math.max(0, nearestIdx(r.pts, seg.type === 'gap' ? seg.P : tilePoint(seg.tile, 0)) - Math.round((type === 'gap' ? 0 : 32) / r.step));
+    }
+    tut.tips.push({ at, html: touchUI() ? touch : key });
+  }
+}
+function tutShow(i) { const el = $('hud-tip'); el.innerHTML = `<small>First race · ${i + 1} of ${tut.tips.length}</small><span>${tut.tips[i].html}</span>`; el.hidden = false; tut.cur = i; tut.at = performance.now(); }
+function tutTick() {
+  if (!tut.on || game.state !== 'race' || !tut.tips.length) return;
+  const pts = world.route.pts, c = game.car.pos; let best = Infinity, bi = tut.idx;
+  for (let i = Math.max(0, tut.idx - 5); i < Math.min(pts.length, tut.idx + 40); i++) { const d = pts[i].distanceToSquared(c); if (d < best) { best = d; bi = i; } }
+  tut.idx = bi;
+  while (tut.next < tut.tips.length && bi >= tut.tips[tut.next].at) tutShow(tut.next++);
+  const el = $('hud-tip'); // the first tip stays until you're moving; the others go after a few seconds
+  if (!el.hidden && (tut.cur === 0 ? game.car.speedKmh() > 40 : performance.now() - tut.at > 5500)) el.hidden = true;
+}
+// A name to start with: "Racer" and a number (or the name on your account, where there is one).
+function defaultNick() { return 'Racer ' + (1000 + Math.floor(Math.random() * 9000)); }
+
 // Modals
 // A locked modal (the first-visit name question) can't be dismissed with Esc or a click outside.
 let modalLocked = false;
@@ -4808,7 +4980,8 @@ function showSettings() {
     <div class="field"><label for="m-touch">On-screen buttons</label><select id="m-touch"><option value="auto">Automatic (touch screens)</option><option value="on">Always show</option><option value="off">Never show</option></select></div>
     <div class="field"><label for="m-cam">Default camera</label><select id="m-cam">${CAM_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
     <label class="toggle"><span>Race against my best ghost</span><input type="checkbox" id="m-ghost"></label>
-    <label class="toggle"><span>Engine sound</span><input type="checkbox" id="m-sound"></label>
+    <label class="toggle"><span>Sound (M)</span><input type="checkbox" id="m-sound"></label>
+    <label class="toggle"><span>Music</span><input type="checkbox" id="m-music"></label>
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
     ${creator.owner ? `<div class="toggle"><span>Logged in as the creator on this device</span><button class="btn" id="m-lock">Log out</button></div>` : ''}
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
@@ -4822,11 +4995,12 @@ function showSettings() {
     else e.target.value = settings.nick || '';
   };
   $('m-touch').onchange = e => { settings.touch = e.target.value; saveSettings(); document.body.classList.toggle('touchui', touchUI()); };
-  $('m-ghost').checked = settings.ghost; $('m-sound').checked = settings.sound; $('m-shadows').checked = settings.shadows;
+  $('m-ghost').checked = settings.ghost; $('m-sound').checked = settings.sound; $('m-music').checked = settings.music; $('m-shadows').checked = settings.shadows;
   $('m-theme').onchange = e => { settings.theme = e.target.value; saveSettings(); applyTheme(); };
   $('m-cam').onchange = e => { settings.cam = +e.target.value; game.camMode = settings.cam; saveSettings(); };
   $('m-ghost').onchange = e => { settings.ghost = e.target.checked; saveSettings(); };
-  $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); };
+  $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); updateMusic(); };
+  $('m-music').onchange = e => { settings.music = e.target.checked; saveSettings(); initAudio(); updateMusic(); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
   if ($('m-lock')) $('m-lock').onclick = () => { $('m-lock').closest('.toggle').remove(); creatorLock(); }; // which may ask for a new name
@@ -4855,8 +5029,8 @@ function showHelp() {
       <kbd>Gamepad</kbd><span>RT gas, LT brake, X handbrake, Y restart, B checkpoint</span>
     </div>
     <p class="empty-note">Pass every checkpoint, in any order, before you cross the finish. Boost pads push you past top speed, and kickers and steep ramps launch you over gaps.</p>
-    <div class="row"><button class="btn primary" id="m-done">Got it</button></div>`);
-  $('m-done').onclick = closeModal;
+    <div class="row"><button class="btn primary" id="m-done">Got it</button><button class="btn" id="m-tut">Play the first race</button></div>`);
+  $('m-done').onclick = closeModal; $('m-tut').onclick = startTutorial;
 }
 
 // Share codes: "MT1." + base64url(JSON) — tiles packed as compact arrays.
@@ -5135,7 +5309,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyT' && game.state === 'race' && mp.city && world.track.free) { e.preventDefault(); cityChatOpen(); return; }
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-  if (e.code === 'KeyM') { settings.sound = !settings.sound; saveSettings(); toast(settings.sound ? 'Sound on' : 'Sound off'); if (settings.sound) initAudio(); updateCarTheme(); }
+  if (e.code === 'KeyM') { settings.sound = !settings.sound; saveSettings(); toast(settings.sound ? 'Sound on' : 'Sound off'); if (settings.sound) initAudio(); updateCarTheme(); updateMusic(); }
   const st = game.state;
   if (st === 'race') {
     if (e.code === 'KeyR') mp.race ? respawn() : restartRace(); // no fresh starts in a live race
@@ -5172,7 +5346,9 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => keys.delete(e.code));
 window.addEventListener('pointerdown', () => initAudio());
 window.addEventListener('blur', () => { keys.clear(); if (game.state === 'race') togglePause(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'race') togglePause(); updateCarTheme(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'race') togglePause(); updateCarTheme(); updateMusic(); });
+// A soft click on buttons and cards.
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('button, [role="button"]')) SFX.click(); }, true);
 
 $('btn-play').onclick = () => { initAudio(); startTrack(OFFICIAL[0]); };
 $('btn-editor').onclick = () => openEditor({ name: 'My track', tiles: [] });
@@ -5284,9 +5460,9 @@ function frame(now) {
         if (game.cdShown !== n) {
           game.cdShown = n; hint.hidden = false;
           if (n > 5) { hint.className = ''; hint.innerHTML = escapeHtml(game.lockText || 'Starting in') + ' <b>' + Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0') + '</b>'; }
-          else { hint.className = 'count'; hint.textContent = n; blip(440, 0.12); }
+          else { hint.className = 'count'; hint.textContent = n; SFX.count(n); }
         }
-      } else { game.lockUntil = 0; game.started = true; hint.hidden = true; hint.className = ''; flash('Go!', 'var(--go)'); blip(880, 0.3); }
+      } else { game.lockUntil = 0; game.started = true; hint.hidden = true; hint.className = ''; flash('Go!', 'var(--go)'); SFX.count(0); }
     }
     if (st === 'race' && !game.started && !game.lockUntil && (input.gas || input.brake || input.steer)) { game.started = true; $('hud-hint').hidden = true; }
     if (st === 'race' && !game.started) input = { steer: 0, gas: 0, brake: 0, drift: false };
@@ -5299,16 +5475,16 @@ function frame(now) {
       else if (away) { hint.hidden = false; hint.innerHTML = document.body.classList.contains('touchui') ? 'Out of town · <b>Pause</b> to go back' : 'Out of town · <b>R</b> to go back'; }
       else if (!hint.hidden) hint.hidden = true;
     }
-    if (events.land) { events.land = false; blip(110, 0.18, 'sine', 0.3); }
-    if (events.pad) { if (events.pad === 'super') { flash('Super boost!', '#ff4fd8'); blip(220, 0.5, 'sawtooth', 0.25); setTimeout(() => blip(660, 0.4), 120); } else blip(520, 0.12); events.pad = null; }
+    if (events.land) { SFX.land(+events.land || 0.5); events.land = false; }
+    if (events.pad) { if (events.pad === 'super') { flash('Super boost!', '#ff4fd8'); SFX.superBoost(); } else if (events.pad === 'jump') SFX.jump(); else SFX.boost(); events.pad = null; }
     // Fell through the world (a very hard landing): back on top.
     if (world.track.free && car.pos.y < GROUND_Y - 4) car.reset(new V3(car.pos.x, 0.5, car.pos.z), car.yaw, 0);
     if (events.flipped) { events.flipped = false; if (st === 'race') { respawn(); flash('Flipped · back to checkpoint', 'var(--signal)'); } }
-    if (events.wall) { blip(80 + Math.random() * 30, 0.12, 'square', Math.min(0.22, events.wall / 60)); events.wall = 0; }
-    if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); blip(620, 0.1); setTimeout(() => blip(930, 0.16), 70); }
+    if (events.wall) { SFX.wall(Math.min(1, events.wall / 25)); events.wall = 0; }
+    if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); SFX.driftBoost(DRIFT_STAGES.indexOf(b)); }
     updateDriftHud(car);
     const alpha = clamp(game.acc / PHYS_DT, 0, 1);
-    car.syncMesh(dt, alpha); updateGhost(alpha); mpTick(); updateCamera(dt, car, false); updateHud(); rallyRender(false);
+    car.syncMesh(dt, alpha); updateGhost(alpha); mpTick(); updateCamera(dt, car, false); updateHud(); rallyRender(false); tutTick();
     updateAudio(car, true, input.gas);
   } else if (st === 'paused') {
     updateAudio(car, false, 0); rallyRender(false);
@@ -5340,17 +5516,26 @@ window.addEventListener('resize', resize);
 
 function start() {
   resize(); applyTheme();
+  const newPlayer = !settings.nick; // (before anything can change the name)
   if (!carUsable(settings.car)) { const pw = !carAllowed(settings.car); settings.car = 'street'; saveSettings(); if (pw) setTimeout(() => toast(carById('agent').name + ' is locked: it needs a password'), 1500); }
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
   setState('menu'); loadDemo(); updateCarTheme(); creatorSign();
   requestAnimationFrame(t => { last = t; frame(t); });
   profileReady = initCommunity().catch(() => {});
   profileReady.then(initOnline);
-  if (settings.nick && !nameAllowed(settings.nick)) { settings.nick = ''; saveSettings(); }
-  renderRacingAs(); if (!settings.nick) askName(true);
+  if (settings.nick && (!nameAllowed(settings.nick) || isRude(settings.nick))) { settings.nick = ''; setTimeout(() => toast('Your old name isn’t available, so you have a new one. Change it any time.'), 1500); }
+  if (!settings.nick) setNick(defaultNick(), true);
+  renderRacingAs();
+  // On the hosted page or in Claude, the name on your account (if it's allowed) instead.
+  profileReady.then(async () => {
+    if (!settings.autoNick || !community.user || !community.me) return;
+    const ps = await community.user.profiles([community.me]), n = cleanText((ps[community.me] && ps[community.me].name) || '', NICK_MAX);
+    if (n && settings.autoNick && nameAllowed(n) && !isRude(n)) setNick(n, true);
+  }).catch(() => {});
   // Opened from a challenge link: take it out of the address and show it once ready.
   const ch = /[#&]c=(MTC1\.[A-Za-z0-9_-]+)/.exec(location.hash);
   if (ch) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* not allowed here */ } pendingChallenge(ch[1]); }
+  else if (newPlayer && !store.get('mt.tutorial', null)) startTutorial(); // straight into the first race
 }
 $('btn-name').onclick = () => askName(false);
 // Installing the game as an app, where the page offers it (the hosted page has
