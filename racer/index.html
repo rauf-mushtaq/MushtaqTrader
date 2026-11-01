@@ -29,6 +29,9 @@
     color-scheme: dark;
   }
   html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); color: var(--text); font-family: var(--body); font-size: 15px; }
+  /* No text selection or magnifier on a long press; typing and the share codes still select. */
+  body { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  input, textarea, select { user-select: text; -webkit-user-select: text; }
   canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   /* No double-tap zoom anywhere, and touch screens get text boxes big enough that Safari doesn't zoom into them. */
   html { touch-action: manipulation; }
@@ -3463,7 +3466,7 @@ function askName(first) {
   const input = $('m-nick'); input.value = settings.nick || '';
   const ok = () => {
     const n = cleanText(input.value, NICK_MAX);
-    if (!n) { $('m-nick-err').hidden = false; input.focus(); return; }
+    if (!n || isRude(n)) { $('m-nick-err').textContent = n ? 'Pick a friendlier name.' : 'Pick a name to race with.'; $('m-nick-err').hidden = false; input.focus(); return; }
     // The creator's name: their password logs them in.
     if (!nameAllowed(n)) { askCreatorPassword({ name: n, first, back: () => askName(first) }); return; }
     closeModal(); setNick(n); if (first) toast('Welcome, ' + n + '!');
@@ -3913,7 +3916,7 @@ function reservedName(n) {
 }
 function nameAllowed(n) { return !reservedName(n) || creator.owner; }
 // Another player's name as everyone sees it: a creator's name only when it's theirs.
-function fairNick(n, id, sig) { return n && reservedName(n) && !creatorOk(id, sig, creatorFound) ? '' : n; }
+function fairNick(n, id, sig) { return n && (isRude(n) || (reservedName(n) && !creatorOk(id, sig, creatorFound))) ? '' : n; }
 // The car someone in the room is driving, as everyone sees it: the creator's car only for the creator.
 function mpCar(p) { const c = CAR_BY_ID[p.presence.c]; return c && c.creatorOnly && !isCreator(p) ? 'street' : p.presence.c; }
 // The creator driving into a room where others already are: five seconds of the
@@ -4242,7 +4245,36 @@ function mpTick() {
 const CHAT_KEEP = 120000, CHAT_MAX = 160;
 // Typed text for others to see, without control or invisible characters.
 function cleanText(s, max) { return Array.from(String(s).replace(/[\p{Co}\p{Cs}]|(?!\u200d)\p{Cf}/gu, '').replace(/[\s\p{Cc}]+/gu, ' ').trim()).slice(0, max).join(''); }
-function cleanChat(s) { return cleanText(s, CHAT_MAX); }
+function cleanChat(s) { return maskRude(cleanText(s, CHAT_MAX)); }
+// A swear filter for chat, names and track names (other people's too, in case
+// their copy of the game is older): rude words turn into asterisks. It sees
+// through look-alike characters (sh1t, @ss), stretched letters (fuuuck) and
+// letters spaced out (f u c k), and matches the short words that hide inside
+// ordinary ones (like "tit" in "title") only as whole words.
+const RUDE_ANY = ['fuck', 'fuk', 'fck', 'shit', 'cunt', 'nigg', 'fagg', 'bitch', 'wank', 'twat', 'slut', 'whore', 'asshole', 'arsehole', 'bastard', 'dildo', 'porn', 'penis', 'vagina', 'pussy', 'retard', 'molest', 'pedophil', 'paedophil', 'hitler', 'kkk', 'motherf'];
+const RUDE_WORD = ['ass', 'arse', 'cock', 'cocks', 'dick', 'dicks', 'tit', 'tits', 'titty', 'titties', 'boob', 'boobs', 'sex', 'sexy', 'nazi', 'nazis', 'rape', 'raped', 'raping', 'fag', 'fags', 'kys', 'piss', 'pissed', 'prick', 'pricks', 'bollocks', 'nude', 'nudes', 'horny', 'rapist', 'rapists', 'spaz', 'cum', 'jizz', 'pedo', 'pedos', 'paedo', 'paedos', 'nonce'];
+const RUDE_ALIKE = { '0': 'o', '1': 'i', '!': 'i', '|': 'i', '3': 'e', '4': 'a', '@': 'a', '5': 's', '$': 's', '7': 't', '+': 't', '8': 'b', 'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'к': 'k', 'м': 'm', 'т': 't', 'в': 'b', 'н': 'h' };
+// Ordinary words with one of those inside them.
+const RUDE_SAFE = new Set(['scunthorpe', 'shiitake', 'shitake', 'penistone', 'matsushita', 'cockburn', 'hancock']);
+const dedupe = w => w.replace(/(.)\1+/g, '$1');
+const RUDE_ANY1 = RUDE_ANY.filter(r => dedupe(r) === r), RUDE_WORD1 = RUDE_WORD.filter(r => dedupe(r) === r);
+function rudeNorm(w) { let t = ''; for (const ch of String(w).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()) t += RUDE_ALIKE[ch] || LOOKALIKE[ch] || ch; return t.replace(/[^a-z]/g, ''); }
+function rudeWord(w) {
+  if (!w || RUDE_SAFE.has(w)) return false; const d = dedupe(w);
+  return RUDE_ANY.some(r => w.includes(r)) || RUDE_WORD.includes(w) || RUDE_ANY1.some(r => d.includes(r)) || RUDE_WORD1.includes(d);
+}
+function maskRude(s) {
+  const parts = String(s).split(/(\s+)/), single = p => p.replace(/[^\p{L}\p{N}@$!|+]/gu, '').length === 1;
+  for (let i = 0; i < parts.length; i += 2) {
+    if (single(parts[i])) { // a run of single letters, read as one word
+      let j = i; while (j + 2 < parts.length && single(parts[j + 2])) j += 2;
+      if (j - i >= 4) { if (rudeWord(rudeNorm(parts.slice(i, j + 1).join('')))) for (let k = i; k <= j; k += 2) parts[k] = '*'; i = j; continue; }
+    }
+    if (rudeWord(rudeNorm(parts[i]))) parts[i] = parts[i].replace(/\S/g, '*');
+  }
+  return parts.join('');
+}
+function isRude(s) { return maskRude(s) !== String(s); }
 function mpSay(text) {
   text = cleanChat(text); if (!text || !mp.r) return false;
   const now = Date.now(); if (now - mp.saidAt < 700) { toast('Slow down a little.'); return false; }
@@ -4650,7 +4682,8 @@ function showFinish(time, prevPB, isPB, board, extra = []) {
 // beat and, from the leaderboard, your ghost. Where the game has no web address
 // of its own to link to, it's a code they paste into Import track code instead.
 // ============================================================================
-function shareBase() { return /^https?:$/.test(location.protocol) && !window.claude ? location.origin + location.pathname : ''; }
+// (On a games portal, window.MT_PORTAL, links back to the page aren't wanted, so it's codes there too.)
+function shareBase() { return /^https?:$/.test(location.protocol) && !window.claude && !window.MT_PORTAL ? location.origin + location.pathname : ''; }
 // Where a track comes from, small enough for a link: an official track, a day's
 // daily, a week's cup, a seed, or (for anything else) its track code.
 function trackRef(tr) {
@@ -4728,7 +4761,7 @@ async function openChallenge(text) {
   if (!tr || !Number.isFinite(ch.t) || ch.t <= 0 || ch.t > 3600000) return false;
   const uid = typeof ch.u === 'string' && ch.u.length < 200 ? ch.u : null;
   let name = cleanText(String(ch.n || ''), NICK_MAX) || 'A friend';
-  if (reservedName(name) && !(uid && typeof ch.cr === 'string' && await creatorVerify(uid, ch.cr))) name = 'A friend'; // the creator's name only from the creator
+  if (isRude(name) || (reservedName(name) && !(uid && typeof ch.cr === 'string' && await creatorVerify(uid, ch.cr)))) name = 'A friend'; // the creator's name only from the creator
   const car = CAR_BY_ID[ch.c], key = boardKey(tr);
   game.challenge = { key, t: Math.round(ch.t), name, uid: uid !== community.me ? uid : null, ghost: !!ch.g, track: tr };
   openModal(`<div class="eyebrow">Challenge</div><h2>${escapeHtml(name)} challenges you</h2>
@@ -4783,7 +4816,8 @@ function showSettings() {
   $('m-name').value = settings.nick || '';
   $('m-name').onchange = e => {
     const n = cleanText(e.target.value, NICK_MAX);
-    if (n && nameAllowed(n)) setNick(n);
+    if (n && isRude(n)) { toast('Pick a friendlier name.'); e.target.value = settings.nick || ''; }
+    else if (n && nameAllowed(n)) setNick(n);
     else if (n) askCreatorPassword({ name: n, back: showSettings, then: showSettings }); // the creator's name: log in
     else e.target.value = settings.nick || '';
   };
@@ -4839,7 +4873,7 @@ function decodeTrack(code) {
   const obj = JSON.parse(decodeURIComponent(escape(atob(b64))));
   const tiles = obj.t.map(a => ({ type: TYPE_IDS[a[0]], x: a[1] | 0, z: a[2] | 0, l: a[3] | 0, r: ((a[4] | 0) % 4 + 4) % 4 }));
   if (!tiles.length || tiles.some(t => !t.type)) throw new Error('This code contains unknown pieces.');
-  return { name: String(obj.n || 'Imported track').slice(0, 40), env: ENVS[obj.e] ? obj.e : 'summer', tiles };
+  return { name: maskRude(String(obj.n || 'Imported track').slice(0, 40)), env: ENVS[obj.e] ? obj.e : 'summer', tiles };
 }
 function newId() { return 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36); }
 function showShare(tr) {
@@ -5165,7 +5199,7 @@ $('btn-fin-menu').onclick = () => { if (mp.r) mpLeave(); setState('menu'); loadD
 let demoIdx = 0;
 function loadDemo() {
   loadTrack((game.state === 'online' && mpTrack(mp.sel)) || OFFICIAL[demoIdx % OFFICIAL.length]);
-  const { p, yaw } = spawnPoint(); game.car.reset(p, yaw); game.demo.idx = 0; clearSkids();
+  const { p, yaw } = spawnPoint(); game.car.reset(p, yaw); game.demo = { idx: 0 }; clearSkids(); // a fresh autopilot for each track
   game.camPos.copy(p).add(new V3(10, 8, -10));
 }
 
