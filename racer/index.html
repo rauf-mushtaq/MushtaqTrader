@@ -1703,7 +1703,7 @@ const CARS = [
   { id: 'roadster', name: 'Riviera Roadster', cls: 'Classic roadster', model: 'roadster', color: '#2fb8a6', accent: '#f2e6c8', comY: 0.74, height: 1.4, vmax: 47, accel: 22, grip: 1.75, rear: 0.98, drive: 1, steer: 0.58, steerFall: 21, df: 0, brake: 44, hb: 0.28, grassGrip: 0.55, grassV: 24 },
   { id: 'kart', name: 'Kart', cls: 'Go-kart', model: 'kart', color: '#3ee38a', accent: '#20242c', comY: 0.38, height: 1.2, vmax: 46, accel: 30, grip: 2.25, rear: 1.0, drive: 1, steer: 0.68, steerFall: 32, df: 0, brake: 50, hb: 0.14, grassGrip: 0.6, grassV: 22 },
   // The special one: by far the fastest (about 30% quicker than the Formula Racer), and it plays its theme on repeat while it's your car.
-  { id: 'agent', name: 'Silver Agent', cls: '1960s British spy GT', model: 'agent', creatorOnly: true, color: '#9da5ab', accent: '#3b4048', comY: 0.56, height: 1.5, vmax: 71.25, accel: 46, grip: 2.15, rear: 1.07, drive: 1, steer: 0.52, steerFall: 26, df: 0.9, brake: 82, hb: 0.34, grassGrip: 0.45, grassV: 20, theme: 'agent-theme.mp3' },
+  { id: 'agent', name: 'Silver Agent', cls: '1960s British spy GT', model: 'agent', creatorOnly: true, color: '#9da5ab', accent: '#3b4048', comY: 0.56, height: 1.5, vmax: 71.25, accel: 46, grip: 2.15, rear: 1.07, drive: 1, steer: 0.52, steerFall: 26, df: 0.9, brake: 82, hb: 0.34, grassGrip: 0.45, grassV: 20, theme: 'agent-theme.mp3', themeCredit: '“Classy and Dangerous” by Luis_Humanoide (Pixabay)' },
 ];
 const CAR_BY_ID = Object.fromEntries(CARS.map(c => [c.id, c]));
 function carById(id) { return CAR_BY_ID[id] || CARS[0]; }
@@ -4595,7 +4595,7 @@ document.querySelector('#menu .tracks').addEventListener('keydown', e => {
 // ============================================================================
 function renderGarage() {
   const c = carById(settings.car); const st = carStats(c);
-  $('g-name').textContent = c.name; $('g-cls').textContent = c.cls + (c.theme ? ' · plays its theme music on repeat (M mutes)' : '');
+  $('g-name').textContent = c.name; $('g-cls').textContent = c.cls + (c.theme ? ' · plays its theme music on repeat (M mutes)' + (c.themeCredit ? ' · music: ' + c.themeCredit : '') : '');
   const drive = c.drive >= 0.9 ? 'Rear-wheel drive' : c.drive <= 0.1 ? 'Front-wheel drive' : 'All-wheel drive';
   const row = (label, v, txt) => `<span>${label}</span><div class="bar"><b style="width:${Math.round(v * 100)}%"></b></div><span class="v">${txt}</span>`;
   $('g-stats').innerHTML = row('Top speed', st.speed, Math.round(c.vmax * 3.6 * SPEEDO) + ' km/h') + row('Acceleration', st.accel, c.accel >= 34 ? 'explosive' : c.accel >= 29 ? 'quick' : c.accel >= 25 ? 'brisk' : 'gentle') +
