@@ -3932,10 +3932,10 @@ function creatorFanfare() {
   const now = Date.now();
   if (!settings.sound || now - creator.playedAt < 20000 || (carTheme.el && !carTheme.el.paused)) return; // already hearing it
   creator.playedAt = now;
-  const a = new Audio(carById('agent').theme + '#t=0.4'); a.volume = 0.7;
+  const a = new Audio(carById('agent').theme); a.volume = 0.7;
   const p = a.play(); if (p && p.catch) p.catch(() => {});
   const stop = () => { clearInterval(iv); a.pause(); };
-  const iv = setInterval(() => { const t = a.currentTime - 0.4; if (t >= 5) stop(); else if (t > 4.4) a.volume = 0.7 * (5 - t) / 0.6; }, 50);
+  const iv = setInterval(() => { const t = a.currentTime; if (t >= 5) stop(); else if (t > 4.4) a.volume = 0.7 * (5 - t) / 0.6; }, 50);
   setTimeout(stop, 9000);
 }
 // A tall gold beam with a ring at its foot, over the creator's car.
