@@ -264,6 +264,7 @@
   .field input, .field select, .field textarea { background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 4px; color: var(--text); padding: 8px 10px; font: inherit; }
   .field textarea { font-family: var(--mono); font-size: 12px; min-height: 90px; resize: vertical; word-break: break-all; }
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type="range"] { width: 100%; accent-color: var(--signal); }
   .swatches button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; }
   .swatches button.sel { border-color: var(--text); }
   .swatches button.streak { font-size: 12px; line-height: 1; padding: 0; }
@@ -1235,7 +1236,7 @@ const MEDAL_NAMES = { author: 'Author', gold: 'Gold', silver: 'Silver', bronze: 
 // Settings
 // ============================================================================
 const CAR_COLORS = ['factory', '#ff5a36', '#d4121c', '#ffd23f', '#3ee38a', '#2a6b3f', '#3fa7ff', '#1c63d8', '#b06bff', '#ff7ad9', '#c9ced6', '#f2f4f8', '#20242c'];
-const settings = Object.assign({ car: 'street', paint: 'factory', theme: 'day', cam: 0, ghost: true, sound: true, music: true, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
+const settings = Object.assign({ car: 'street', paint: 'factory', theme: 'day', cam: 0, ghost: true, sound: true, music: true, musicVol: 0.8, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
 function paintFor(spec) { return settings.paint && settings.paint !== 'factory' ? settings.paint : spec.color; }
 function saveSettings() { store.set('mt.settings', settings); }
 
@@ -2794,7 +2795,9 @@ function initAudio() {
     const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -8; lim.ratio.value = 8; lim.attack.value = 0.003; lim.release.value = 0.2; lim.connect(ctx.destination);
     const master = ctx.createGain(); master.gain.value = 0.5; master.connect(lim);
     const sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
-    const musicBus = ctx.createGain(); musicBus.gain.value = 1; musicBus.connect(ctx.destination);
+    // The music has its own path: its bass is turned down while racing, to leave room for the engine.
+    const musicBus = ctx.createGain(); musicBus.gain.value = settings.musicVol; const musicEq = ctx.createBiquadFilter();
+    musicEq.type = 'lowshelf'; musicEq.frequency.value = 260; musicEq.gain.value = 0; musicBus.connect(musicEq); musicEq.connect(ctx.destination);
     // Engine: two slightly detuned saws, a square an octave down and a sub, through a
     // resonant low-pass and a touch of drive.
     const shaper = ctx.createWaveShaper(); const curve = new Float32Array(1024);
@@ -2812,7 +2815,7 @@ function initAudio() {
     const tbp = filter('bandpass', 1300, 1.1), ng = ctx.createGain(); ng.gain.value = 0; noise.connect(tbp); tbp.connect(ng); ng.connect(master);
     const sq = ctx.createOscillator(); sq.type = 'triangle'; sq.frequency.value = 820; const sqg = ctx.createGain(); sqg.gain.value = 0; sq.connect(sqg); sqg.connect(master); sq.start();
     const wlp = filter('lowpass', 400, 0.6), wg = ctx.createGain(); wg.gain.value = 0; noise.connect(wlp); wlp.connect(wg); wg.connect(master);
-    Object.assign(audio, { ctx, master, sfx, musicBus, eg, filt, o1, o1b, o2, o3, ng, tbp, sq, sqg, wg, wlp, nbuf });
+    Object.assign(audio, { ctx, master, sfx, musicBus, musicEq, eg, filt, o1, o1b, o2, o3, ng, tbp, sq, sqg, wg, wlp, nbuf });
   } catch (e) { audio.ctx = null; }
   updateMusic();
 }
@@ -2867,7 +2870,9 @@ function updateAudio(car, active, thr) {
   audio.o1.frequency.setTargetAtTime(f, t, 0.04); audio.o1b.frequency.setTargetAtTime(f * 1.006, t, 0.04);
   audio.o2.frequency.setTargetAtTime(f * 0.5, t, 0.04); audio.o3.frequency.setTargetAtTime(f * 0.5, t, 0.04);
   audio.filt.frequency.setTargetAtTime(420 + thr * 1100 + sp * 900, t, 0.06);
-  audio.eg.gain.setTargetAtTime(on ? 0.045 + thr * 0.06 : 0, t, 0.08);
+  audio.eg.gain.setTargetAtTime(on ? 0.06 + thr * 0.085 : 0, t, 0.08);
+  // The music steps back a little while you're on the throttle.
+  audio.musicBus.gain.setTargetAtTime(settings.musicVol * (on ? 1 - 0.3 * thr : 1), t, 0.3);
   // Tyres: a roar of noise when sliding, and a squeal through a drift.
   const slide = on && car.grounded && car.surf !== 'grass' ? clamp((car.slip - 4) / 12, 0, 1) : 0;
   audio.ng.gain.setTargetAtTime(slide * 0.11, t, 0.05);
@@ -2911,7 +2916,8 @@ function updateMusic() {
     musicVol(t, 0, 0.9); clearTimeout(t.stop); t.stop = setTimeout(() => { if (t.vol === 0) t.el.pause(); }, 1000);
   }
   if (!want) { music.cur = ''; return; }
-  const t = musicTrack(want), v = want === 'menu' ? (s === 'editor' ? 0.32 : 0.5) : s === 'paused' ? 0.12 : s === 'finished' ? 0.24 : 0.3;
+  const t = musicTrack(want), v = want === 'menu' ? (s === 'editor' ? 0.32 : 0.5) : s === 'paused' ? 0.08 : s === 'finished' ? 0.2 : 0.17;
+  audio.musicEq.gain.setTargetAtTime(racing ? -9 : 0, audio.ctx.currentTime, 0.3);
   clearTimeout(t.stop);
   if (t.el.paused) {
     if (music.cur !== want) t.el.currentTime = 0; // each new race starts its music from the top
@@ -3274,8 +3280,9 @@ function onFinish() {
   const extra = [];
   if (world.track.id === TUTORIAL.id) {
     store.set('mt.tutorial', 'done');
+    // Now they've had a drive: a name of their own (once, while they still have the starting one).
+    if (settings.autoNick) setTimeout(() => { if (game.state === 'finished' && $('modal').hidden && settings.autoNick) askName(false, { after: true }); }, 1800);
     extra.push('<b class="new">That’s the basics!</b> Next, race the official tracks: Gold medals unlock new cars.');
-    extra.push(`You’re racing as <b>${escapeHtml(settings.nick || 'Player')}</b> · <button class="link" data-rename>Change name</button>`);
   }
   for (const c of claimCars()) extra.push(`<b class="new">New car unlocked: the ${escapeHtml(c.name)}!</b> It’s in the Garage.`);
   const sk = streakFinish(world.track);
@@ -3582,22 +3589,24 @@ function syncNick() {
 function setNick(nick, auto = false) { settings.nick = nick; settings.autoNick = auto; saveSettings(); renderRacingAs(); syncNick(); mpSend(true); mpAdvertise(); }
 function renderRacingAs() { $('racing-as').hidden = !settings.nick; $('racing-as-name').textContent = settings.nick || ''; }
 // Ask for a name: on the first visit (it can't be skipped), or to change it.
-function askName(first) {
-  openModal(`<div class="eyebrow">${first ? 'Welcome to MushtaqTrack' : 'Your name'}</div><h2>What should we call you?</h2>
+// opts.after: just after the first race, with a button to keep the starting name.
+function askName(first, opts = {}) {
+  openModal(`<div class="eyebrow">${first ? 'Welcome to MushtaqTrack' : opts.after ? 'First race done' : 'Your name'}</div><h2>${opts.after ? 'Nice driving! What should we call you?' : 'What should we call you?'}</h2>
     <div class="field"><label for="m-nick">Name or nickname</label><input id="m-nick" maxlength="${NICK_MAX}" autocomplete="nickname" spellcheck="false"></div>
     ${window.claude ? '<p class="empty-note">Other players see it on leaderboards, community tracks and in live races.</p>' : ''}
     <p class="modal-err" id="m-nick-err" hidden>Pick a name to race with.</p>
-    <div class="row"><button class="btn primary" id="m-nick-ok">${first ? 'Let’s race' : 'Save'}</button>${first ? '' : '<button class="btn" id="m-nick-cancel">Cancel</button>'}</div>`, { locked: first });
-  const input = $('m-nick'); input.value = settings.nick || '';
+    <div class="row"><button class="btn primary" id="m-nick-ok">${first ? 'Let’s race' : 'Save'}</button>${first ? '' : `<button class="btn" id="m-nick-cancel">${opts.after ? 'Keep ' + escapeHtml(settings.nick || 'this one') : 'Cancel'}</button>`}</div>`, { locked: first });
+  const input = $('m-nick'); input.value = settings.nick || ''; if (opts.after) input.select();
   const ok = () => {
     const n = cleanText(input.value, NICK_MAX);
     if (!n || isRude(n)) { $('m-nick-err').textContent = n ? 'Pick a friendlier name.' : 'Pick a name to race with.'; $('m-nick-err').hidden = false; input.focus(); return; }
     // The creator's name: their password logs them in.
-    if (!nameAllowed(n)) { askCreatorPassword({ name: n, first, back: () => askName(first) }); return; }
-    closeModal(); setNick(n); if (first) toast('Welcome, ' + n + '!');
+    if (!nameAllowed(n)) { askCreatorPassword({ name: n, first, back: () => askName(first, opts) }); return; }
+    closeModal(); setNick(n); if (first || opts.after) toast('Welcome, ' + n + '!');
+    if (game.state === 'finished') finishNotes();
   };
   $('m-nick-ok').onclick = ok; input.onkeydown = e => { if (e.key === 'Enter') ok(); else if (e.key === 'Escape' && !first) closeModal(); };
-  if (!first) $('m-nick-cancel').onclick = closeModal;
+  if (!first) $('m-nick-cancel').onclick = opts.after ? () => { closeModal(); setNick(settings.nick); } : closeModal; // keeping it counts as choosing it
   // Start from the name on their account, if there is one.
   if (first) profileReady.then(async () => {
     if (!community.user || !community.me || input.value || !input.isConnected) return;
@@ -3795,6 +3804,7 @@ function finishNotes() {
   if (ch) { const d = t - ch.t, who = escapeHtml(ch.name);
     out.push(d < 0 ? `<b class="win">You beat ${who}’s ${fmtTime(ch.t)} by ${secs(-d)}!</b> Send a challenge back.` : d === 0 ? `<b>A dead heat with ${who}!</b>` : `<b>${secs(d)} slower than ${who}.</b> Have another go.`); }
   out.push(...(f.extra || []));
+  if (world.track.id === TUTORIAL.id) out.push(`You’re racing as <b>${escapeHtml(settings.nick || 'Player')}</b> · <button class="link" data-rename>Change name</button>`);
   if (m) {
     const order = ['bronze', 'silver', 'gold', 'author'], nx = order[order.indexOf(medalFor(t, m)) + 1];
     if (nx && t - m[nx] <= m[nx] * 0.15) out.push(`<b>${secs(t - m[nx])}</b> off ${MEDAL_NAMES[nx]}${nx === 'gold' && nextCar() ? ' (Gold medals unlock cars)' : ''}`);
@@ -4982,6 +4992,7 @@ function showSettings() {
     <label class="toggle"><span>Race against my best ghost</span><input type="checkbox" id="m-ghost"></label>
     <label class="toggle"><span>Sound (M)</span><input type="checkbox" id="m-sound"></label>
     <label class="toggle"><span>Music</span><input type="checkbox" id="m-music"></label>
+    <div class="field"><label for="m-musicvol">Music volume</label><input type="range" id="m-musicvol" min="0" max="100" step="5"></div>
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
     ${creator.owner ? `<div class="toggle"><span>Logged in as the creator on this device</span><button class="btn" id="m-lock">Log out</button></div>` : ''}
     <div class="row"><button class="btn primary" id="m-done">Done</button><button class="btn" id="m-reset">Reset all times</button></div>`);
@@ -5001,6 +5012,8 @@ function showSettings() {
   $('m-ghost').onchange = e => { settings.ghost = e.target.checked; saveSettings(); };
   $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); updateMusic(); };
   $('m-music').onchange = e => { settings.music = e.target.checked; saveSettings(); initAudio(); updateMusic(); };
+  $('m-musicvol').value = Math.round(settings.musicVol * 100);
+  $('m-musicvol').oninput = e => { settings.musicVol = e.target.value / 100; saveSettings(); if (audio.ctx) audio.musicBus.gain.setTargetAtTime(settings.musicVol, audio.ctx.currentTime, 0.05); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
   $('m-done').onclick = () => { closeModal(); if (game.state === 'paused') $('pause').hidden = false; };
   if ($('m-lock')) $('m-lock').onclick = () => { $('m-lock').closest('.toggle').remove(); creatorLock(); }; // which may ask for a new name
