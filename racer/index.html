@@ -92,6 +92,8 @@
   .tab span { opacity: 0.7; margin-left: 4px; font-family: var(--mono); }
   .special-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .track-card.special { border-style: dashed; }
+  .track-card .note { color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .diff.cup { color: var(--gold); } .diff.daily { color: #ff8a3d; }
   .seed-row { display: flex; gap: 6px; }
   .seed-row input { flex: 1; min-width: 0; background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 3px; color: var(--text); padding: 4px 7px; font-family: var(--mono); font-size: 12px; text-transform: uppercase; }
   .car-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -138,7 +140,7 @@
   #hud-track { font-weight: 700; font-size: 16px; text-shadow: 0 1px 0 rgba(0,0,0,0.5); }
   #hud-medals { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,0.38); padding: 6px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; }
   #hud-medals div { display: flex; align-items: center; gap: 2px; }
-  #hud-medals .got { opacity: 1; } #hud-medals .miss { opacity: 0.55; }
+  #hud-medals .got { opacity: 1; } #hud-medals .miss { opacity: 0.55; } #hud-medals .ch { color: var(--signal); }
   #minimap { position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); width: 150px; height: 150px; border-radius: 50%; background: rgba(0,0,0,0.38); border: 1px solid var(--line); }
   #hud-speed { position: absolute; right: max(18px, env(safe-area-inset-right, 0px)); bottom: max(18px, env(safe-area-inset-bottom, 0px)); text-align: right; }
   #spd { font-family: var(--mono); font-weight: 700; font-size: 46px; font-variant-numeric: tabular-nums; text-shadow: 0 2px 0 rgba(0,0,0,0.45); }
@@ -177,6 +179,9 @@
   .big-time { font-family: var(--mono); font-size: 46px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
   .result-line { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .result-line b { color: var(--text); font-weight: 500; }
+  .fin-notes { display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: var(--muted); }
+  .fin-notes:empty { display: none; }
+  .fin-notes b { color: var(--text); font-weight: 600; } .fin-notes b.win { color: var(--go); } .fin-notes b.new { color: var(--signal); }
   .medal-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .medal-row div { text-align: center; padding: 8px 4px; border-radius: 4px; border: 1px solid var(--line); font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0.45; }
   .medal-row div.got { opacity: 1; border-color: currentColor; }
@@ -214,6 +219,13 @@
   .lb.world tr.me .st { color: var(--signal); }
   #hud-mp { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,0.38); padding: 6px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; min-width: 150px; }
   #hud-mp div { display: flex; justify-content: space-between; gap: 10px; }
+  #hud-rally { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,0.45); padding: 6px 8px; border-radius: 4px; border-left: 3px solid var(--gold); font-variant-numeric: tabular-nums; min-width: 150px; max-width: 260px; }
+  #hud-rally .h { font-family: var(--display); font-weight: 700; font-size: 13px; color: var(--gold); }
+  #hud-rally .s { color: var(--muted); }
+  #hud-rally div.r { display: flex; justify-content: space-between; gap: 10px; } #hud-rally div.r span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #hud-rally .me { color: var(--signal); }
+  @media (max-width: 560px) { #hud-rally { max-width: calc(100vw - 175px); font-size: 11px; } }
+  #hud-rally button { pointer-events: auto; margin-top: 3px; padding: 5px 10px; border-radius: 4px; border: 0; background: var(--gold); color: #1a1400; font-family: var(--display); font-weight: 700; font-size: 12px; }
   #city-chat { position: absolute; left: max(14px, env(safe-area-inset-left, 0px)); bottom: 52px; width: min(440px, 62vw); display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
   #cc-log { display: flex; flex-direction: column; gap: 3px; }
   #cc-log div { align-self: flex-start; max-width: 100%; background: rgba(0,0,0,0.45); padding: 4px 8px; border-radius: 4px; font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; transition: opacity 0.8s; }
@@ -246,6 +258,9 @@
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
   .swatches button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; }
   .swatches button.sel { border-color: var(--text); }
+  .swatches button.streak { font-size: 12px; line-height: 1; padding: 0; }
+  .swatches button.locked { opacity: 0.45; border-style: dashed; border-color: var(--muted); }
+  .garage-head .gold-line { color: var(--gold); }
   .toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .help-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
   .help-grid kbd { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
@@ -308,6 +323,7 @@
     <div id="hud-track">Track</div>
     <div id="hud-medals"></div>
     <div id="hud-mp" hidden></div>
+    <div id="hud-rally" hidden></div>
   </div>
   <div class="hud-top">
     <div id="hud-time">0:00.000</div>
@@ -350,10 +366,11 @@
         <button class="btn" id="btn-import">Import track code</button>
         <button class="btn" id="btn-settings">Settings</button>
         <button class="btn" id="btn-help">Controls</button>
+        <button class="btn" id="btn-install" hidden>Install the app</button>
       </div>
     </div>
     <div class="tracks glass">
-      <h2>Daily &amp; random</h2>
+      <h2>Daily, Weekly Cup &amp; random</h2>
       <div class="special-row" id="grid-special"></div>
       <div class="tabs" id="track-tabs" role="tablist"></div>
       <div class="track-grid" id="grid-tracks"></div>
@@ -364,7 +381,7 @@
 <div id="garage" class="screen" hidden>
   <div class="garage-panel glass">
     <div class="garage-head">
-      <div><div class="eyebrow">Garage</div><h2 id="g-name">Street GT</h2><div class="cls" id="g-cls"></div></div>
+      <div><div class="eyebrow">Garage</div><h2 id="g-name">Street GT</h2><div class="cls" id="g-cls"></div><div class="cls gold-line" id="g-gold"></div></div>
       <button class="btn primary" id="g-done">Drive <kbd>Enter</kbd></button>
     </div>
     <div class="stats" id="g-stats"></div>
@@ -397,6 +414,7 @@
     <div class="big-time" id="fin-time">0:00.000</div>
     <div class="result-line"><span>Personal best</span><b id="fin-pb">–</b></div>
     <div class="medal-row" id="fin-medals"></div>
+    <div class="fin-notes" id="fin-notes"></div>
     <div class="lb-head" id="fin-lb-head"></div>
     <table class="lb" id="fin-lb"></table>
     <p class="lb-note" id="fin-lb-note" hidden>Your times stay on this device: posting to the leaderboard needs Contributor access to this game.</p>
@@ -406,6 +424,7 @@
       <button class="btn primary" id="btn-fin-room" hidden>Back to room</button>
     </div>
     <div class="row">
+      <button class="btn" id="btn-challenge">Challenge a friend</button>
       <button class="btn" id="btn-fin-edit" hidden>Back to editor</button>
       <button class="btn" id="btn-fin-menu">Main menu</button>
     </div>
@@ -2899,7 +2918,7 @@ function setGhostCar(id) {
 }
 setGhostCar(settings.car);
 function selectCar(id) {
-  if (!carAllowed(id)) id = 'street';
+  if (!carUsable(id)) id = 'street';
   settings.car = id; saveSettings();
   game.car.setSpec(carById(id), paintFor(carById(id)));
   game.demo.idx = 0; updateCarTheme();
@@ -2911,6 +2930,92 @@ function selectCar(id) {
 function trackKey(track) { return 'mt5.pb.' + track.id; }
 try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k) && !k.startsWith('mt5.')).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
 function loadPB(track) { return store.get(trackKey(track), null); }
+
+// ============================================================================
+// Progress: cars earned with Gold medals, the daily streak and its paints, and
+// the Weekly Cup.
+// ============================================================================
+// The first five cars are free; each of the others unlocks at a number of Gold
+// (or Author) medals on the official tracks. A car you've earned stays yours,
+// and so does any car you'd raced before cars had to be earned. The creator has them all.
+const CAR_GOLDS = { truck: 2, drift: 4, stock: 6, flat6: 9, volt: 12, rosso: 16, lmp: 20, hyper: 25, formula: 30 };
+const owned = new Set(store.get('mt.cars', null) || (() => {
+  const s = [settings.car];
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith('mt5.pb.')) { const pb = store.get(k, null); if (pb && pb.car) s.push(pb.car); } } catch (e) { /* storage unavailable */ }
+  return s;
+})());
+store.set('mt.cars', [...owned]);
+let goldCache = null;
+function goldCount() {
+  if (goldCache === null) goldCache = OFFICIAL.filter(tr => { const pb = loadPB(tr); return pb && /^(gold|author)$/.test(medalFor(pb.time, trackInfo(tr).medals)); }).length;
+  return goldCache;
+}
+function carEarned(id) { return creator.owner || owned.has(id) || goldCount() >= (CAR_GOLDS[id] || 0); }
+// A car you can drive: earned, and the creator's car only for the creator.
+function carUsable(id) { return carAllowed(id) && carEarned(id); }
+// Count the medals again (after a run) and keep any car just earned; returns the new ones.
+function claimCars() {
+  goldCache = null; const fresh = [];
+  for (const c of CARS) if (!c.creatorOnly && !owned.has(c.id) && goldCount() >= (CAR_GOLDS[c.id] || 0)) { owned.add(c.id); if (CAR_GOLDS[c.id]) fresh.push(c); }
+  if (fresh.length) store.set('mt.cars', [...owned]);
+  return fresh;
+}
+// The next car to earn, if any: { car, need }.
+function nextCar() {
+  const c = CARS.filter(c => CAR_GOLDS[c.id] && !carEarned(c.id)).sort((a, b) => CAR_GOLDS[a.id] - CAR_GOLDS[b.id])[0];
+  return c ? { car: c, need: CAR_GOLDS[c.id] } : null;
+}
+
+// The daily streak: days in a row you've finished the daily track. Streaks of
+// 3, 7 and 30 days unlock paints, which stay yours when a streak ends.
+const STREAK_PAINTS = [{ days: 3, col: '#ff6a13', name: 'Flame' }, { days: 7, col: '#7fe3ff', name: 'Ice' }, { days: 30, col: '#c9962a', name: 'Gold leaf' }];
+const streak = Object.assign({ last: '', n: 0, best: 0, paints: [] }, store.get('mt.streak', {}));
+function dayKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function dayBefore(key) { const [y, m, d] = key.split('-').map(Number); return dayKey(new Date(y, m - 1, d - 1)); }
+// The streak as it stands today: it lives while the daily was finished today or yesterday.
+function streakNow() { const t = todayKey(); return streak.last === t || streak.last === dayBefore(t) ? streak.n : 0; }
+// A finish on a daily track (today's, or yesterday's just after midnight) counts once a day.
+function streakFinish(tr) {
+  const k = /^d_\d{4}-\d\d-\d\d$/.test(tr.id) ? tr.id.slice(2) : null, t = todayKey();
+  if (!k || (k !== t && k !== dayBefore(t)) || k <= streak.last) return null;
+  streak.n = streak.last === dayBefore(k) ? streak.n + 1 : 1; streak.last = k; streak.best = Math.max(streak.best, streak.n);
+  const won = STREAK_PAINTS.filter(p => streak.n >= p.days && !streak.paints.includes(p.col));
+  for (const p of won) streak.paints.push(p.col);
+  store.set('mt.streak', streak);
+  return { n: streak.n, won };
+}
+function streakNote() {
+  const n = streakNow(), done = streak.last === todayKey(), next = STREAK_PAINTS.find(p => !streak.paints.includes(p.col) && p.days > n);
+  const reward = next ? ` · ${next.days - n} more day${next.days - n > 1 ? 's' : ''} for the ${next.name} paint` : '';
+  if (!n) return `Finish it ${STREAK_PAINTS[0].days} days in a row for the ${STREAK_PAINTS[0].name} paint`;
+  return `🔥 ${n}-day streak · ${done ? 'see you tomorrow' : 'race today to keep it'}${done ? '' : reward}`;
+}
+
+// The Weekly Cup: one track a week, from Monday 00:00 UTC (the same moment
+// everywhere), with its own leaderboard. The top three when it ends wear a cup
+// next to their name all the following week.
+function weekKey(back = 0) {
+  const n = new Date(), d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - (n.getUTCDay() + 6) % 7 - 7 * back));
+  return d.toISOString().slice(0, 10);
+}
+function cupTrack(key = weekKey()) {
+  const [y, m, d] = key.split('-').map(Number), label = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return { id: 'w_' + key, name: 'Weekly Cup · ' + label, diff: 'Cup', env: ENV_LIST[hashStr('CUP' + key) % 3], seed: 'CUP' + key, tiles: turtle(generateSeq('CUP' + key)), official: false, generated: true };
+}
+function cupLeft() { const [y, m, d] = weekKey().split('-').map(Number); return Date.UTC(y, m - 1, d + 7) - Date.now(); }
+function fmtLeft(ms) { const h = Math.floor(ms / 3600000), dd = Math.floor(h / 24); return dd >= 1 ? dd + 'd ' + (h % 24) + 'h' : h >= 1 ? h + 'h ' + Math.floor(ms / 60000) % 60 + 'm' : Math.max(1, Math.ceil(ms / 60000)) + 'm'; }
+// Last week's top three, as uid -> medal (worked out again when the boards change).
+const cupWinners = { boards: null, key: '', map: new Map() };
+function cupBadges() {
+  if (!times.on) return cupWinners.map;
+  if (cupWinners.boards !== times.boards) {
+    const tr = cupTrack(weekKey(1)), rows = boardFor(tr, trackInfo(tr).medals) || [];
+    cupWinners.boards = times.boards; cupWinners.map = new Map(rows.slice(0, 3).map((r, i) => [r.uid, ['🥇', '🥈', '🥉'][i]]));
+  }
+  return cupWinners.map;
+}
+// A player's name with their cup, if they won one last week.
+function withCup(name, uid) { const b = uid && cupBadges().get(uid); return b ? b + ' ' + name : name; }
 
 // Free roam: more than a few tiles beyond the edge of the map.
 function outOfTown(p) {
@@ -2931,7 +3036,7 @@ function restartRace() {
   for (const t of world.cps) setCpMat(t, false);
   game.pb = loadPB(world.track);
   game.ghostData = settings.ghost && game.pb && game.pb.ghost && !mp.race ? game.pb.ghost : null; // no ghosts in live races
-  game.lockUntil = 0; $('hud-hint').className = ''; game.course = null;
+  game.lockUntil = 0; game.lockText = ''; $('hud-hint').className = ''; game.course = null;
   setGhostCar(game.pb && game.pb.car ? game.pb.car : settings.car);
   game.ghost.visible = false; syncRivals();
   game.camPos.copy(p).addScaledVector(game.car.forward(), -8).add(new V3(0, 3.5, 0));
@@ -2991,6 +3096,7 @@ function courseEnd(t) {
   toast(pb ? (best == null ? 'First run of ' : 'New best on ') + c.name + '!' : 'Your best on ' + c.name + ' is ' + fmtTime(best));
   blip(880, 0.15); setTimeout(() => blip(1320, 0.2), 110);
   if (mp.city) mpSay('🏁 ' + c.name + ' in ' + fmtTime(time) + (pb && best != null ? ' (personal best)' : ''));
+  rallyFinish(c.id, time);
 }
 // The list of courses, with your best on each; pick one to go to its start gate.
 function showCourses() {
@@ -3043,9 +3149,17 @@ function onFinish() {
   }
   if (!game.fromEditor) postTime(world.track, time, game.car.spec.id, game.rec);
   if (mp.race && mp.status === 'race') mpFinished(time);
+  // Anything this run earned: cars (Gold medals) and the daily streak (and its paints).
+  const extra = [];
+  for (const c of claimCars()) extra.push(`<b class="new">New car unlocked: the ${escapeHtml(c.name)}!</b> It’s in the Garage.`);
+  const sk = streakFinish(world.track);
+  if (sk) {
+    extra.push(`<b class="new">🔥 ${sk.n}-day daily streak!</b> ${sk.won.length ? '' : 'Come back tomorrow to keep it going.'}`);
+    for (const p of sk.won) extra.push(`<b class="new">New paint unlocked: ${p.name}.</b> It’s in the Garage.`);
+  }
   blip(660, 0.2); setTimeout(() => blip(990, 0.25), 140); setTimeout(() => blip(1320, 0.4), 300);
   setState('finished');
-  showFinish(time, prev ? prev.time : null, isPB, board);
+  showFinish(time, prev ? prev.time : null, isPB, board, extra);
 }
 
 function compressGhost(rec) { return rec.map(f => f.map((v, i) => i < 4 ? Math.round(v * 100) / 100 : Math.round(v * 1000) / 1000)); }
@@ -3143,7 +3257,8 @@ function updateHudStatic() {
   if (!m) { el.innerHTML = '<div class="miss">Route incomplete</div>'; return; }
   const rows = boardFor(world.track, m);
   el.innerHTML = ['author', 'gold', 'silver', 'bronze'].map(k => `<div class="${pbT != null && pbT <= m[k] ? 'got' : 'miss'}"><span class="medal-dot m-${k}"></span>${fmtTime(m[k])}</div>`).join('') +
-    `<div class="got" style="margin-top:3px">PB&nbsp;${fmtTime(pbT)}</div>` + (rows && rows.length ? `<div class="got">Record&nbsp;${fmtTime(rows[0].t)}</div>` : '');
+    `<div class="got" style="margin-top:3px">PB&nbsp;${fmtTime(pbT)}</div>` + (rows && rows.length ? `<div class="got">Record&nbsp;${fmtTime(rows[0].t)}</div>` : '') +
+    (activeChallenge() ? `<div class="got ch">Beat&nbsp;${escapeHtml(activeChallenge().name)}&nbsp;${fmtTime(activeChallenge().t)}</div>` : '');
 }
 function updateDriftHud(car) {
   const el = $('hud-drift');
@@ -3407,6 +3522,7 @@ function watchTimes(db) {
     }
     for (const rows of boards.values()) rows.sort((x, y) => x.t - y.t || x.a - y.a);
     times.boards = boards; times.on = true; sweepOldTimes(snap);
+    if (mp.r) { mpSyncCars(); mp.hudAt = 0; } // last week's cups may have changed
     // A run you just posted shows straight away; drop it once the board has it.
     for (const [k, p] of times.pending) { const mine = (boards.get(k) || []).find(r => r.uid === community.me); if (mine && mine.t <= p.t) times.pending.delete(k); }
     refreshTimes();
@@ -3518,6 +3634,7 @@ function renderBoardModal() {
 // your own best runs on this device.
 function renderFinishBoard() {
   const { time, board } = game.finish, rows = boardFor(world.track, world.medals), lb = $('fin-lb');
+  finishNotes();
   if (mp.race) {
     // A live race: the race's own standings, updating as the others finish.
     const st = mpStandings(), place = st.findIndex(r => r.me) + 1, done = st.filter(r => r.done).length, cps = world.cps.length;
@@ -3540,6 +3657,27 @@ function renderFinishBoard() {
   $('fin-lb-note').hidden = !(times.on && community.me && !canPostTimes() && !game.fromEditor);
 }
 $('fin-lb').addEventListener('click', e => { const g = e.target.closest('[data-ghost]'); if (g) toggleGhost(boardKey(world.track), g.dataset.ghost); });
+const secs = ms => (ms / 1000).toFixed(2) + ' s';
+// Under the time: a challenge's result, anything the run earned, and how close
+// it came to the next medal and the next place up on the board.
+function finishNotes() {
+  const el = $('fin-notes'), f = game.finish; el.innerHTML = ''; if (!f || mp.race) return;
+  const out = [], m = world.medals, t = f.time, ch = activeChallenge();
+  if (ch) { const d = t - ch.t, who = escapeHtml(ch.name);
+    out.push(d < 0 ? `<b class="win">You beat ${who}’s ${fmtTime(ch.t)} by ${secs(-d)}!</b> Send a challenge back.` : d === 0 ? `<b>A dead heat with ${who}!</b>` : `<b>${secs(d)} slower than ${who}.</b> Have another go.`); }
+  out.push(...(f.extra || []));
+  if (m) {
+    const order = ['bronze', 'silver', 'gold', 'author'], nx = order[order.indexOf(medalFor(t, m)) + 1];
+    if (nx && t - m[nx] <= m[nx] * 0.15) out.push(`<b>${secs(t - m[nx])}</b> off ${MEDAL_NAMES[nx]}${nx === 'gold' && nextCar() ? ' (Gold medals unlock cars)' : ''}`);
+  }
+  const rows = boardFor(world.track, m);
+  if (rows && rows.length) {
+    const ahead = rows.filter(r => r.uid !== community.me && r.t < t), above = ahead[ahead.length - 1];
+    if (above) out.push(`<b>${secs(t - above.t)}</b> behind <span data-uid="${escapeHtml(above.uid)}"></span> for ${ordinal(ahead.length)} place`);
+    else if (rows.some(r => r.uid !== community.me)) out.push(`<b class="win">Fastest of everyone on the board!</b>`);
+  }
+  el.innerHTML = out.map(x => `<div>${x}</div>`).join(''); fillNames(el);
+}
 
 // Ghosts of other players' runs. A top-ten run's ghost sits in its own
 // document, times/<id>/ghosts/<board key>, and is only fetched when someone
@@ -3733,7 +3871,7 @@ async function creatorSign() {
 // Without the key, the creator's car goes back in the garage.
 function creatorChanged() {
   if (!game.car) return;
-  if (!carAllowed(settings.car)) { selectCar('street'); toast(carById('agent').name + ' is locked'); }
+  if (!carUsable(settings.car)) { const was = carById(settings.car).name; selectCar('street'); toast(was + ' is locked'); }
   if (settings.nick && !nameAllowed(settings.nick)) { settings.nick = ''; saveSettings(); renderRacingAs(); askName(true); }
   if (game.state === 'garage') renderGarage();
   if (times.on) refreshTimes();
@@ -3911,7 +4049,7 @@ function mpHost() {
 }
 function mpIsHost() { const h = mpHost(); return !!(h && h.sameTab); }
 function mpLive() { return mp.lastN > 0 && mp.peers.some(p => p.presence.st === 'race' && p.presence.n === mp.lastN); }
-function mpName(p) { return p.sameTab ? 'You' : fairNick(cleanText(p.presence.nm || '', NICK_MAX), p.by, p.presence.cr) || nickOf(p.by) || (p.by && mp.names.get(p.by)) || 'Player'; }
+function mpName(p) { return withCup(p.sameTab ? 'You' : fairNick(cleanText(p.presence.nm || '', NICK_MAX), p.by, p.presence.cr) || nickOf(p.by) || (p.by && mp.names.get(p.by)) || 'Player', p.by); }
 function mpPaint(p) { const k = p.presence.k; return typeof k === 'string' && /^#[0-9a-f]{6}$/i.test(k) ? k : '#ffffff'; }
 function mpNames() {
   const ids = [...new Set(mp.peers.map(p => p.by).filter(b => b && !mp.names.has(b)))];
@@ -3980,7 +4118,7 @@ function mpSend(force) {
   const c = game.car, racing = (mp.status === 'race' || mp.status === 'city') && (game.state === 'race' || game.state === 'paused');
   const pr = { v: 1, nm: settings.nick || null, cr: creator.sig, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
     cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null,
-    m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP) };
+    m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP), ev: rally.res && rally.res[0] === rallyNow().id ? rally.res : null };
   if (racing) { const q = c.q, m = new V3(0, -c.spec.comY, 0).applyQuaternion(q).add(c.pos); pr.s = [m.x, m.y, m.z, q.x, q.y, q.z, q.w].map((v, i) => Math.round(v * (i < 3 ? 100 : 1000)) / (i < 3 ? 100 : 1000)); }
   const s = JSON.stringify(pr); if (s === mp.sent) return;
   mp.sent = s; mp.sentAt = now; mp.r.presence(pr).catch(() => {});
@@ -4082,7 +4220,7 @@ function mpHud() {
     const now = performance.now(); if (now - mp.hudAt < 400) return; mp.hudAt = now;
     const others = mpPlayers().filter(p => !p.sameTab && p.presence.st === 'city');
     el.hidden = false; el.classList.add('city');
-    el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + [['You', false], ...others.slice(0, 7).map(p => [mpName(p), isCreator(p)])]
+    el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + [[withCup('You', community.me), false], ...others.slice(0, 7).map(p => [mpName(p), isCreator(p)])]
       .map(([n, cr]) => `<div><span${cr ? ' class="cr"' : ''}>${escapeHtml(cr ? CREATOR.title : n)}</span><span></span></div>`).join('');
     cityChatRender(); return;
   }
@@ -4140,7 +4278,7 @@ function mpChatChanged(incoming, n = 0) {
 function mpRenderChat() {
   const el = $('mp-chat'); if (!el || +el.dataset.ver === mp.chatVer) return;
   const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(c.me ? 'You' : fairNick(c.nm, c.by, c.cr) || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('')
+  el.innerHTML = mp.chat.length ? mp.chat.map(c => `<div class="${c.me ? 'me' : ''}"><b>${escapeHtml(withCup(c.me ? 'You' : fairNick(c.nm, c.by, c.cr) || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player', c.by))}</b>${escapeHtml(c.text)}</div>`).join('')
     : '<p class="empty-note">No messages yet. Say hello.</p>';
   el.dataset.ver = mp.chatVer;
   if (atEnd || !el.dataset.seen) { el.scrollTop = el.scrollHeight; el.dataset.seen = '1'; }
@@ -4183,7 +4321,7 @@ function cityChatRender() {
   $('city-chat').hidden = !show; $('touch-chat').hidden = !show;
   if (!show) return;
   $('city-chat').classList.toggle('open', cityChat.open);
-  const now = Date.now(), html = mp.chat.slice(-6).map(c => `<div class="${c.me ? 'me' : ''}${now - (c.at || 0) > 20000 ? ' old' : ''}"><b>${escapeHtml(c.me ? 'You' : fairNick(c.nm, c.by, c.cr) || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player')}</b>${escapeHtml(c.text)}</div>`).join('');
+  const now = Date.now(), html = mp.chat.slice(-6).map(c => `<div class="${c.me ? 'me' : ''}${now - (c.at || 0) > 20000 ? ' old' : ''}"><b>${escapeHtml(withCup(c.me ? 'You' : fairNick(c.nm, c.by, c.cr) || nickOf(c.by) || (c.by && mp.names.get(c.by)) || 'Player', c.by))}</b>${escapeHtml(c.text)}</div>`).join('');
   if (html !== cityChat.html) { cityChat.html = html; $('cc-log').innerHTML = html; }
 }
 function cityChatOpen() {
@@ -4195,6 +4333,73 @@ function cityChatClose() { cityChat.open = false; $('cc-form').hidden = true; $(
 $('cc-form').onsubmit = e => { e.preventDefault(); const v = $('cc-input').value; if (!cleanChat(v) || mpSay(v)) cityChatClose(); };
 $('cc-input').onkeydown = e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); cityChatClose(); } };
 $('touch-chat').addEventListener('click', () => cityChat.open ? cityChatClose() : cityChatOpen());
+
+// City Rallies: every ten minutes on the clock (so everyone in the City gets the
+// same one), a race on one of the obstacle courses. From two minutes before, the
+// City shows it's coming: J (or Join) lines you up at its start gate, held there
+// until the go. For three minutes your fastest run counts; times go round the
+// room, and the fastest when it closes wins.
+const RALLY_EVERY = 600000, RALLY_LEAD = 120000, RALLY_RUN = 180000, RALLY_SHOW = 60000, RALLY_JOIN = 60000;
+const rally = { joined: 0, res: null, at: 0, html: '', saw: 0, ended: 0 };
+function rallyNow(now = Date.now()) {
+  const next = Math.ceil(now / RALLY_EVERY) * RALLY_EVERY, prev = next - RALLY_EVERY;
+  const start = now < prev + RALLY_RUN + RALLY_SHOW ? prev : next, id = start / RALLY_EVERY;
+  const c = CITY_COURSES[hashStr('rally' + id) % CITY_COURSES.length];
+  return { id, start, now, course: c[0], name: c[1], phase: now < start - RALLY_LEAD ? 'soon' : now < start ? 'lead' : now < start + RALLY_RUN ? 'run' : 'done' };
+}
+function rallyCanJoin(r) { return r.phase === 'lead' || (r.phase === 'run' && r.now < r.start + RALLY_JOIN); }
+function rallyJoin() {
+  const r = rallyNow();
+  if (!world.track || !world.track.free || (game.state !== 'race' && game.state !== 'paused')) return;
+  if (!rallyCanJoin(r)) { toast(r.phase === 'run' ? 'This rally is under way. Join the next one!' : 'The next City Rally opens two minutes before it starts.'); return; }
+  $('pause').hidden = true; closeModal(); cityChatClose();
+  rally.joined = r.id; goToCourse(r.course);
+  if (r.phase === 'lead') { game.lockUntil = performance.now() + (r.start - r.now); game.lockText = 'City Rally starts in'; game.cdShown = 0; }
+  else flash('City Rally · go!', 'var(--go)');
+  rallyRender(true);
+}
+// A course finish: during the rally you joined, your fastest run is your result.
+function rallyFinish(courseId, time) {
+  const r = rallyNow();
+  if (rally.joined !== r.id || r.course !== courseId || r.phase !== 'run') return;
+  if (!rally.res || rally.res[0] !== r.id || time < rally.res[1]) { rally.res = [r.id, time]; mpSend(true); }
+  rallyRender(true);
+}
+function rallyResults(r) {
+  const rows = rally.res && rally.res[0] === r.id ? [{ me: true, name: withCup('You', community.me), t: rally.res[1] }] : [];
+  if (mp.city) for (const p of mp.peers) {
+    const e = !p.sameTab && p.presence.ev;
+    if (Array.isArray(e) && e[0] === r.id && Number.isFinite(e[1]) && e[1] > 3000) rows.push({ name: isCreator(p) ? CREATOR.title : mpName(p), t: Math.round(e[1]) });
+  }
+  return rows.sort((a, b) => a.t - b.t);
+}
+function rallyRender(force) {
+  const el = $('hud-rally'), on = !!(world.track && world.track.free && (game.state === 'race' || game.state === 'paused'));
+  if (!on) { if (!el.hidden) { el.hidden = true; rally.html = ''; } return; }
+  const t = performance.now(); if (!force && t - rally.at < 250) return; rally.at = t;
+  const r = rallyNow(), mine = rally.joined === r.id, res = rallyResults(r);
+  const clock = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const join = rallyCanJoin(r) && !mine ? `<button data-rally>${touchUI() ? 'Join' : 'Join (J)'}</button>` : '';
+  let html;
+  if (r.phase === 'soon') html = `<div class="s">Next City Rally: ${escapeHtml(r.name)} in ${clock(r.start - r.now)}</div>`;
+  else {
+    const sub = r.phase === 'lead' ? (mine ? 'You’re on the start line · go in ' : 'starts in ') + clock(r.start - r.now)
+      : r.phase === 'run' ? `on now · ${clock(r.start + RALLY_RUN - r.now)} left · fastest run wins` : 'results';
+    html = `<div class="h">City Rally · ${escapeHtml(r.name)}</div><div class="s">${sub}</div>` +
+      res.slice(0, 5).map((x, i) => `<div class="r${x.me ? ' me' : ''}"><span>${i + 1}. ${escapeHtml(x.name)}</span><span>${fmtTime(x.t)}</span></div>`).join('') +
+      (r.phase !== 'lead' && !res.length ? '<div class="s">No times yet</div>' : '') + join;
+  }
+  if (html !== rally.html) { rally.html = html; el.innerHTML = html; }
+  el.hidden = false;
+  // When it closes, the winner (said in the chat by the winner's own game).
+  if (r.phase === 'run') rally.saw = r.id;
+  if (r.phase === 'done' && rally.saw === r.id && rally.ended !== r.id) {
+    rally.ended = r.id;
+    if (res[0] && res[0].me) { flash('You won the City Rally!', 'var(--gold)'); blip(880, 0.2); setTimeout(() => blip(1320, 0.4), 150); if (res.length > 1) mpSay('🏆 won the City Rally on ' + r.name + ' in ' + fmtTime(res[0].t)); }
+    else if (res[0]) toast('🏆 ' + res[0].name + ' won the City Rally on ' + r.name + ' (' + fmtTime(res[0].t) + ')');
+  }
+}
+$('hud-rally').addEventListener('click', e => { if (e.target.closest('[data-rally]')) rallyJoin(); });
 
 // The live race screen: the lobby's open races, or the room you're in.
 function showOnline() {
@@ -4215,7 +4420,7 @@ function mpRender() {
       <div class="row"><button class="btn primary" id="mp-host">Host a race</button><button class="btn" id="mp-back">Back</button></div>`
       : `<div class="eyebrow" id="mp-eyebrow">Live race</div><h2 id="mp-trackname"></h2>
       ${view === 'host' ? `<div class="field"><label for="mp-track">Track</label><select id="mp-track">${mpTrackOptions()}</select></div>` : ''}
-      <div class="field"><label for="mp-car">Your car</label><select id="mp-car">${CARS.filter(c => carAllowed(c.id)).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+      <div class="field"><label for="mp-car">Your car</label><select id="mp-car">${CARS.filter(c => carUsable(c.id)).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
       <div class="lb-head"><span>Players</span><span id="mp-count"></span></div><table class="lb world" id="mp-players"></table>
       <p class="lb-note" id="mp-status"></p>
       <div class="lb-head"><span>Chat</span></div>
@@ -4235,7 +4440,8 @@ function mpRender() {
     on('mp-say', e => { e.preventDefault(); if (mpSay($('mp-msg').value)) $('mp-msg').value = ''; }, 'onsubmit');
   }
   if (view === 'lobby') {
-    const c = cityDrivers(); $('mp-city-n').textContent = c ? c + (c === 1 ? ' person' : ' people') + ' driving now.' : 'Nobody there yet.';
+    const c = cityDrivers(), rn = rallyNow(); $('mp-city-n').textContent = (c ? c + (c === 1 ? ' person' : ' people') + ' driving now.' : 'Nobody there yet.') +
+      (rn.phase === 'run' ? ' A City Rally is on now.' : ` Next City Rally in ${Math.max(1, Math.ceil((rn.start - rn.now) / 60000))} min.`);
     const races = mpOpenRaces(), el = $('mp-list');
     el.innerHTML = races.length ? races.map(r => `<div class="mp-item"><div><b>${r.nm ? escapeHtml(r.nm) + '’s race' : r.by ? `<span data-uid="${escapeHtml(r.by)}"></span>’s race` : 'Open race'}</b><small>${escapeHtml(r.track)} · ${r.n} player${r.n > 1 ? 's' : ''} · ${r.live ? 'racing now' : 'waiting'}</small></div><button class="btn" data-join="${r.room}">Join</button></div>`).join('')
       : '<p class="empty-note">No open races right now. Host one and anyone who opens the game can join it.</p>';
@@ -4267,14 +4473,14 @@ function trackInfo(tr) {
   if (!routeCache.has(key)) { const route = computeRoute(tr.tiles); routeCache.set(key, { route, medals: medalTimes(route, tr) }); }
   return routeCache.get(key);
 }
-function trackCard(tr, ref, actions) {
+function trackCard(tr, ref, actions, note = '') {
   const pb = store.get(trackKey(tr), null); const { route, medals } = trackInfo(tr);
   const medal = pb ? medalFor(pb.time, medals) : 'none';
   const diff = tr.official || tr.generated ? tr.diff : tr.community ? 'Community' : 'Custom';
   const rows = boardFor(tr, medals);
   return `<div class="track-card" role="button" tabindex="0" data-play="${ref}">
     <div class="meta"><span class="diff ${diff.toLowerCase()}">${diff}</span><span>${ENVS[envFor(tr)].label} · ${(route.length ? (route.length / 1000).toFixed(2) + ' km' : 'unfinished')}</span></div>
-    <div class="name">${escapeHtml(tr.name)}</div>${tr.community ? `<div class="by" data-uid="${escapeHtml(tr.author)}" data-pre="by ">${tr.author === community.me ? 'by you' : ''}</div>` : ''}
+    <div class="name">${escapeHtml(tr.name)}</div>${tr.community ? `<div class="by" data-uid="${escapeHtml(tr.author)}" data-pre="by ">${tr.author === community.me ? 'by you' : ''}</div>` : ''}${note ? `<div class="note">${note}</div>` : ''}
     <div class="meta"><span class="best"><span class="medal-dot m-${medal}"></span>${pb ? fmtTime(pb.time) : 'No time yet'}</span><span>${MEDAL_NAMES[medal]}</span></div>
     ${rows && rows.length ? `<button class="rec" data-board="${ref}"><span class="l">Record <b>${fmtTime(rows[0].t)}</b> <span data-uid="${escapeHtml(rows[0].uid)}" data-pre="by "></span></span><span>${boardSummary(rows)} ›</span></button>` : ''}
     <div class="actions">${actions}</div>
@@ -4284,12 +4490,21 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 const TABS = ['All', 'Easy', 'Medium', 'Hard', 'Expert', 'Sky', 'Stunt', 'Circuit', 'Marathon', 'Extreme', 'Yours'];
 let menuTab = store.get('mt.tab', 'All');
 let lastSeed = store.get('mt.seed', '') || randomSeed();
-function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`); }
-// Redraw just the daily card (the seed box next to it may be mid-edit).
-function renderDailyCard() { const el = $('grid-special').firstElementChild; if (el) { el.outerHTML = dailyCard(); fillNames($('grid-special')); } }
+function dailyCard() { return trackCard(dailyTrack(), 'd:', `<button data-copy="d:">Copy to editor</button>`, escapeHtml(streakNote())); }
+function cupCard() {
+  const last = [...cupBadges().keys()].map(uid => `<span data-uid="${escapeHtml(uid)}"></span>`).join(', '); // the names come with their cups
+  return trackCard(cupTrack(), 'w:', `<button data-copy="w:">Copy to editor</button>`,
+    `Ends in ${fmtLeft(cupLeft())}${times.on ? ' · the top three win a cup for their name' : ''}${last ? `<br>Last week: ${last}` : ''}`);
+}
+// Redraw just the daily and cup cards (the seed box next to them may be mid-edit).
+function renderDailyCard() {
+  const g = $('grid-special');
+  for (const [ref, card] of [['d:', dailyCard], ['w:', cupCard]]) { const el = g.querySelector(`[data-play="${ref}"]`); if (el) el.outerHTML = card(); }
+  fillNames(g);
+}
 function renderMenu() {
   $('menu-car').textContent = carById(settings.car).name;
-  $('grid-special').innerHTML = dailyCard() +
+  $('grid-special').innerHTML = dailyCard() + cupCard() +
     `<div class="track-card special">
       <div class="meta"><span class="diff custom">Random</span><span>endless</span></div>
       <div class="name">Random track</div>
@@ -4332,13 +4547,14 @@ async function fillNames(root) {
   const need = ids.filter(id => !nickOf(id)), ps = need.length && community.user ? await community.user.profiles(need) : {};
   for (const el of els) if (el.isConnected) {
     const pre = el.dataset.pre, id = el.dataset.uid, p = ps[id];
-    el.textContent = (pre || '') + (id === community.me ? (pre ? 'you' : 'You') : nickOf(id) || (p && p.name) || (pre ? 'another player' : 'Player'));
+    el.textContent = (pre || '') + withCup(id === community.me ? (pre ? 'you' : 'You') : nickOf(id) || (p && p.name) || (pre ? 'another player' : 'Player'), id);
   }
 }
 function trackFromRef(ref) {
   const [kind, i] = ref.split(':');
   if (kind === 'o') return OFFICIAL[+i];
   if (kind === 'd') return dailyTrack();
+  if (kind === 'w') return cupTrack();
   if (kind === 'r') return randomTrack(lastSeed);
   if (kind === 'p') return community.shown[+i] || null;
   const c = customTracks()[+i]; return c ? { ...c, official: false } : null;
@@ -4385,9 +4601,14 @@ function renderGarage() {
   $('g-stats').innerHTML = row('Top speed', st.speed, Math.round(c.vmax * 3.6 * SPEEDO) + ' km/h') + row('Acceleration', st.accel, c.accel >= 34 ? 'explosive' : c.accel >= 29 ? 'quick' : c.accel >= 25 ? 'brisk' : 'gentle') +
     row('Grip', st.grip, c.df >= 0.5 ? 'downforce' : c.grip >= 2 ? 'sticky' : 'road') + row('Drift', st.drift, c.rear < 0.95 ? 'loose' : c.rear > 1.05 ? 'planted' : 'balanced') +
     `<span>Drive</span><span style="grid-column: span 2; color: var(--muted)">${drive}</span>`;
-  $('g-paint').innerHTML = CAR_COLORS.map(col => `<button class="${col === 'factory' ? 'factory' : ''} ${col === (settings.paint || 'factory') ? 'sel' : ''}" ${col === 'factory' ? '' : `style="background:${col}"`} data-paint="${col}" aria-label="${col === 'factory' ? 'Factory paint' : 'Paint ' + col}" title="${col === 'factory' ? 'Factory paint' : col}"></button>`).join('');
-  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car), locked = !carAllowed(car.id); return `<button class="car-card ${car.id === c.id ? 'sel' : ''}${locked ? ' locked' : ''}" data-car="${car.id}"${locked ? ' title="Needs a password"' : ''}>
-    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${locked ? 'Locked: needs a password' : car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
+  $('g-paint').innerHTML = CAR_COLORS.map(col => `<button class="${col === 'factory' ? 'factory' : ''} ${col === (settings.paint || 'factory') ? 'sel' : ''}" ${col === 'factory' ? '' : `style="background:${col}"`} data-paint="${col}" aria-label="${col === 'factory' ? 'Factory paint' : 'Paint ' + col}" title="${col === 'factory' ? 'Factory paint' : col}"></button>`).join('') +
+    // The streak paints: locked until a daily streak that long.
+    STREAK_PAINTS.map(p => { const have = streak.paints.includes(p.col); return `<button class="streak${have ? '' : ' locked'}${p.col === settings.paint ? ' sel' : ''}" style="background:${p.col}" data-paint="${p.col}" data-days="${have ? '' : p.days}" aria-label="${p.name} paint${have ? '' : ' (locked)'}" title="${p.name}${have ? '' : ': finish the daily track ' + p.days + ' days in a row'}">${have ? '' : '🔒'}</button>`; }).join('');
+  const golds = goldCount(), next = nextCar();
+  $('g-gold').textContent = `🏅 ${golds} Gold medal${golds === 1 ? '' : 's'} · ` + (next ? `next: the ${next.car.name} at ${next.need}` : 'every car unlocked');
+  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car), pw = !carAllowed(car.id), gold = !pw && !carEarned(car.id), locked = pw || gold;
+    return `<button class="car-card ${car.id === c.id ? 'sel' : ''}${locked ? ' locked' : ''}" data-car="${car.id}"${pw ? ' title="Needs a password"' : gold ? ` title="Win ${CAR_GOLDS[car.id]} Gold medals on the official tracks to unlock it"` : ''}>
+    <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${pw ? 'Locked: needs a password' : gold ? `🔒 ${golds} / ${CAR_GOLDS[car.id]} Gold medals` : car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
     <span class="mini" title="Speed, acceleration, grip, drift">${['speed', 'accel', 'grip', 'drift'].map(k => `<i><b style="width:${Math.round(s2[k] * 100)}%"></b></i>`).join('')}</span></button>`; }).join('');
 }
 function openGarage() {
@@ -4400,24 +4621,141 @@ function showroomCar() { const { p, yaw } = spawnPoint(); p.addScaledVector(new 
 $('g-cars').addEventListener('click', e => {
   const b = e.target.closest('[data-car]'); if (!b) return;
   if (!carAllowed(b.dataset.car)) { askCreatorPassword(); return; }
+  if (!carEarned(b.dataset.car)) { const k = CAR_GOLDS[b.dataset.car] - goldCount(); toast(`Win ${k} more Gold medal${k > 1 ? 's' : ''} to unlock the ${carById(b.dataset.car).name}`); blip(220, 0.08); return; }
   selectCar(b.dataset.car); showroomCar(); renderGarage(); blip(560, 0.06);
 });
-$('g-paint').addEventListener('click', e => { const b = e.target.closest('[data-paint]'); if (!b) return; settings.paint = b.dataset.paint; saveSettings(); game.car.setColor(paintFor(game.car.spec)); renderGarage(); });
+$('g-paint').addEventListener('click', e => { const b = e.target.closest('[data-paint]'); if (!b) return;
+  if (b.dataset.days) { toast(`Finish the daily track ${b.dataset.days} days in a row to unlock this paint`); return; }
+  settings.paint = b.dataset.paint; saveSettings(); game.car.setColor(paintFor(game.car.spec)); renderGarage(); });
 $('g-done').onclick = () => { setState('menu'); loadDemo(); };
 
-function showFinish(time, prevPB, isPB, board) {
+function showFinish(time, prevPB, isPB, board, extra = []) {
   $('fin-track').textContent = world.track.name;
   $('fin-time').textContent = fmtTime(time);
   const m = world.medals; const medal = medalFor(time, m);
   $('fin-title').textContent = isPB ? (prevPB ? 'New personal best' : 'First finish') : 'Finished';
   $('fin-pb').textContent = isPB ? (prevPB ? fmtTime(time) + '  (' + fmtDelta(time - prevPB) + ')' : fmtTime(time)) : fmtTime(prevPB) + '  (' + fmtDelta(time - prevPB) + ')';
   $('fin-medals').innerHTML = m ? ['author', 'gold', 'silver', 'bronze'].map(k => `<div class="${time <= m[k] ? 'got' : ''}" style="color:var(--${k})"><span class="t">${MEDAL_NAMES[k]}</span>${fmtTime(m[k])}</div>`).join('') : '';
-  game.finish = { time, board }; renderFinishBoard();
+  game.finish = { time, board, extra }; renderFinishBoard();
   $('btn-fin-edit').hidden = !game.fromEditor;
   const live = !!mp.race;
+  $('btn-challenge').hidden = live || game.fromEditor || !trackRef(world.track);
   $('btn-again').hidden = live; $('btn-fin-room').hidden = !live; $('btn-fin-menu').textContent = live ? 'Leave race' : 'Main menu';
   $('btn-next').hidden = live || !world.track.official;
   if (medal !== 'none') flash(MEDAL_NAMES[medal] + ' medal', `var(--${medal})`);
+}
+
+// ============================================================================
+// Challenges: send a friend a link that opens a track with your best time to
+// beat and, from the leaderboard, your ghost. Where the game has no web address
+// of its own to link to, it's a code they paste into Import track code instead.
+// ============================================================================
+function shareBase() { return /^https?:$/.test(location.protocol) && !window.claude ? location.origin + location.pathname : ''; }
+// Where a track comes from, small enough for a link: an official track, a day's
+// daily, a week's cup, a seed, or (for anything else) its track code.
+function trackRef(tr) {
+  if (!tr || tr.free) return null;
+  if (tr.official) return { o: tr.id };
+  if (/^d_\d{4}-\d\d-\d\d$/.test(tr.id)) return { d: tr.id.slice(2) };
+  if (/^w_\d{4}-\d\d-\d\d$/.test(tr.id)) return { w: tr.id.slice(2) };
+  if (tr.generated && tr.seed) return { s: tr.seed };
+  return tr.tiles && tr.tiles.length ? { c: encodeTrack(tr) } : null;
+}
+function trackOfRef(r) {
+  if (!r || typeof r !== 'object') return null;
+  if (typeof r.o === 'string') return OFFICIAL.find(t => t.id === r.o) || null;
+  if (/^\d{4}-\d\d-\d\d$/.test(r.d)) return dailyTrack(r.d);
+  if (/^\d{4}-\d\d-\d\d$/.test(r.w)) return cupTrack(r.w);
+  if (typeof r.s === 'string' && cleanSeed(r.s)) return randomTrack(r.s);
+  if (typeof r.c === 'string') { const t = decodeTrack(r.c); return { ...t, id: 'x' + hashStr(r.c).toString(36), official: false }; }
+  return null;
+}
+// The challenge you're racing, if it's for the track you're on.
+function activeChallenge() { const ch = game.challenge; return ch && world.track && ch.key === boardKey(world.track) ? ch : null; }
+// Make sure your best run's ghost is on the leaderboard (only the top ten's are
+// otherwise), so a friend you challenge can race it. Resolves true once it's there.
+function shareGhost(tr, pb) {
+  if (!canPostTimes() || !pb || !pb.ghost || pb.ghost.length < 2) return Promise.resolve(false);
+  const key = boardKey(tr), mine = (times.boards.get(key) || []).find(r => r.uid === community.me);
+  if (!mine || mine.t !== pb.time) return Promise.resolve(false);
+  if (mine.g) return Promise.resolve(true);
+  const ref = community.db.doc('times/' + community.me);
+  const job = times.queue.catch(() => {}).then(async () => {
+    const snap = await ref.get(), best = { ...((snap.exists && snap.data().best) || {}) };
+    if (!best[key] || best[key].t !== pb.time) return false;
+    if (!best[key].g) {
+      await ghostRef(community.me, key).set({ t: pb.time, c: pb.car, ...packGhost(pb.ghost) });
+      best[key] = { ...best[key], g: 1 };
+      await ref.set({ best, updated: Date.now(), ...(creator.sig ? { cr: creator.sig } : {}) });
+    }
+    return true;
+  });
+  times.queue = job.catch(() => {});
+  return job.catch(() => false);
+}
+async function showChallenge() {
+  const tr = world.track, pb = loadPB(tr), ref = trackRef(tr); if (!pb || !ref) return;
+  const base = shareBase();
+  openModal(`<div class="eyebrow">${escapeHtml(tr.name)}</div><h2>Challenge a friend</h2>
+    <p class="empty-note">Send this to a friend. It opens ${escapeHtml(tr.name)} with your best time, <b>${fmtTime(pb.time)}</b>, for them to beat<span id="m-ch-ghost"></span>.</p>
+    <div class="field"><label for="m-code">${base ? 'Challenge link' : 'Challenge code: they paste it into Import track code'}</label><textarea id="m-code" readonly>Getting it ready…</textarea></div>
+    <div class="row"><button class="btn primary" id="m-copy" disabled>Copy</button>${base && navigator.share ? '<button class="btn" id="m-share" disabled>Share…</button>' : ''}<button class="btn" id="m-done">Close</button></div>`);
+  $('m-done').onclick = closeModal;
+  const ghost = await shareGhost(tr, pb);
+  const ch = { r: ref, t: pb.time, n: settings.nick || '', c: pb.car, ...(community.me ? { u: community.me } : {}), ...(ghost ? { g: 1 } : {}), ...(creator.sig ? { cr: creator.sig } : {}) };
+  const code = 'MTC1.' + b64u(new TextEncoder().encode(JSON.stringify(ch)));
+  const link = base ? base + '#c=' + code : '', text = base ? `Beat my ${fmtTime(pb.time)} on ${tr.name} in MushtaqTrack! ${link}` : code;
+  if (!$('m-copy')) return; // closed meanwhile
+  $('m-code').value = base ? link : code; $('m-code').select();
+  if (ghost) $('m-ch-ghost').textContent = ', racing your ghost';
+  $('m-copy').disabled = false;
+  $('m-copy').onclick = () => {
+    const done = () => toast(base ? 'Link copied. Send it to a friend!' : 'Code copied. Send it to a friend!');
+    try { navigator.clipboard.writeText(text).then(done, () => { $('m-code').select(); toast('Press Ctrl+C to copy'); }); }
+    catch (e) { $('m-code').select(); toast('Press Ctrl+C to copy'); }
+  };
+  if ($('m-share')) { $('m-share').disabled = false; $('m-share').onclick = () => navigator.share({ title: 'MushtaqTrack challenge', text: `Beat my ${fmtTime(pb.time)} on ${tr.name} in MushtaqTrack!`, url: link }).catch(() => {}); }
+}
+$('btn-challenge').onclick = showChallenge;
+// Open a challenge from a link or a pasted code. Resolves false if it can't be read.
+async function openChallenge(text) {
+  let ch, tr;
+  try {
+    const m = /MTC1\.([A-Za-z0-9_-]+)/.exec(text);
+    ch = JSON.parse(new TextDecoder().decode(unb64u(m[1])));
+    tr = trackOfRef(ch.r);
+  } catch (e) { return false; }
+  if (!tr || !Number.isFinite(ch.t) || ch.t <= 0 || ch.t > 3600000) return false;
+  const uid = typeof ch.u === 'string' && ch.u.length < 200 ? ch.u : null;
+  let name = cleanText(String(ch.n || ''), NICK_MAX) || 'A friend';
+  if (reservedName(name) && !(uid && typeof ch.cr === 'string' && await creatorVerify(uid, ch.cr))) name = 'A friend'; // the creator's name only from the creator
+  const car = CAR_BY_ID[ch.c], key = boardKey(tr);
+  game.challenge = { key, t: Math.round(ch.t), name, uid: uid !== community.me ? uid : null, ghost: !!ch.g, track: tr };
+  openModal(`<div class="eyebrow">Challenge</div><h2>${escapeHtml(name)} challenges you</h2>
+    <p class="empty-note">Beat <b>${fmtTime(ch.t)}</b> on <b>${escapeHtml(tr.name)}</b>${car ? ', set in the ' + escapeHtml(car.name) : ''}.${ch.g ? ' You’ll race their ghost.' : ''}</p>
+    <div class="row"><button class="btn primary" id="m-go">Race</button><button class="btn" id="m-done">Not now</button></div>`);
+  $('m-go').onclick = () => { closeModal(); startChallenge(); };
+  $('m-done').onclick = () => { game.challenge = null; closeModal(); };
+  return true;
+}
+function startChallenge() {
+  const ch = game.challenge; if (!ch) return;
+  // Their ghost, from the leaderboard.
+  if (ch.uid && ch.ghost && !pickedFor(ch.key).has(ch.uid)) {
+    const row = (times.boards.get(ch.key) || []).find(r => r.uid === ch.uid);
+    if (row && row.g) { ghosts.seen.add(ch.key); toggleGhost(ch.key, ch.uid); }
+  }
+  startTrack(ch.track);
+}
+// A challenge link opened the game: once there's a name (and the leaderboard
+// has had a moment to load, for the ghost), show it.
+function pendingChallenge(text) {
+  const t0 = Date.now();
+  const tick = () => {
+    if (settings.nick && $('modal').hidden && game.state === 'menu' && (times.on || Date.now() - t0 > 4000)) openChallenge(text).then(ok => { if (!ok) toast('That challenge link didn’t work.'); });
+    else if (Date.now() - t0 < 600000) setTimeout(tick, 300);
+  };
+  tick();
 }
 
 // Modals
@@ -4460,7 +4798,7 @@ function showSettings() {
   if ($('m-lock')) $('m-lock').onclick = () => { $('m-lock').closest('.toggle').remove(); creatorLock(); }; // which may ask for a new name
   $('m-reset').onclick = () => confirmModal('Delete every time and ghost saved on this device?' + (times.on ? ' Your times on the leaderboard stay.' : ''), 'Delete times', () => {
     try { Object.keys(localStorage).filter(k => /^mt\d?\.(pb|lb)\./.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
-    toast('All times cleared'); if (game.state === 'menu') renderMenu();
+    goldCache = null; toast('All times cleared'); if (game.state === 'menu') renderMenu();
   });
 }
 function showHelp() {
@@ -4519,12 +4857,14 @@ function showShare(tr) {
 }
 function showImport() {
   openModal(`<div class="eyebrow">Community tracks</div><h2>Import a track</h2>
-    <div class="field"><label for="m-code">Paste a track code</label><textarea id="m-code" placeholder="MT1.eyJuIjoi…"></textarea></div>
+    <div class="field"><label for="m-code">Paste a track code or a challenge</label><textarea id="m-code" placeholder="MT1.eyJuIjoi…"></textarea></div>
     <p class="modal-err" id="m-err" hidden></p>
     <div class="row"><button class="btn primary" id="m-go">Import</button><button class="btn" id="m-done">Cancel</button></div>`);
   $('m-go').onclick = () => {
+    const v = $('m-code').value;
+    if (/MTC1\./.test(v)) { openChallenge(v).then(ok => { if (!ok) { const el = $('m-err'); if (el) { el.hidden = false; el.textContent = 'That challenge could not be read. Check that you copied all of it.'; } } }); return; }
     try {
-      const tr = decodeTrack($('m-code').value); tr.id = newId();
+      const tr = decodeTrack(v); tr.id = newId();
       const list = customTracks(); list.push(tr);
       if (!saveCustomTracks(list)) throw new Error('Your browser blocked saving. The track opens for this session only.');
       closeModal(); renderMenu(); toast('Imported “' + tr.name + '”');
@@ -4768,6 +5108,7 @@ window.addEventListener('keydown', e => {
     else if (e.code === 'Enter' || e.code === 'Backspace') respawn();
     else if (e.code === 'KeyC') { game.camMode = (game.camMode + 1) % 3; flash(CAM_NAMES[game.camMode] + ' camera'); }
     else if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
+    else if (e.code === 'KeyJ' && world.track.free) rallyJoin();
   } else if (st === 'paused') {
     if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
     else if (e.code === 'KeyR' && !mp.race) { setState('race'); restartRace(); }
@@ -4905,7 +5246,12 @@ function frame(now) {
       const left = game.lockUntil - performance.now(), hint = $('hud-hint');
       if (left > 0) {
         input = { steer: 0, gas: 0, brake: 0, drift: false };
-        const n = Math.ceil(left / 1000); if (game.cdShown !== n) { game.cdShown = n; hint.hidden = false; hint.className = 'count'; hint.textContent = n; blip(440, 0.12); }
+        const n = Math.ceil(left / 1000);
+        if (game.cdShown !== n) {
+          game.cdShown = n; hint.hidden = false;
+          if (n > 5) { hint.className = ''; hint.innerHTML = escapeHtml(game.lockText || 'Starting in') + ' <b>' + Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0') + '</b>'; }
+          else { hint.className = 'count'; hint.textContent = n; blip(440, 0.12); }
+        }
       } else { game.lockUntil = 0; game.started = true; hint.hidden = true; hint.className = ''; flash('Go!', 'var(--go)'); blip(880, 0.3); }
     }
     if (st === 'race' && !game.started && !game.lockUntil && (input.gas || input.brake || input.steer)) { game.started = true; $('hud-hint').hidden = true; }
@@ -4928,10 +5274,10 @@ function frame(now) {
     if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); blip(620, 0.1); setTimeout(() => blip(930, 0.16), 70); }
     updateDriftHud(car);
     const alpha = clamp(game.acc / PHYS_DT, 0, 1);
-    car.syncMesh(dt, alpha); updateGhost(alpha); mpTick(); updateCamera(dt, car, false); updateHud();
+    car.syncMesh(dt, alpha); updateGhost(alpha); mpTick(); updateCamera(dt, car, false); updateHud(); rallyRender(false);
     updateAudio(car, true, input.gas);
   } else if (st === 'paused') {
-    updateAudio(car, false, 0);
+    updateAudio(car, false, 0); rallyRender(false);
   } else if (st === 'garage') {
     // Showroom: the car sits still while the camera circles it.
     game.orbit += dt * 0.35; car.syncMesh(0);
@@ -4960,7 +5306,7 @@ window.addEventListener('resize', resize);
 
 function start() {
   resize(); applyTheme();
-  if (!carAllowed(settings.car)) { settings.car = 'street'; saveSettings(); setTimeout(() => toast(carById('agent').name + ' is locked: it needs a password'), 1500); }
+  if (!carUsable(settings.car)) { const pw = !carAllowed(settings.car); settings.car = 'street'; saveSettings(); if (pw) setTimeout(() => toast(carById('agent').name + ' is locked: it needs a password'), 1500); }
   game.car = new Car(carById(settings.car), paintFor(carById(settings.car)));
   setState('menu'); loadDemo(); updateCarTheme(); creatorSign();
   requestAnimationFrame(t => { last = t; frame(t); });
@@ -4968,8 +5314,27 @@ function start() {
   profileReady.then(initOnline);
   if (settings.nick && !nameAllowed(settings.nick)) { settings.nick = ''; saveSettings(); }
   renderRacingAs(); if (!settings.nick) askName(true);
+  // Opened from a challenge link: take it out of the address and show it once ready.
+  const ch = /[#&]c=(MTC1\.[A-Za-z0-9_-]+)/.exec(location.hash);
+  if (ch) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* not allowed here */ } pendingChallenge(ch[1]); }
 }
 $('btn-name').onclick = () => askName(false);
+// Installing the game as an app, where the page offers it (the hosted page has
+// a manifest): the browser's own install prompt, or on an iPhone or iPad the
+// steps, since Safari has no prompt.
+let installPrompt = null;
+const standalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true;
+const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('btn-install').hidden = false; });
+window.addEventListener('appinstalled', () => { installPrompt = null; $('btn-install').hidden = true; toast('MushtaqTrack is installed. Open it from your home screen or apps.'); });
+if (iOS && !standalone() && document.querySelector('link[rel="manifest"]')) $('btn-install').hidden = false;
+$('btn-install').onclick = async () => {
+  if (installPrompt) { const p = installPrompt; installPrompt = null; $('btn-install').hidden = true; p.prompt(); return; } // a prompt works once; the browser offers it again later if it's turned down
+  openModal(`<div class="eyebrow">Install the app</div><h2>Put MushtaqTrack on your home screen</h2>
+    <p class="empty-note">In Safari, tap the <b>Share</b> button (the square with an arrow), then <b>Add to Home Screen</b>. It opens full screen, like any other game.</p>
+    <div class="row"><button class="btn primary" id="m-done">Got it</button></div>`);
+  $('m-done').onclick = closeModal;
+};
 // Debug/test hooks.
 window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, CITY_COURSES, cityJoin, tilePoint, openEditor, editorTrack, goToCourse, showCourses };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
