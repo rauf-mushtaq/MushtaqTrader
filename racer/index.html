@@ -1236,7 +1236,7 @@ const MEDAL_NAMES = { author: 'Author', gold: 'Gold', silver: 'Silver', bronze: 
 // Settings
 // ============================================================================
 const CAR_COLORS = ['factory', '#ff5a36', '#d4121c', '#ffd23f', '#3ee38a', '#2a6b3f', '#3fa7ff', '#1c63d8', '#b06bff', '#ff7ad9', '#c9ced6', '#f2f4f8', '#20242c'];
-const settings = Object.assign({ car: 'street', paint: 'factory', theme: 'day', cam: 0, ghost: true, sound: true, music: true, musicVol: 0.8, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
+const settings = Object.assign({ car: 'street', paint: 'factory', theme: 'day', cam: 0, ghost: true, sound: true, carSound: true, music: true, musicVol: 0.8, shadows: true, touch: 'auto' }, store.get('mt.settings', {}));
 function paintFor(spec) { return settings.paint && settings.paint !== 'factory' ? settings.paint : spec.color; }
 function saveSettings() { store.set('mt.settings', settings); }
 
@@ -2863,7 +2863,8 @@ const SFX = {
 };
 function updateAudio(car, active, thr) {
   if (!audio.ctx) return;
-  const t = audio.ctx.currentTime, on = active && settings.sound;
+  // (Car sounds can be switched off on their own, leaving the music and the other sounds.)
+  const t = audio.ctx.currentTime, on = active && settings.sound && settings.carSound;
   const sp = Math.abs(car.fs) / car.spec.vmax, kmh = car.speedKmh();
   // Revs climb through each gear and drop at the change.
   const gearPos = (sp * 5) % 1, rpm = 0.35 + 0.65 * (sp < 0.2 ? sp / 0.2 : gearPos * 0.7 + 0.3), f = 50 + rpm * 125 + sp * 55;
@@ -2916,8 +2917,10 @@ function updateMusic() {
     musicVol(t, 0, 0.9); clearTimeout(t.stop); t.stop = setTimeout(() => { if (t.vol === 0) t.el.pause(); }, 1000);
   }
   if (!want) { music.cur = ''; return; }
-  const t = musicTrack(want), v = want === 'menu' ? (s === 'editor' ? 0.32 : 0.5) : s === 'paused' ? 0.08 : s === 'finished' ? 0.2 : 0.17;
-  audio.musicEq.gain.setTargetAtTime(racing ? -9 : 0, audio.ctx.currentTime, 0.3);
+  // On the track the music sits under the engine, unless car sounds are off.
+  const under = racing && settings.carSound;
+  const t = musicTrack(want), v = want === 'menu' ? (s === 'editor' ? 0.32 : 0.5) : s === 'paused' ? 0.08 : s === 'finished' ? 0.2 : under ? 0.17 : 0.35;
+  audio.musicEq.gain.setTargetAtTime(under ? -9 : 0, audio.ctx.currentTime, 0.3);
   clearTimeout(t.stop);
   if (t.el.paused) {
     if (music.cur !== want) t.el.currentTime = 0; // each new race starts its music from the top
@@ -4991,6 +4994,7 @@ function showSettings() {
     <div class="field"><label for="m-cam">Default camera</label><select id="m-cam">${CAM_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
     <label class="toggle"><span>Race against my best ghost</span><input type="checkbox" id="m-ghost"></label>
     <label class="toggle"><span>Sound (M)</span><input type="checkbox" id="m-sound"></label>
+    <label class="toggle"><span>Car sounds (engine, tyres, wind)</span><input type="checkbox" id="m-carsound"></label>
     <label class="toggle"><span>Music</span><input type="checkbox" id="m-music"></label>
     <div class="field"><label for="m-musicvol">Music volume</label><input type="range" id="m-musicvol" min="0" max="100" step="5"></div>
     <label class="toggle"><span>Shadows (turn off on slow devices)</span><input type="checkbox" id="m-shadows"></label>
@@ -5012,6 +5016,8 @@ function showSettings() {
   $('m-ghost').onchange = e => { settings.ghost = e.target.checked; saveSettings(); };
   $('m-sound').onchange = e => { settings.sound = e.target.checked; saveSettings(); if (settings.sound) initAudio(); updateCarTheme(); updateMusic(); };
   $('m-music').onchange = e => { settings.music = e.target.checked; saveSettings(); initAudio(); updateMusic(); };
+  $('m-carsound').checked = settings.carSound;
+  $('m-carsound').onchange = e => { settings.carSound = e.target.checked; saveSettings(); updateMusic(); };
   $('m-musicvol').value = Math.round(settings.musicVol * 100);
   $('m-musicvol').oninput = e => { settings.musicVol = e.target.value / 100; saveSettings(); if (audio.ctx) audio.musicBus.gain.setTargetAtTime(settings.musicVol, audio.ctx.currentTime, 0.05); };
   $('m-shadows').onchange = e => { settings.shadows = e.target.checked; saveSettings(); applyTheme(); };
