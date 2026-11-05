@@ -139,6 +139,9 @@
   #hud-cp { font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; padding: 3px 9px; background: rgba(0,0,0,0.42); border-radius: 3px; }
   #hud-hint { position: absolute; top: 38%; left: 50%; transform: translateX(-50%); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 16px; background: rgba(0,0,0,0.5); border-radius: 4px; white-space: nowrap; }
   #hud-hint b { color: var(--signal); }
+  #speedlines { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 0.25s; --sa: 0deg;
+    background: repeating-conic-gradient(from var(--sa) at 50% 52%, rgba(255,255,255,0) 0deg 4deg, rgba(255,255,255,0.55) 4deg 5deg);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 52%, transparent 34%, #000 78%); mask-image: radial-gradient(ellipse at 50% 52%, transparent 34%, #000 78%); }
   #hud-tip { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: calc(100% - 32px); width: max-content; padding: 10px 18px; border-radius: 8px; background: rgba(8,14,26,0.78); border: 1px solid rgba(255,210,63,0.55); font-family: var(--body); font-size: 20px; text-align: center; line-height: 1.35; }
   #hud-tip small { font-family: var(--display); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--signal); }
   #hud-tip b { color: var(--signal); }
@@ -328,6 +331,7 @@
 <div id="loading" class="screen"><div class="eyebrow">Loading physics engine…</div></div>
 
 <div id="hud" hidden>
+  <div id="speedlines" aria-hidden="true"></div>
   <div class="hud-left">
     <div id="hud-track">Track</div>
     <div id="hud-medals"></div>
@@ -2230,6 +2234,8 @@ class Car {
     const xs = this.wheels.map(w => Math.abs(w.m.x)), zs = this.wheels.map(w => Math.abs(w.m.z) + w.r);
     this.hw = Math.max(...xs) + 0.12; this.hl = Math.max(...zs) + 0.2;
     this.buildBody();
+    // Exhaust flames, shown while boosting.
+    this.flames = [-0.42, 0.42].map(x => { const f = exhaustFlame(); f.position.set(x, spec.comY * 0.62, -(this.hl - 0.15)); f.visible = false; this.mesh.add(f); return f; });
   }
   // Bullet chassis + raycast vehicle for the current car.
   buildBody() {
@@ -2646,7 +2652,7 @@ class Car {
       if (vn < 0) {
         this.vel.addScaledVector(nrm, -vn * 1.2);
         this.vel.multiplyScalar(1 - clamp(-vn / 90, 0, 0.18));
-        if (vn < -5) events.wall = Math.max(events.wall, -vn);
+        if (vn < -5) { events.wall = Math.max(events.wall, -vn); events.wallN = nrm.clone(); }
       }
       // Scrape: swing the nose (about the road's normal) to run along the wall.
       const f = new V3(0, 0, 1).applyQuaternion(this.q);
@@ -2686,7 +2692,7 @@ class Car {
         hit = true; pen = Math.min(pen, maxPush);
         this.pos.x += nx * pen; this.pos.z += nz * pen;
         const vn = this.vel.x * nx + this.vel.z * nz;
-        if (vn < 0) { this.vel.x -= nx * vn * 1.3; this.vel.z -= nz * vn * 1.3; this.vel.multiplyScalar(0.92); this.w.y *= 0.5; if (vn < -4) events.wall = Math.max(events.wall, -vn); }
+        if (vn < 0) { this.vel.x -= nx * vn * 1.3; this.vel.z -= nz * vn * 1.3; this.vel.multiplyScalar(0.92); this.w.y *= 0.5; if (vn < -4) { events.wall = Math.max(events.wall, -vn); events.wallN = new V3(nx, 0, nz); } }
       }
     }
     return hit;
@@ -2729,10 +2735,14 @@ class Car {
       wh.vis.w.rotation.x += (wh.contact ? wh.vLong : this.fs) * dt / wh.r;
       if (wh.front) wh.vis.pivot.rotation.y = this.steerAng;
     }
+    if (this.flames) { // boost flames flicker; bigger on a super boost
+      const on = this.boostT > 0 || this.onBoost || this.vel.lengthSq() > 110 * 110, big = this.vel.lengthSq() > 110 * 110 ? 2.2 : 1;
+      for (const f of this.flames) { f.visible = on; if (on) f.scale.set(1, 1, big * (0.75 + Math.random() * 0.5)); }
+    }
   }
 }
 function driftStage(t) { let s = null; for (const st of DRIFT_STAGES) if (t >= st.t) s = st; return s; }
-const events = { land: false, wall: 0, driftBoost: null, flipped: false, pad: null };
+const events = { land: false, wall: 0, wallN: null, driftBoost: null, flipped: false, pad: null };
 
 // ============================================================================
 // Skid marks (instanced quads in a ring buffer)
@@ -2769,6 +2779,52 @@ function puff(car) {
     sp.userData.life = 1; sp.userData.vel.set((Math.random() - 0.5) * 2, 1.5 + Math.random(), (Math.random() - 0.5) * 2).addScaledVector(car.vel, 0.15);
     sp.visible = true;
   }
+}
+// Game feel: exhaust flames, sparks off walls, dust on landing, a little camera
+// shake, and speed lines when you're really flying (no shake or lines for anyone
+// whose device asks for reduced motion).
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const flameMats = [new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false }),
+  new THREE.MeshBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })];
+const flameGeo = [0.2, 0.11].map((r, i) => new THREE.ConeGeometry(r, i ? 0.7 : 1.25, 8).rotateX(-Math.PI / 2).translate(0, 0, i ? -0.35 : -0.62));
+function exhaustFlame() { const g = new THREE.Group(); flameGeo.forEach((geo, i) => g.add(new THREE.Mesh(geo, flameMats[i]))); return g; }
+const sparks = [], sparkMat = new THREE.MeshBasicMaterial({ color: 0xffb627, transparent: true, depthWrite: false, fog: false }); // solid, so they show against bright ground too
+const sparkGeo = new THREE.BoxGeometry(0.09, 0.09, 0.6);
+for (let i = 0; i < 48; i++) { const m = new THREE.Mesh(sparkGeo, sparkMat.clone()); m.visible = false; m.userData = { life: 0, vel: new V3() }; scene.add(m); sparks.push(m); }
+let sparkIdx = 0;
+function sparkBurst(car, n, power) {
+  const side = n ? n.clone().negate() : new V3(0, 0, 1).applyQuaternion(car.q); side.y = 0; side.normalize();
+  const at = car.pos.clone().addScaledVector(side, n ? car.hw * 0.95 : car.hl * 0.9).add(new V3(0, -car.spec.comY + 0.35, 0));
+  for (let i = 0, k = Math.round(10 + 20 * power); i < k; i++) {
+    const s = sparks[sparkIdx]; sparkIdx = (sparkIdx + 1) % sparks.length;
+    s.position.copy(at); s.userData.life = 0.35 + Math.random() * 0.25;
+    s.userData.vel.copy(car.vel).multiplyScalar(0.55).addScaledVector(side, -2 - Math.random() * 4).add(new V3((Math.random() - 0.5) * 6, 2 + Math.random() * 4, (Math.random() - 0.5) * 6));
+    s.visible = true;
+  }
+}
+function updateSparks(dt) {
+  for (const s of sparks) {
+    if (!s.visible) continue;
+    const u = s.userData; u.life -= dt; if (u.life <= 0) { s.visible = false; continue; }
+    u.vel.y -= 20 * dt; s.position.addScaledVector(u.vel, dt);
+    s.lookAt(s.position.clone().add(u.vel)); s.material.opacity = Math.min(1, u.life * 3);
+  }
+}
+// Dust kicked up by every wheel on a big landing.
+function landDust(car, p) {
+  for (const wh of car.wheels) for (let i = 0; i < Math.round(1 + p * 3); i++) {
+    if (!wh.contact || wh.surf === 'grass') continue;
+    const sp = smoke[smokeIdx]; smokeIdx = (smokeIdx + 1) % smoke.length;
+    sp.position.copy(wh.cp).add(new V3(0, 0.3, 0)); sp.userData.life = 0.8;
+    sp.userData.vel.set((Math.random() - 0.5) * 6, 1 + Math.random() * 2, (Math.random() - 0.5) * 6).addScaledVector(car.vel, 0.25); sp.visible = true;
+  }
+}
+function shake(a) { if (!REDUCED_MOTION) game.shake = Math.max(game.shake || 0, a); }
+function updateSpeedLines(car, racing) {
+  const el = $('speedlines'); if (REDUCED_MOTION) return;
+  const v = racing ? car.speedKmh() * SPEEDO : 0, o = racing ? clamp((v - 135) / 110, 0, 0.9) : 0;
+  if (o < 0.02) { if (el.style.opacity !== '0') el.style.opacity = '0'; return; }
+  el.style.opacity = o.toFixed(2); el.style.setProperty('--sa', (Math.random() * 360).toFixed(0) + 'deg');
 }
 function updateSmoke(dt) {
   for (const sp of smoke) {
@@ -3339,6 +3395,9 @@ function updateCamera(dt, car, cinematic) {
     if (above < 0.8) game.camPos.addScaledVector(cu, 0.8 - above);
   }
   camera.position.copy(game.camPos); camera.lookAt(game.camLook);
+  if (game.shake > 0.002 && !cinematic) { // a quick, small shake that dies away
+    const k = game.shake; camera.position.add(new V3((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, (Math.random() - 0.5) * k)); game.shake *= Math.exp(-12 * dt);
+  }
   const fov = 68 + clamp(sp / 70, 0, 1.5) * 20;
   camera.fov += (fov - camera.fov) * (1 - Math.exp(-5 * dt)); camera.updateProjectionMatrix();
   placeSun(pos);
@@ -4777,7 +4836,8 @@ function renderGarage() {
     STREAK_PAINTS.map(p => { const have = streak.paints.includes(p.col); return `<button class="streak${have ? '' : ' locked'}${p.col === settings.paint ? ' sel' : ''}" style="background:${p.col}" data-paint="${p.col}" data-days="${have ? '' : p.days}" aria-label="${p.name} paint${have ? '' : ' (locked)'}" title="${p.name}${have ? '' : ': finish the daily track ' + p.days + ' days in a row'}">${have ? '' : '🔒'}</button>`; }).join('');
   const golds = goldCount(), next = nextCar();
   $('g-gold').textContent = `🏅 ${golds} Gold medal${golds === 1 ? '' : 's'} · ` + (next ? `next: the ${next.car.name} at ${next.need}` : 'every car unlocked');
-  $('g-cars').innerHTML = CARS.map(car => { const s2 = carStats(car), pw = !carAllowed(car.id), gold = !pw && !carEarned(car.id), locked = pw || gold;
+  // (The creator's car only shows for the creator.)
+  $('g-cars').innerHTML = CARS.filter(car => !car.creatorOnly || creator.owner).map(car => { const s2 = carStats(car), pw = !carAllowed(car.id), gold = !pw && !carEarned(car.id), locked = pw || gold;
     return `<button class="car-card ${car.id === c.id ? 'sel' : ''}${locked ? ' locked' : ''}" data-car="${car.id}"${pw ? ' title="Needs a password"' : gold ? ` title="Win ${CAR_GOLDS[car.id]} Gold medals on the official tracks to unlock it"` : ''}>
     <span class="nm"><span class="chip" style="background:${car.color}"></span>${car.name}</span><span class="cl">${pw ? 'Locked: needs a password' : gold ? `🔒 ${golds} / ${CAR_GOLDS[car.id]} Gold medals` : car.cls} · ${Math.round(car.vmax * 3.6 * SPEEDO)} km/h</span>
     <span class="mini" title="Speed, acceleration, grip, drift">${['speed', 'accel', 'grip', 'drift'].map(k => `<i><b style="width:${Math.round(s2[k] * 100)}%"></b></i>`).join('')}</span></button>`; }).join('');
@@ -5454,7 +5514,7 @@ function frame(now) {
   for (const o of world.dyn) o.userData.dyn(o, world.clock + game.acc);
   const st = game.state; const car = game.car;
   for (const c of scenery.children) if (c.userData.drift) c.position.x += c.userData.drift * dt;
-  updateSmoke(dt);
+  updateSmoke(dt); updateSparks(dt); updateSpeedLines(car, st === 'race');
 
   if (st === 'menu' || st === 'online') {
     game.acc += dt;
@@ -5494,12 +5554,12 @@ function frame(now) {
       else if (away) { hint.hidden = false; hint.innerHTML = document.body.classList.contains('touchui') ? 'Out of town · <b>Pause</b> to go back' : 'Out of town · <b>R</b> to go back'; }
       else if (!hint.hidden) hint.hidden = true;
     }
-    if (events.land) { SFX.land(+events.land || 0.5); events.land = false; }
-    if (events.pad) { if (events.pad === 'super') { flash('Super boost!', '#ff4fd8'); SFX.superBoost(); } else if (events.pad === 'jump') SFX.jump(); else SFX.boost(); events.pad = null; }
+    if (events.land) { const p = +events.land || 0.5; SFX.land(p); landDust(car, p); shake(0.12 + 0.3 * p); events.land = false; }
+    if (events.pad) { if (events.pad === 'super') { flash('Super boost!', '#ff4fd8'); SFX.superBoost(); shake(0.35); } else if (events.pad === 'jump') SFX.jump(); else SFX.boost(); events.pad = null; }
     // Fell through the world (a very hard landing): back on top.
     if (world.track.free && car.pos.y < GROUND_Y - 4) car.reset(new V3(car.pos.x, 0.5, car.pos.z), car.yaw, 0);
     if (events.flipped) { events.flipped = false; if (st === 'race') { respawn(); flash('Flipped · back to checkpoint', 'var(--signal)'); } }
-    if (events.wall) { SFX.wall(Math.min(1, events.wall / 25)); events.wall = 0; }
+    if (events.wall) { const p = Math.min(1, events.wall / 25); SFX.wall(p); sparkBurst(car, events.wallN, p); shake(0.1 + 0.35 * p); events.wall = 0; events.wallN = null; }
     if (events.driftBoost) { const b = events.driftBoost; events.driftBoost = null; flash(b.name, b.color); SFX.driftBoost(DRIFT_STAGES.indexOf(b)); }
     updateDriftHud(car);
     const alpha = clamp(game.acc / PHYS_DT, 0, 1);
