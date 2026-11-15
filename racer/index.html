@@ -251,6 +251,7 @@
   body.touchui #hud-mp.city div:not(:first-child) { display: none; }
   #hud-mp div span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
   #hud-mp div span.cr { max-width: 230px; }
+  #hud-mp div.cpu span:first-child { opacity: 0.7; max-width: 200px; }
   .cr { color: var(--signal); font-weight: 700; }
   #hud-mp .me { color: var(--signal); }
   .mp-chat { min-height: 44px; max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.25); font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; margin-top: -6px; }
@@ -1753,167 +1754,484 @@ function shapedBox(w, h, l, o = {}) {
   return g;
 }
 
+// Car bodies. Each body is side profiles (length × height, with the wheel arches
+// cut out) pushed out across the car with rounded edges and narrowed toward the
+// nose, tail or roof, plus a cabin with glass, lights, trim and wheels. Parts are
+// gathered by material and merged, so a car draws in a few calls (a ghost in one).
+function mergeGeos(geos) {
+  const arrs = geos.map(geo => (geo.index ? geo.toNonIndexed() : geo).attributes.position.array), pos = new Float32Array(arrs.reduce((n, a) => n + a.length, 0));
+  let o = 0; for (const a of arrs) { pos.set(a, o); o += a.length; }
+  const m = new THREE.BufferGeometry(); m.setAttribute('position', new THREE.BufferAttribute(pos, 3)); m.computeVertexNormals(); return m;
+}
+function carKit(put) {
+  const flat = pts => pts.filter(p => p.length === 2);
+  const K = {
+    put, box: shapedBox,
+    disc: (r, d, seg = 12) => new THREE.CylinderGeometry(r, r, d, seg).rotateX(Math.PI / 2), // faces forward and back
+    side: (r, d, seg = 12) => new THREE.CylinderGeometry(r, r, d, seg).rotateZ(Math.PI / 2), // faces left and right
+    ball: (r, a = 8) => new THREE.SphereGeometry(r, a, Math.max(4, a - 2)),
+    // The bottom edge from the tail to the nose at sill height, arched over each wheel ([z, r], back to front).
+    under(zr, zf, sill, wheels) {
+      const out = [[zr, sill]];
+      for (const [z, r] of wheels) { const R = r + 0.1, yc = Math.max(sill, r + 0.03); out.push([z - R, sill], [z, yc, R], [z + R, sill]); }
+      out.push([zf, sill]); return out;
+    },
+    // A side profile ([z, y] points; [z, y, r] is an arch) pushed out `width` across,
+    // its edges rounded; pinch(y, z) scales it across (1 = full width).
+    slab(pts, width, o = {}) {
+      const bev = 'bev' in o ? o.bev : 0.05, thick = 'thick' in o ? o.thick : Math.min(0.1, width / 4);
+      const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
+      for (const p of pts.slice(1)) if (p.length === 3) s.absarc(p[0], p[1], p[2], Math.PI, 0, true); else s.lineTo(p[0], p[1]);
+      const geo = new THREE.ExtrudeGeometry(s, { depth: Math.max(0.002, width - 2 * thick), bevelEnabled: true, bevelThickness: thick, bevelSize: bev, bevelSegments: o.segs || 2, curveSegments: o.curve || 7 });
+      geo.rotateY(-Math.PI / 2); geo.translate(width / 2 - thick + (o.x || 0), 0, 0);
+      if (o.pinch) { const p = geo.attributes.position; for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * o.pinch(p.getY(i), p.getZ(i))); }
+      return geo;
+    },
+    // Narrowing toward the nose ([from z, to z, amount, power]), the tail, the top
+    // ([from y, to y, amount]), and a waist between the wheels ([wheel zs, amount, reach]).
+    plan(o) {
+      return (y, z) => {
+        let s = 1;
+        if (o.nose && z > o.nose[0]) s -= o.nose[2] * Math.pow(Math.min(1, (z - o.nose[0]) / (o.nose[1] - o.nose[0])), o.nose[3] || 2);
+        if (o.tail && z < o.tail[0]) s -= o.tail[2] * Math.pow(Math.min(1, (o.tail[0] - z) / (o.tail[0] - o.tail[1])), o.tail[3] || 2);
+        if (o.top && y > o.top[0]) s -= o.top[2] * Math.min(1, (y - o.top[0]) / (o.top[1] - o.top[0]));
+        if (o.waist) { let near = 0; for (const zw of o.waist[0]) near = Math.max(near, Math.exp(-(((z - zw) / o.waist[2]) ** 2))); s -= o.waist[1] * (1 - near); }
+        return s;
+      };
+    },
+    // The front-most (dir 1) or rear-most (dir -1) point of an outline at height y, and its top at z.
+    edgeZ(pts, y, dir) {
+      const P = flat(pts); let best = null;
+      for (let i = 0; i < P.length; i++) {
+        const a = P[i], b = P[(i + 1) % P.length]; if ((a[1] - y) * (b[1] - y) > 0 || a[1] === b[1]) continue;
+        const z = a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]); if (best === null || z * dir > best * dir) best = z;
+      }
+      return best;
+    },
+    topY(pts, z) {
+      const P = flat(pts); let best = -Infinity;
+      for (let i = 0; i < P.length; i++) {
+        const a = P[i], b = P[(i + 1) % P.length]; if ((a[0] - z) * (b[0] - z) > 0 || a[0] === b[0]) continue;
+        best = Math.max(best, a[1] + (b[1] - a[1]) * (z - a[0]) / (b[0] - a[0]));
+      }
+      return best;
+    },
+    // A cabin: its profile over the roof (front to back), `width` across, leaning in
+    // by `lean` toward the roof. Returns its half-width at a height.
+    cabin(line, width, lean, mat, bev = 0.04) {
+      const y0 = Math.min(...line.map(p => p[1])), y1 = Math.max(...line.map(p => p[1]));
+      const k = y => 1 - lean * clamp((y - y0) / (y1 - y0), 0, 1);
+      put(mat, K.slab(line, width, { bev, thick: 0.05, pinch: y => k(y) }));
+      return y => width / 2 * k(y);
+    },
+    // Glass on a cabin slope from a to b (front to back), between fractions t0..t1 of it.
+    screen(a, b, t0, t1, inset, half, mat) {
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = [(b[1] - a[1]) / L, (a[0] - b[0]) / L];
+      const at = t => [a[0] + (b[0] - a[0]) * t + n[0] * 0.05, a[1] + (b[1] - a[1]) * t + n[1] * 0.05];
+      const [z0, y0] = at(t0), [z1, y1] = at(t1), w0 = half(y0) - inset, w1 = half(y1) - inset;
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute([-w0, y0, z0, w0, y0, z0, w1, y1, z1, -w0, y0, z0, w1, y1, z1, -w1, y1, z1], 3));
+      put(mat, geo);
+    },
+    // Dark wheel wells: a half disc inside each arch, almost as wide as the body.
+    wells(wheels, sill, halfW, bev, mat) { for (const [z, r] of wheels) { const R = r + 0.1 - bev - 0.012, yc = Math.max(sill, r + 0.03); put(mat, K.slab([[z - R, yc], [z, yc, R], [z + R, yc]], 2 * halfW - 0.12, { bev: 0, thick: 0.005, curve: 10 })); } },
+    // A bolt-on arch's side profile round a wheel, `out` wide.
+    flare(z, r, sill, out = 0.14) {
+      const R = r + 0.1, yc = Math.max(sill, r + 0.03), pts = [[z - R - out, sill], [z - R, sill], [z, yc, R], [z + R, sill], [z + R + out, sill]];
+      for (let k = 0; k <= 8; k++) { const a = Math.PI * k / 8; pts.push([z + (R + out) * Math.cos(a), yc + (R + out) * Math.sin(a)]); }
+      return pts;
+    },
+    // The same side profile on both sides of the car, centred x out (wings over the wheels).
+    sides(pts, width, x, mat, o = {}) { for (const s of [-1, 1]) put(mat, K.slab(pts, width, Object.assign({}, o, { x: s * x }))); },
+    // A flat shape ([z, y] points) on both sides of the car, where half(y, z) says the side is.
+    pane(poly, half, mat, off = 0.012) {
+      for (const sx of [-1, 1]) {
+        const geo = new THREE.ShapeGeometry(new THREE.Shape(poly.map(([z, y]) => new THREE.Vector2(z, y)))), p = geo.attributes.position;
+        for (let i = 0; i < p.count; i++) { const z = p.getX(i), y = p.getY(i); p.setXYZ(i, sx * (half(y, z) + off), y, z); }
+        if (sx > 0) { const ix = geo.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i]; ix[i] = ix[i + 1]; ix[i + 1] = t; } }
+        put(mat, geo);
+      }
+    },
+    // A strip along the top of an outline from z0 to z1, x0..x1 across (racing stripes).
+    stripe(pts, z0, z1, x0, x1, lift, mat) {
+      const zs = [z0, ...flat(pts).map(p => p[0]).filter(z => z > Math.min(z0, z1) && z < Math.max(z0, z1)), z1].sort((a, b) => a - b), v = [];
+      for (let i = 0; i < zs.length - 1; i++) {
+        const za = zs[i], zb = zs[i + 1], ya = K.topY(pts, za) + lift, yb = K.topY(pts, zb) + lift;
+        v.push(x0, ya, za, x1, yb, zb, x1, ya, za, x0, ya, za, x0, yb, zb, x1, yb, zb);
+      }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); put(mat, geo);
+    },
+    // Racing numbers as seven-segment digits on both sides, centred at (y, z).
+    number(digits, y, z, half, mat, size = 1) {
+      const SEG = { a: [0, 0.16, 0.18, 0.04], b: [0.09, 0.08, 0.04, 0.17], c: [0.09, -0.08, 0.04, 0.17], d: [0, -0.16, 0.18, 0.04], e: [-0.09, -0.08, 0.04, 0.17], f: [-0.09, 0.08, 0.04, 0.17], g: [0, 0, 0.18, 0.04] };
+      const ON = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'abc', 'abcdefg', 'abfgcd'];
+      for (const sx of [-1, 1]) [...String(digits)].forEach((ch, i, all) => {
+        const u0 = (i - (all.length - 1) / 2) * 0.27 * size;
+        for (const s of ON[+ch]) { const [u, v, w, h] = SEG[s]; put(mat, K.box(0.012, h * size, w * size), sx * (half(y, z) + 0.02), y + v * size, z - sx * (u0 + u * size)); }
+      });
+    },
+  };
+  return K;
+}
+
+// Wheels: a rounded tyre and a rim in one of several styles; the brake caliper
+// steers with the wheel but doesn't spin. Style: a name, or { t: name, m: rim
+// material, cal: caliper material, tread: chunky off-road blocks }.
+const WHEEL_STYLES = { spoke5: 'hub', star: 'hub', mesh: 'hub', y6: 'dark', aero: 'accent', steel: 'white', beadlock: 'dark', deep: 'chrome', whitewall: 'chrome', kart: 'accent', bare: null };
+function wheelParts(r, w, sx, style, M) {
+  const t = style.t, h = w / 2, rr = r * (t === 'beadlock' ? 0.58 : t === 'kart' ? 0.56 : t === 'whitewall' ? 0.62 : t === 'deep' ? 0.7 : 0.67), e = Math.min(0.06, r * 0.15);
+  const tyre = [new THREE.LatheGeometry([[rr, -h + 0.03], [r - e, -h], [r, -h + e], [r, h - e], [r - e, h], [rr, h - 0.03]].map(([a, b]) => new THREE.Vector2(a, b)), 18).rotateZ(Math.PI / 2)];
+  if (style.tread) for (let k = 0; k < 16; k++) tyre.push(new THREE.BoxGeometry(w * 0.86, 0.07, 0.13).translate(0, r + 0.01, 0).rotateX(k * Math.PI / 8 + (k % 2) * 0.06).translate((k % 2 ? 1 : -1) * w * 0.04, 0, 0));
+  const out = { tyre: mergeGeos(tyre), rim: [], dark: [], white: [], cal: null };
+  out.dark.push(new THREE.CylinderGeometry(rr, rr, 0.02, 16).rotateZ(Math.PI / 2).translate(sx * (h - 0.16), 0, 0)); // the dark inside of the rim
+  if (t === 'bare') return out;
+  const fx = sx * (h - 0.035), ring = (rad, tube, x) => new THREE.TorusGeometry(rad, tube, 4, 18).rotateY(Math.PI / 2).translate(x, 0, 0);
+  const spokes = (n, sw, x, rIn, depth = 0.035, twist = 0) => { for (let k = 0; k < n; k++) { const L = rr - rIn - 0.01; out.rim.push(new THREE.BoxGeometry(depth, L, sw).translate(0, rIn + L / 2, 0).rotateX(k * 2 * Math.PI / n + twist).translate(x, 0, 0)); } };
+  out.rim.push(new THREE.CylinderGeometry(rr * 0.74, rr * 0.74, 0.03, 14).rotateZ(Math.PI / 2).translate(sx * (h - 0.12), 0, 0)); // the brake disc
+  const cap = (rad = 0.065) => out.rim.push(new THREE.CylinderGeometry(rad, rad * 1.1, 0.06, 8).rotateZ(Math.PI / 2).translate(fx + sx * 0.012, 0, 0));
+  if (t === 'spoke5' || t === 'star') { spokes(5, t === 'star' ? 0.11 : 0.075, fx, 0.06); out.rim.push(ring(rr - 0.015, 0.024, fx)); cap(); }
+  else if (t === 'mesh') { spokes(10, 0.035, fx, 0.07); spokes(10, 0.035, fx, 0.07, 0.035, Math.PI / 10 + 0.18); out.rim.push(ring(rr - 0.015, 0.022, fx)); cap(0.08); }
+  else if (t === 'y6') { for (const d of [-0.16, 0.16]) spokes(6, 0.04, fx, 0.07, 0.035, d); out.rim.push(ring(rr - 0.015, 0.022, fx)); cap(0.07); }
+  else if (t === 'deep') { spokes(5, 0.08, fx - sx * 0.07, 0.06); out.rim.push(new THREE.CylinderGeometry(rr, rr, 0.08, 18, 1, true).rotateZ(Math.PI / 2).translate(fx - sx * 0.035, 0, 0), ring(rr - 0.012, 0.03, fx)); cap(0.07); }
+  else if (t === 'aero') { out.rim.push(new THREE.CylinderGeometry(rr - 0.02, rr - 0.02, 0.03, 18).rotateZ(Math.PI / 2).translate(fx, 0, 0), ring(rr - 0.015, 0.02, fx)); for (let k = 0; k < 5; k++) out.dark.push(new THREE.BoxGeometry(0.02, 0.16, 0.05).translate(fx + sx * 0.012, rr * 0.62, 0).rotateX(k * 2 * Math.PI / 5)); cap(0.06); }
+  else if (t === 'steel') { out.rim.push(new THREE.CylinderGeometry(rr - 0.01, rr - 0.01, 0.03, 18).rotateZ(Math.PI / 2).translate(fx, 0, 0), ring(rr - 0.015, 0.025, fx)); for (let k = 0; k < 6; k++) out.dark.push(new THREE.CylinderGeometry(0.045, 0.045, 0.02, 6).rotateZ(Math.PI / 2).translate(fx + sx * 0.012, rr * 0.6, 0).rotateX(k * Math.PI / 3)); cap(0.07); }
+  else if (t === 'beadlock') { spokes(6, 0.1, fx, 0.07); out.rim.push(ring(rr - 0.02, 0.035, fx)); for (let k = 0; k < 12; k++) out.white.push(new THREE.BoxGeometry(0.03, 0.03, 0.03).translate(fx + sx * 0.03, rr - 0.02, 0).rotateX(k * Math.PI / 6)); cap(0.09); }
+  else if (t === 'whitewall') { out.rim.push(new THREE.SphereGeometry(rr * 0.85, 14, 5, 0, Math.PI * 2, 0, 0.9).scale(1, 0.55, 1).rotateZ(-sx * Math.PI / 2).translate(fx - sx * 0.045, 0, 0)); out.white.push(new THREE.RingGeometry(rr + 0.02, rr + (r - rr) * 0.6, 18).rotateY(sx * Math.PI / 2).translate(sx * (h + 0.004), 0, 0)); }
+  else if (t === 'kart') { out.rim.push(new THREE.CylinderGeometry(rr - 0.01, rr - 0.01, w * 0.9, 12).rotateZ(Math.PI / 2)); spokes(3, 0.05, fx, 0.04); cap(0.04); }
+  if (t !== 'kart' && t !== 'whitewall') out.cal = new THREE.BoxGeometry(0.05, rr * 0.48, rr * 0.36).translate(sx * (h - 0.085), rr * 0.43, -rr * 0.43).rotateX(-0.4);
+  return out;
+}
+
 const MODELS = {
-  street({ add, B, M, wheel }) {
-    add(B(2.1, 0.6, 4.3, { tf: 0.28 }), M.paint, 0, 0.72, 0);
-    add(B(1.72, 0.5, 1.95, { nt: 0.12, sf: 0.4, sb: 0.25 }), M.glass, 0, 1.27, -0.3);
-    add(B(1.5, 0.06, 1.1), M.paint, 0, 1.53, -0.4);
-    add(B(2.2, 0.1, 0.45), M.dark, 0, 1.4, -2.0);
-    for (const x of [-0.8, 0.8]) add(B(0.12, 0.38, 0.25), M.dark, x, 1.18, -2.0);
-    for (const x of [-0.65, 0.65]) { add(B(0.5, 0.14, 0.06), M.light, x, 0.68, 2.16); add(B(0.55, 0.14, 0.06), M.tail, x, 0.86, -2.16); }
-    add(B(1.6, 0.18, 0.1), M.dark, 0, 0.5, 2.15);
-    for (const x of [-1.08, 1.08]) { wheel(x, 1.4, 0.46, 0.42, true); wheel(x, -1.4, 0.46, 0.44, false); }
+  // A sports coupé with a big wing.
+  street({ K, M, wheel }) {
+    const W = 2.5, pinch = K.plan({ nose: [1.4, 2.28, 0.16], tail: [-1.5, -2.27, 0.1], top: [0.72, 1.08, 0.06], waist: [[1.4, -1.4], 0.05, 0.6] }), half = (y, z) => W / 2 * pinch(y, z);
+    const body = [...K.under(-2.24, 2.14, 0.32, [[-1.4, 0.46], [1.4, 0.46]]), [2.25, 0.42], [2.28, 0.66], [2.2, 0.82], [1.9, 0.96], [1.4, 1.02], [0.8, 1.06], [-1.4, 1.08], [-2.05, 1.06], [-2.22, 0.98], [-2.27, 0.66], [-2.25, 0.42]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.06, thick: 0.12, pinch })); K.wells([[-1.4, 0.46], [1.4, 0.46]], 0.32, 1.24, 0.06, M.dark);
+    const line = [[0.85, 1.03], [0.05, 1.52], [-0.62, 1.57], [-1.02, 1.53], [-1.8, 1.06]], cab = K.cabin(line, 1.78, 0.2, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.94, 0.09, cab, M.glass); K.screen(line[3], line[4], 0.07, 0.86, 0.12, cab, M.glass);
+    K.pane([[0.64, 1.12], [0.1, 1.47], [-0.42, 1.5], [-0.42, 1.12]], cab, M.glass); K.pane([[-0.52, 1.12], [-0.52, 1.5], [-0.98, 1.47], [-1.52, 1.12]], cab, M.glass);
+    const zf = y => K.edgeZ(body, y, 1) + 0.06, zr = y => K.edgeZ(body, y, -1) - 0.06;
+    for (const s of [-1, 1]) {
+      K.put(M.light, K.box(0.48, 0.1, 0.1, { tf: 0.04 }), s * 0.66, 0.74, zf(0.74) - 0.04);
+      K.put(M.tail, K.box(0.5, 0.11, 0.06), s * 0.66, 0.88, zr(0.88) + 0.02);
+      K.put(M.chrome, K.disc(0.065, 0.16), s * 0.48, 0.36, zr(0.42) + 0.02);
+      K.put(M.dark, K.box(0.06, 0.08, 1.5), s * (half(0.38, 0) + 0.01), 0.37, 0);
+      K.put(M.paint, K.box(0.2, 0.11, 0.14, { tf: 0.03 }), s * 1.0, 1.16, 0.55); K.put(M.dark, K.box(0.03, 0.08, 0.1), s * 1.1, 1.16, 0.54);
+      K.put(M.chrome, K.box(0.02, 0.025, 0.13), s * (half(0.94, -0.3) + 0.01), 0.94, -0.3);
+      K.put(M.dark, K.box(0.08, 0.34, 0.2), s * 0.72, 1.24, -1.98); K.put(M.dark, K.box(0.05, 0.28, 0.52), s * 1.1, 1.44, -2.02);
+    }
+    K.put(M.dark, K.box(2.2, 0.06, 0.46, { tf: 0.03 }), 0, 1.43, -2.02);
+    K.put(M.dark, K.box(1.0, 0.1, 0.05), 0, 0.68, zf(0.68) - 0.01); K.put(M.dark, K.box(1.6, 0.15, 0.05), 0, 0.48, zf(0.48) - 0.01);
+    K.put(M.dark, K.box(2.0, 0.04, 0.22), 0, 0.3, 2.08); K.put(M.dark, K.box(1.5, 0.12, 0.12), 0, 0.38, zr(0.44) + 0.03);
+    K.put(M.dark, K.box(0.7, 0.09, 0.05), 0, 0.88, zr(0.88) + 0.01);
+    for (const x of [-1.08, 1.08]) { wheel(x, 1.4, 0.46, 0.42, true, 'spoke5'); wheel(x, -1.4, 0.46, 0.44, false, 'spoke5'); }
   },
-  rosso({ add, B, M, wheel }) {
-    add(B(2.2, 0.5, 4.7, { tf: 0.32, tb: 0.04 }), M.paint, 0, 0.6, 0);
-    add(B(2.26, 0.26, 0.9), M.dark, 0, 0.62, -0.55);
-    add(B(1.5, 0.42, 1.7, { nt: 0.26, sf: 0.55, sb: 0.35 }), M.glass, 0, 1.05, 0.0);
-    add(B(1.6, 0.12, 1.3, { tb: 0.05 }), M.dark, 0, 0.9, -1.5);
-    for (let i = 0; i < 4; i++) add(B(1.5, 0.03, 0.08), M.paint, 0, 0.97, -1.0 - i * 0.3);
-    add(B(2.0, 0.22, 0.4, { bb: 0.1 }), M.dark, 0, 0.32, -2.2);
-    add(B(1.9, 0.06, 0.3), M.accent, 0, 0.36, 2.35);
-    const tl = new THREE.CylinderGeometry(0.13, 0.13, 0.08, 10); tl.rotateX(Math.PI / 2);
-    for (const x of [-0.75, -0.45, 0.45, 0.75]) add(tl, M.tail, x, 0.72, -2.36);
-    for (const x of [-0.7, 0.7]) add(B(0.45, 0.08, 0.3, { sf: 0.1 }), M.light, x, 0.68, 2.2);
-    for (const x of [-1.1, 1.1]) { wheel(x, 1.5, 0.46, 0.42, true); wheel(x, -1.45, 0.47, 0.5, false); }
+  // A mid-engined Italian supercar: a low wedge between tall wings, strakes along the sides, round tail lights.
+  rosso({ K, M, wheel }) {
+    const nose = K.plan({ nose: [1.4, 2.46, 0.2] });
+    const core = [[-2.38, 0.3], [2.32, 0.3], [2.44, 0.36], [2.46, 0.48], [2.2, 0.6], [1.4, 0.74], [0.85, 0.79], [-0.4, 0.86], [-1.2, 0.92], [-2.2, 0.92], [-2.36, 0.86], [-2.4, 0.56], [-2.38, 0.38]];
+    K.put(M.paint, K.slab(core, 1.76, { bev: 0.06, thick: 0.1, pinch: nose }));
+    const wing = [...K.under(-2.36, 2.3, 0.3, [[-1.45, 0.47], [1.5, 0.46]]), [2.42, 0.36], [2.44, 0.5], [2.15, 0.7], [1.5, 1.04], [0.85, 0.86], [-0.1, 0.84], [-0.75, 0.9], [-1.45, 1.08], [-2.1, 1.0], [-2.36, 0.88], [-2.4, 0.56], [-2.38, 0.38]];
+    K.sides(wing, 0.52, 1.02, M.paint, { bev: 0.06, thick: 0.12, pinch: K.plan({ nose: [1.4, 2.46, 0.2], top: [0.7, 1.08, 0.08] }) }); K.wells([[-1.45, 0.47], [1.5, 0.46]], 0.3, 1.26, 0.06, M.dark);
+    const line = [[0.98, 0.8], [0.08, 1.24], [-0.55, 1.28], [-1.0, 1.22], [-1.9, 0.9]], cab = K.cabin(line, 1.62, 0.24, M.paint);
+    K.screen(line[0], line[1], 0.08, 0.95, 0.08, cab, M.glass); K.screen(line[2], line[3], 0.12, 0.9, 0.1, cab, M.glass);
+    K.pane([[0.8, 0.88], [0.14, 1.2], [-0.5, 1.24], [-0.85, 0.9]], cab, M.glass);
+    const zf = y => K.edgeZ(core, y, 1) + 0.06, zr = y => K.edgeZ(core, y, -1) - 0.06, sideX = 1.28;
+    // The strakes: fins over a dark intake from the door to the rear wheel.
+    for (const s of [-1, 1]) {
+      K.put(M.dark, K.box(0.03, 0.32, 0.95), s * (sideX + 0.005), 0.6, -0.42);
+      for (const y of [0.48, 0.56, 0.64, 0.72]) K.put(M.paint, K.box(0.06, 0.035, 0.95), s * (sideX + 0.02), y, -0.42);
+      K.put(M.light, K.box(0.42, 0.05, 0.28, { tf: 0.02 }), s * 0.98, K.topY(wing, 2.05) + 0.06, 2.05, -0.3);
+      K.put(M.light, K.box(0.2, 0.08, 0.05), s * 0.62, 0.42, zf(0.42) - 0.02);
+      for (const x2 of [0.42, 0.72]) K.put(M.tail, K.disc(0.11, 0.06, 14), s * x2, 0.7, zr(0.7) - 0.025);
+      K.put(M.chrome, K.disc(0.06, 0.14), s * 0.3, 0.38, zr(0.42) + 0.02);
+      K.put(M.paint, K.box(0.18, 0.1, 0.13, { tf: 0.03 }), s * 0.92, 0.98, 0.7);
+    }
+    K.put(M.dark, K.box(1.86, 0.24, 0.04), 0, 0.7, zr(0.7)); // the tail panel
+    K.put(M.dark, K.box(1.3, 0.03, 1.0), 0, 0.96, -1.6); // the engine cover, with slats
+    for (let i = 0; i < 5; i++) K.put(M.paint, K.box(1.3, 0.04, 0.07), 0, 0.98, -1.2 - i * 0.2);
+    K.put(M.dark, K.box(1.4, 0.13, 0.05), 0, 0.42, zf(0.42) - 0.01);
+    K.put(M.accent, K.box(2.2, 0.04, 0.24), 0, 0.28, 2.32);
+    K.put(M.dark, K.box(1.9, 0.16, 0.3, { bb: 0.08 }), 0, 0.35, -2.22);
+    for (const x of [-1.1, 1.1]) { wheel(x, 1.5, 0.46, 0.42, true, 'star'); wheel(x, -1.45, 0.47, 0.5, false, 'star'); }
   },
-  flat6({ add, B, M, wheel }) {
-    add(B(2.0, 0.58, 4.25, { tf: 0.18, tb: 0.22 }), M.paint, 0, 0.72, 0);
-    add(B(1.62, 0.55, 2.3, { nt: 0.14, sf: 0.42, sb: 0.95 }), M.glass, 0, 1.28, -0.45);
-    add(B(1.45, 0.06, 0.8), M.paint, 0, 1.56, -0.25);
-    const hl = new THREE.CylinderGeometry(0.17, 0.17, 0.12, 12); hl.rotateX(Math.PI / 2);
-    for (const x of [-0.68, 0.68]) add(hl, M.light, x, 0.86, 2.1);
-    add(B(1.7, 0.08, 0.35, { sb: 0.1 }), M.paint, 0, 1.06, -2.02);
-    add(B(1.9, 0.1, 0.06), M.tail, 0, 0.88, -2.13);
-    add(B(1.5, 0.16, 0.08), M.dark, 0, 0.5, 2.12);
-    for (const x of [-1.03, 1.03]) { wheel(x, 1.35, 0.45, 0.4, true); wheel(x, -1.35, 0.47, 0.48, false); }
+  // A rear-engined GT: round headlights at the front of tall wings, a long sloping roof, a ducktail.
+  flat6({ K, M, wheel }) {
+    const core = [[-2.14, 0.32], [2.06, 0.32], [2.17, 0.42], [2.18, 0.6], [1.98, 0.76], [1.3, 0.9], [0.7, 0.94], [-1.2, 0.98], [-1.9, 0.9], [-2.12, 0.8], [-2.18, 0.55], [-2.16, 0.4]];
+    K.put(M.paint, K.slab(core, 1.62, { bev: 0.07, thick: 0.12, pinch: K.plan({ nose: [1.2, 2.18, 0.12], tail: [-1.6, -2.18, 0.08] }) }));
+    const wing = [...K.under(-2.14, 2.05, 0.32, [[-1.35, 0.47], [1.35, 0.45]]), [2.16, 0.42], [2.17, 0.6], [2.02, 0.84], [1.7, 1.0], [1.2, 1.02], [0.75, 0.94], [-0.2, 0.92], [-0.8, 0.98], [-1.35, 1.08], [-1.9, 0.98], [-2.12, 0.82], [-2.18, 0.55], [-2.16, 0.4]];
+    K.sides(wing, 0.52, 0.95, M.paint, { bev: 0.07, thick: 0.14, segs: 3, pinch: K.plan({ nose: [1.4, 2.18, 0.1], tail: [-1.6, -2.18, 0.08], top: [0.75, 1.08, 0.1] }) }); K.wells([[-1.35, 0.47], [1.35, 0.45]], 0.32, 1.2, 0.07, M.dark);
+    const line = [[0.82, 0.9], [0.06, 1.38], [-0.45, 1.45], [-0.9, 1.39], [-2.0, 0.88]], cab = K.cabin(line, 1.66, 0.22, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.94, 0.08, cab, M.glass); K.screen(line[3], line[4], 0.05, 0.5, 0.12, cab, M.glass);
+    K.pane([[0.66, 0.98], [0.1, 1.34], [-0.48, 1.4], [-0.48, 0.98]], cab, M.glass); K.pane([[-0.58, 0.98], [-0.58, 1.4], [-0.9, 1.34], [-1.4, 1.06], [-1.4, 0.98]], cab, M.glass);
+    const zf = y => K.edgeZ(core, y, 1) + 0.07, zr = y => K.edgeZ(core, y, -1) - 0.07;
+    for (const s of [-1, 1]) {
+      K.put(M.light, K.disc(0.15, 0.08, 14), s * 0.87, 0.76, 2.11, -0.56); K.put(M.chrome, new THREE.TorusGeometry(0.155, 0.02, 4, 16), s * 0.87, 0.77, 2.13, -0.56);
+      K.put(M.light, K.box(0.18, 0.06, 0.05), s * 0.6, 0.48, zf(0.48) - 0.02);
+      K.put(M.chrome, K.disc(0.06, 0.14), s * 0.38, 0.36, zr(0.42) + 0.02);
+      K.put(M.paint, K.box(0.18, 0.1, 0.14, { tf: 0.03 }), s * 0.96, 1.04, 0.56);
+      K.put(M.chrome, K.box(0.02, 0.025, 0.13), s * 1.215, 0.84, -0.25);
+    }
+    K.put(M.tail, K.box(1.9, 0.08, 0.05), 0, 0.76, zr(0.76) - 0.01);
+    K.put(M.paint, K.box(1.64, 0.07, 0.42, { sb: 0.12 }), 0, 0.98, -1.95, -0.12); // the ducktail
+    K.put(M.dark, K.box(1.1, 0.03, 0.45), 0, 1.05, -1.6, 0.42); // engine grille on the tail slope
+    K.put(M.dark, K.box(1.3, 0.12, 0.05), 0, 0.42, zf(0.42) - 0.01);
+    K.put(M.dark, K.box(1.5, 0.12, 0.1), 0, 0.38, zr(0.42) + 0.02);
+    for (const x of [-1.03, 1.03]) { wheel(x, 1.35, 0.45, 0.4, true, { t: 'star', m: 'chrome' }); wheel(x, -1.35, 0.47, 0.48, false, { t: 'star', m: 'chrome' }); }
   },
-  formula({ add, B, M, wheel }) {
-    add(B(0.82, 0.5, 3.3, { tf: 0.22 }), M.paint, 0, 0.55, 0.15);
-    add(B(0.42, 0.26, 1.3, { tf: 0.08 }), M.paint, 0, 0.43, 2.35);
-    add(B(2.3, 0.05, 0.55), M.accent, 0, 0.22, 2.85);
-    for (const x of [-1.13, 1.13]) add(B(0.05, 0.28, 0.6), M.dark, x, 0.32, 2.85);
-    add(B(1.75, 0.38, 1.7, { tf: 0.15, nt: 0.1 }), M.paint, 0, 0.52, -0.45);
-    add(B(1.95, 0.05, 3.6), M.dark, 0, 0.2, -0.1);
-    add(B(0.42, 0.55, 0.9, { tb: 0.2 }), M.paint, 0, 1.0, -0.65);
-    add(B(0.6, 0.18, 0.7), M.dark, 0, 0.86, 0.25);
-    add(new THREE.SphereGeometry(0.21, 10, 8), M.accent, 0, 1.02, 0.05);
-    add(B(0.06, 0.06, 0.8), M.dark, 0, 1.22, 0.3);
-    for (const x of [-0.3, 0.3]) add(B(0.06, 0.25, 0.06), M.dark, x, 1.08, 0.0);
-    add(B(1.55, 0.07, 0.45), M.dark, 0, 1.1, -2.1);
-    add(B(1.55, 0.05, 0.3), M.accent, 0, 1.25, -2.05);
-    for (const x of [-0.8, 0.8]) add(B(0.05, 0.55, 0.65), M.paint, x, 1.0, -2.1);
-    add(B(0.12, 0.6, 0.12), M.dark, 0, 0.75, -2.0);
-    for (const x of [-1.05, 1.05]) { wheel(x, 1.75, 0.37, 0.38, true); wheel(x, -1.55, 0.44, 0.52, false); }
+  // A single-seater: a needle nose, sidepods, a halo over the driver, wings front and back.
+  formula({ K, M, wheel }) {
+    const tub = [[-2.05, 0.15], [2.8, 0.18], [2.98, 0.26], [2.95, 0.36], [2.4, 0.48], [1.4, 0.6], [0.82, 0.7], [0.74, 0.58], [-0.04, 0.58], [-0.12, 0.74], [-0.28, 1.16], [-0.62, 1.18], [-1.9, 0.62], [-2.08, 0.42]];
+    K.put(M.paint, K.slab(tub, 0.92, { bev: 0.04, thick: 0.12, pinch: K.plan({ nose: [0.8, 2.98, 0.68, 0.7], tail: [-1.0, -2.08, 0.45, 1], top: [0.6, 1.18, 0.45] }) }));
+    const pod = [[-1.45, 0.17], [0.8, 0.17], [0.86, 0.3], [0.82, 0.56], [0.45, 0.6], [-0.6, 0.52], [-1.45, 0.3]];
+    K.sides(pod, 0.52, 0.68, M.paint, { bev: 0.04, thick: 0.08 });
+    for (const s of [-1, 1]) {
+      K.put(M.dark, K.box(0.42, 0.26, 0.04), s * 0.68, 0.42, 0.87);
+      K.put(M.dark, K.box(0.04, 0.26, 0.64), s * 1.14, 0.27, 2.8); // front wing endplates
+      K.put(M.dark, K.box(0.04, 0.1, 0.3), s * 0.12, 0.24, 2.72);
+      K.put(M.paint, K.box(0.04, 0.62, 0.8, { tf: 0.15 }), s * 0.82, 0.92, -2.12); // rear wing endplates
+      K.put(M.dark, K.box(0.14, 0.06, 0.08), s * 0.5, 0.8, 0.78); K.put(M.dark, K.box(0.03, 0.14, 0.03), s * 0.44, 0.7, 0.78);
+      for (const [y, z, l] of [[0.42, 1.75, 0.76], [0.3, 1.72, 0.76], [0.5, -1.55, 0.6], [0.32, -1.52, 0.6]]) K.put(M.dark, new THREE.CylinderGeometry(0.022, 0.022, l, 5).rotateZ(Math.PI / 2), s * (1.05 - l / 2 - 0.12), y, z);
+    }
+    K.put(M.dark, K.box(1.85, 0.05, 3.6), 0, 0.11, -0.05);
+    K.put(M.accent, K.box(2.3, 0.04, 0.48), 0, 0.17, 2.82); K.put(M.paint, K.box(2.2, 0.03, 0.22), 0, 0.26, 2.66, -0.3);
+    K.put(M.accent, K.box(1.6, 0.05, 0.42), 0, 1.0, -2.1); K.put(M.paint, K.box(1.6, 0.04, 0.24), 0, 1.15, -2.26, 0.35);
+    K.put(M.dark, K.box(1.4, 0.04, 0.24), 0, 0.5, -2.1); K.put(M.dark, K.box(0.06, 0.48, 0.18), 0, 0.74, -2.02);
+    K.put(M.dark, K.box(1.3, 0.16, 0.42, { tb: 0.1 }), 0, 0.22, -1.95); K.put(M.tail, K.box(0.14, 0.08, 0.04), 0, 0.36, -2.14);
+    K.put(M.dark, new THREE.TorusGeometry(0.3, 0.032, 4, 16), 0, 0.99, 0.22, Math.PI / 2); K.put(M.dark, K.box(0.06, 0.34, 0.06), 0, 0.8, 0.56, 0.35);
+    K.put(M.accent, K.ball(0.19, 10), 0, 0.86, 0.2); K.put(M.dark, K.box(0.3, 0.07, 0.12), 0, 0.88, 0.36);
+    K.put(M.white, K.box(0.2, 0.012, 0.3), 0, K.topY(tub, 2.0) + 0.05, 2.0); // a number plate on the nose
+    for (const x of [-1.05, 1.05]) { wheel(x, 1.75, 0.37, 0.38, true, { t: 'mesh', m: 'dark', cal: 'accent' }); wheel(x, -1.55, 0.44, 0.52, false, { t: 'mesh', m: 'dark', cal: 'accent' }); }
   },
-  lmp({ add, B, M, wheel }) {
-    add(B(2.1, 0.55, 4.9, { tf: 0.32, tb: 0.08 }), M.paint, 0, 0.62, 0);
-    add(B(1.1, 0.45, 1.6, { nt: 0.3, sf: 0.5, sb: 0.4 }), M.glass, 0, 1.1, 0.25);
-    add(B(0.08, 0.55, 1.8, { tf: 0.5 }), M.paint, 0, 1.15, -1.3);
-    add(B(2.0, 0.08, 0.5), M.dark, 0, 1.22, -2.3);
-    for (const x of [-0.98, 0.98]) add(B(0.06, 0.45, 0.7), M.accent, x, 1.05, -2.3);
-    add(B(2.12, 0.08, 4.0), M.accent, 0, 0.42, 0);
-    for (const x of [-0.7, 0.7]) { add(B(0.5, 0.1, 0.2, { sf: 0.1 }), M.light, x, 0.62, 2.38); add(B(0.6, 0.08, 0.06), M.tail, x, 0.86, -2.46); }
-    for (const x of [-1.0, 1.0]) { wheel(x, 1.65, 0.45, 0.42, true); wheel(x, -1.6, 0.46, 0.46, false); }
+  // A closed prototype: a low middle, tall wings over the wheels, a fin and a wide wing.
+  lmp({ K, M, wheel }) {
+    const W = 2.36, pinch = K.plan({ nose: [1.6, 2.52, 0.1], tail: [-2.0, -2.5, 0.04] });
+    const body = [...K.under(-2.46, 2.4, 0.2, [[-1.6, 0.46], [1.65, 0.45]]), [2.52, 0.26], [2.46, 0.42], [1.9, 0.52], [0.5, 0.6], [-1.0, 0.64], [-2.3, 0.7], [-2.48, 0.62], [-2.5, 0.34]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.04, thick: 0.1, pinch }));
+    const fwing = [[0.45, 0.5], [0.9, 0.5], [1.65, 0.48, 0.55], [2.38, 0.5], [2.3, 0.7], [2.0, 0.98], [1.55, 1.12], [1.05, 1.08], [0.6, 0.78]];
+    const rwing = [[-2.45, 0.5], [-1.6, 0.49, 0.56], [-0.55, 0.5], [-0.6, 0.78], [-1.1, 1.08], [-1.6, 1.14], [-2.2, 1.06], [-2.46, 0.86]];
+    K.sides(fwing, 0.6, 0.88, M.paint, { bev: 0.05, thick: 0.1 }); K.sides(rwing, 0.6, 0.88, M.paint, { bev: 0.05, thick: 0.1 }); K.wells([[-1.6, 0.46], [1.65, 0.45]], 0.2, 1.18, 0.05, M.dark);
+    for (const s of [-1, 1]) {
+      K.put(M.light, K.box(0.34, 0.05, 0.1, { tf: 0.02 }), s * 0.86, 0.82, 2.24, -0.6); K.put(M.light, K.box(0.24, 0.04, 0.08), s * 0.86, 0.72, 2.32, -0.4);
+      K.put(M.tail, K.box(0.46, 0.05, 0.05), s * 0.86, 0.98, -2.48);
+      K.put(M.dark, K.box(0.04, 0.26, 0.5), s * 1.2, 0.72, 0.15); // the side intake behind the front wheel
+      K.put(M.accent, K.box(0.06, 0.52, 0.86, { tf: 0.25 }), s * 1.02, 1.36, -2.32); // wing endplates
+      K.put(M.dark, K.box(0.05, 0.42, 0.12), s * 0.36, 1.14, -2.2, 0.3); // swan necks
+      K.put(M.white, K.side(0.2, 0.012, 16), s * 1.19, 0.86, -1.05); // the number roundel
+    }
+    K.number('7', 0.86, -1.05, () => 1.18, M.dark, 0.85);
+    const line = [[1.15, 0.58], [0.35, 1.08], [-0.3, 1.16], [-0.85, 1.08], [-1.55, 0.66]], cab = K.cabin(line, 1.3, 0.3, M.paint);
+    K.screen(line[0], line[1], 0.08, 0.96, 0.05, cab, M.glass);
+    K.pane([[0.95, 0.68], [0.36, 1.03], [-0.3, 1.1], [-0.7, 1.02], [-0.7, 0.68]], cab, M.glass);
+    K.put(M.paint, K.slab([[-0.4, 1.0], [-0.6, 1.14], [-2.35, 1.2], [-2.35, 0.7], [-1.0, 0.7]], 0.06, { bev: 0.01, thick: 0.02 })); // the shark fin
+    K.put(M.accent, K.box(2.2, 0.06, 0.48, { tf: 0.03 }), 0, 1.36, -2.32);
+    for (const [a, b] of [[-2.46, -2.18], [-1.02, 1.08], [2.22, 2.42]]) K.pane([[a, 0.22], [b, 0.22], [b, 0.3], [a, 0.3]], (y, z) => W / 2 * pinch(y, z), M.accent, 0.03); // the stripe along the bottom
+    K.put(M.dark, K.box(1.0, 0.1, 0.06), 0, 0.42, 2.48); K.put(M.dark, K.box(2.0, 0.2, 0.3, { bb: 0.1 }), 0, 0.3, -2.42);
+    for (const x of [-1.0, 1.0]) { wheel(x, 1.65, 0.45, 0.42, true, { t: 'mesh', m: 'dark', cal: 'accent' }); wheel(x, -1.6, 0.46, 0.46, false, { t: 'mesh', m: 'dark', cal: 'accent' }); }
   },
-  hyper({ add, B, M, wheel }) {
-    add(B(2.15, 0.55, 4.75, { tf: 0.34, tb: 0.2 }), M.paint, 0, 0.62, 0);
-    add(B(1.3, 0.45, 2.1, { nt: 0.35, sf: 0.6, sb: 0.7 }), M.glass, 0, 1.1, 0.0);
-    for (const x of [-1.08, 1.08]) add(B(0.06, 0.2, 2.6, { tf: 0.1 }), M.accent, x, 0.62, 0.2);
-    add(B(1.9, 0.05, 0.08), M.light, 0, 0.68, 2.36);
-    add(B(1.95, 0.05, 0.08), M.tail, 0, 0.82, -2.36);
-    add(B(1.7, 0.06, 0.4), M.accent, 0, 1.02, -2.1);
-    add(B(1.8, 0.2, 0.3, { bb: 0.1 }), M.dark, 0, 0.32, -2.25);
-    for (const x of [-1.1, 1.1]) { wheel(x, 1.55, 0.47, 0.42, true); wheel(x, -1.5, 0.48, 0.5, false); }
+  // A hypercar: a teardrop canopy between tall wings, big side intakes, a wing and light strips.
+  hyper({ K, M, wheel }) {
+    const core = [[-2.38, 0.26], [2.3, 0.26], [2.44, 0.3], [2.42, 0.44], [2.0, 0.58], [1.25, 0.76], [0.8, 0.8], [-0.6, 0.86], [-1.6, 0.92], [-2.25, 0.9], [-2.4, 0.72], [-2.42, 0.42]];
+    K.put(M.paint, K.slab(core, 1.76, { bev: 0.06, thick: 0.1, pinch: K.plan({ nose: [1.4, 2.44, 0.18] }) }));
+    const wing = [...K.under(-2.38, 2.3, 0.26, [[-1.5, 0.48], [1.55, 0.47]]), [2.42, 0.3], [2.42, 0.46], [2.1, 0.66], [1.55, 1.05], [0.95, 0.88], [0.0, 0.8], [-0.8, 0.86], [-1.5, 1.08], [-2.15, 1.0], [-2.38, 0.86], [-2.42, 0.42]];
+    K.sides(wing, 0.52, 1.03, M.paint, { bev: 0.06, thick: 0.13, pinch: K.plan({ nose: [1.4, 2.44, 0.18], top: [0.7, 1.08, 0.1] }) }); K.wells([[-1.5, 0.48], [1.55, 0.47]], 0.26, 1.27, 0.06, M.dark);
+    const line = [[1.05, 0.78], [0.2, 1.2], [-0.4, 1.24], [-1.0, 1.12], [-2.05, 0.88]], cab = K.cabin(line, 1.44, 0.34, M.paint);
+    K.screen(line[0], line[1], 0.08, 0.96, 0.06, cab, M.glass); K.screen(line[3], line[4], 0.1, 0.8, 0.12, cab, M.dark);
+    K.pane([[0.88, 0.86], [0.2, 1.16], [-0.38, 1.2], [-0.92, 1.08], [-1.1, 0.88]], cab, M.glass);
+    K.pane([[-0.88, 0.36], [0.35, 0.7], [-0.88, 0.8]], () => 1.29, M.dark); // the side intakes
+    const zf = y => K.edgeZ(core, y, 1) + 0.06, zr = y => K.edgeZ(core, y, -1) - 0.06;
+    for (const s of [-1, 1]) {
+      K.put(M.accent, K.box(0.05, 0.05, 1.3), s * 1.31, 0.54, -0.27, -0.27);
+      K.put(M.light, K.box(0.5, 0.04, 0.06), s * 0.98, 0.6, 2.24, 0, s * 0.3);
+      K.put(M.dark, K.box(0.5, 0.14, 0.05), s * 0.5, 0.38, zf(0.38) - 0.01);
+      K.put(M.accent, K.box(0.05, 0.36, 0.42), s * 0.8, 1.16, -2.06); // wing supports
+      K.put(M.paint, K.box(0.16, 0.08, 0.12), s * 0.82, 0.92, 0.7);
+    }
+    K.put(M.tail, K.box(2.3, 0.04, 0.05), 0, 0.84, -2.44);
+    K.put(M.accent, K.box(1.9, 0.06, 0.44, { tf: 0.03 }), 0, 1.36, -2.08);
+    K.put(M.dark, K.box(1.9, 0.22, 0.34, { bb: 0.12 }), 0, 0.32, -2.24);
+    for (const x of [-0.6, -0.2, 0.2, 0.6]) K.put(M.dark, K.box(0.03, 0.2, 0.36), x, 0.32, -2.26);
+    K.put(M.accent, K.box(2.2, 0.04, 0.26), 0, 0.26, 2.32);
+    for (const x of [-1.1, 1.1]) { wheel(x, 1.55, 0.47, 0.42, true, { t: 'y6', cal: 'accent' }); wheel(x, -1.5, 0.48, 0.5, false, { t: 'y6', cal: 'accent' }); }
   },
-  volt({ add, B, M, wheel }) {
-    add(B(2.1, 0.62, 4.5, { tf: 0.26, tb: 0.1 }), M.paint, 0, 0.7, 0);
-    add(B(1.72, 0.48, 2.5, { nt: 0.16, sf: 0.6, sb: 0.7 }), M.glass, 0, 1.25, -0.3);
-    add(B(2.0, 0.05, 0.06), M.accentGlow, 0, 0.82, 2.25);
-    add(B(2.0, 0.05, 0.06), M.tail, 0, 0.9, -2.25);
-    add(B(2.12, 0.04, 3.4), M.accent, 0, 0.45, 0);
-    for (const x of [-1.07, 1.07]) { wheel(x, 1.45, 0.46, 0.4, true, true); wheel(x, -1.45, 0.46, 0.42, false, true); }
+  // An electric hypercar: smooth, a glass roof, light bars at both ends, covered wheels.
+  volt({ K, M, wheel }) {
+    const W = 2.46, pinch = K.plan({ nose: [1.3, 2.3, 0.16], tail: [-1.6, -2.29, 0.1], top: [0.72, 1.08, 0.07], waist: [[1.45, -1.45], 0.04, 0.6] }), half = (y, z) => W / 2 * pinch(y, z);
+    const body = [...K.under(-2.26, 2.18, 0.3, [[-1.45, 0.46], [1.45, 0.46]]), [2.3, 0.42], [2.29, 0.62], [2.05, 0.82], [1.4, 1.0], [0.85, 1.03], [-1.2, 1.08], [-2.0, 1.06], [-2.24, 0.98], [-2.29, 0.64], [-2.27, 0.42]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.07, thick: 0.14, pinch })); K.wells([[-1.45, 0.46], [1.45, 0.46]], 0.3, 1.22, 0.07, M.dark);
+    const line = [[0.95, 1.01], [0.15, 1.46], [-0.6, 1.53], [-1.2, 1.46], [-2.05, 1.05]], cab = K.cabin(line, 1.78, 0.2, M.paint);
+    for (let i = 0; i < 4; i++) K.screen(line[i], line[i + 1], i ? 0 : 0.08, i === 3 ? 0.85 : 1, 0.1, cab, M.glass); // glass all over
+    K.pane([[0.76, 1.09], [0.16, 1.42], [-0.6, 1.48], [-1.2, 1.41], [-1.75, 1.1]], cab, M.glass);
+    const zf = y => K.edgeZ(body, y, 1) + 0.07, zr = y => K.edgeZ(body, y, -1) - 0.07;
+    K.put(M.accentGlow, K.box(2.0, 0.045, 0.06), 0, 0.76, zf(0.76) - 0.02); K.put(M.tail, K.box(2.0, 0.05, 0.06), 0, 0.92, zr(0.92) + 0.02);
+    K.put(M.dark, K.box(1.2, 0.1, 0.05), 0, 0.44, zf(0.44) - 0.01); K.put(M.dark, K.box(1.4, 0.1, 0.1), 0, 0.38, zr(0.42) + 0.03);
+    for (const s of [-1, 1]) {
+      K.put(M.accent, K.box(0.04, 0.05, 1.7), s * (half(0.44, 0) + 0.01), 0.44, 0);
+      K.put(M.dark, K.box(0.015, 0.03, 0.18), s * (half(0.92, -0.2) + 0.008), 0.92, -0.2);
+      K.put(M.dark, K.box(0.2, 0.08, 0.16), s * 0.98, 1.1, 0.62);
+    }
+    for (const x of [-1.07, 1.07]) { wheel(x, 1.45, 0.46, 0.4, true, 'aero'); wheel(x, -1.45, 0.46, 0.42, false, 'aero'); }
   },
-  stock({ add, B, M, wheel }) {
-    add(B(2.1, 0.65, 4.9, { tf: 0.14, tb: 0.05 }), M.paint, 0, 0.76, 0);
-    add(B(1.72, 0.55, 1.9, { nt: 0.12, sf: 0.45, sb: 0.4 }), M.glass, 0, 1.36, -0.3);
-    add(B(1.55, 0.06, 1.0), M.paint, 0, 1.64, -0.35);
-    for (const x of [-1.06, 1.06]) add(new THREE.CylinderGeometry(0.42, 0.42, 0.02, 14).rotateZ(Math.PI / 2), M.white, x, 0.8, 0.15);
-    add(B(2.12, 0.12, 4.92), M.accent, 0, 0.5, 0);
-    add(B(1.9, 0.18, 0.08), M.dark, 0, 1.15, -2.42);
-    add(B(1.6, 0.2, 0.1), M.dark, 0, 0.55, 2.45);
-    for (const x of [-0.7, 0.7]) { add(B(0.45, 0.12, 0.06), M.light, x, 0.85, 2.46); add(B(0.5, 0.12, 0.06), M.tail, x, 0.9, -2.46); }
-    for (const x of [-1.06, 1.06]) { wheel(x, 1.55, 0.46, 0.42, true); wheel(x, -1.55, 0.46, 0.44, false); }
+  // A stock car: a boxy saloon with a number on the doors and a spoiler across the tail.
+  stock({ K, M, wheel }) {
+    const W = 2.46, pinch = K.plan({ nose: [1.6, 2.48, 0.1], tail: [-1.9, -2.46, 0.06], top: [0.8, 1.12, 0.05] }), half = (y, z) => W / 2 * pinch(y, z);
+    const body = [...K.under(-2.44, 2.38, 0.24, [[-1.55, 0.46], [1.55, 0.46]]), [2.48, 0.32], [2.47, 0.7], [2.32, 0.86], [1.5, 1.04], [0.8, 1.08], [-1.6, 1.12], [-2.25, 1.14], [-2.42, 1.1], [-2.46, 0.62], [-2.44, 0.36]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.05, thick: 0.1, pinch })); K.wells([[-1.55, 0.46], [1.55, 0.46]], 0.24, 1.22, 0.05, M.dark);
+    const line = [[0.9, 1.06], [0.1, 1.55], [-0.75, 1.6], [-1.1, 1.56], [-1.8, 1.11]], cab = K.cabin(line, 1.72, 0.14, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.94, 0.08, cab, M.glass); K.screen(line[3], line[4], 0.08, 0.88, 0.1, cab, M.glass);
+    K.pane([[0.7, 1.14], [0.14, 1.5], [-0.6, 1.54], [-0.6, 1.14]], cab, M.glass); K.pane([[-0.7, 1.14], [-0.7, 1.54], [-1.08, 1.51], [-1.55, 1.16]], cab, M.glass);
+    const zf = y => K.edgeZ(body, y, 1) + 0.05, zr = y => K.edgeZ(body, y, -1) - 0.05;
+    for (const [a, b] of [[-2.44, -2.13], [-0.97, 0.97], [2.13, 2.46]]) K.pane([[a, 0.34], [b, 0.34], [b, 0.48], [a, 0.48]], half, M.accent, 0.03); // a stripe low along the sides
+    for (const s of [-1, 1]) {
+      K.put(M.white, K.side(0.3, 0.012, 18), s * (half(0.72, 0.2) + 0.008), 0.72, 0.2);
+      K.put(M.light, K.box(0.46, 0.13, 0.05), s * 0.72, 0.66, zf(0.66) - 0.01);
+      K.put(M.tail, K.box(0.5, 0.13, 0.05), s * 0.72, 0.9, zr(0.9) + 0.01);
+      K.put(M.chrome, K.disc(0.07, 0.14), s * 0.95, 0.3, zr(0.36) + 0.02);
+    }
+    K.number('24', 0.72, 0.2, (y, z) => half(y, z), M.dark, 0.85);
+    K.put(M.dark, K.box(1.1, 0.16, 0.05), 0, 0.64, zf(0.64) - 0.01); K.put(M.dark, K.box(2.0, 0.04, 0.26), 0, 0.2, 2.4);
+    K.put(M.dark, K.box(2.0, 0.2, 0.03), 0, K.topY(body, -2.3) + 0.1, -2.36, 0.4);
+    for (const x of [-1.06, 1.06]) { wheel(x, 1.55, 0.46, 0.42, true, { t: 'steel', m: 'hub' }); wheel(x, -1.55, 0.46, 0.44, false, { t: 'steel', m: 'hub' }); }
   },
-  muscle({ add, B, M, wheel }) {
-    add(B(2.1, 0.72, 4.85, { tf: 0.1, tb: 0.05 }), M.paint, 0, 0.8, 0);
-    add(B(1.75, 0.55, 1.8, { nt: 0.1, sf: 0.35, sb: 0.3 }), M.glass, 0, 1.43, -0.55);
-    add(B(1.6, 0.06, 1.15), M.paint, 0, 1.71, -0.55);
-    add(B(0.62, 0.2, 0.95, { tb: 0.12 }), M.dark, 0, 1.22, 1.25);
-    for (const x of [-0.32, 0.32]) add(B(0.3, 0.02, 4.86), M.accent, x, 1.17, 0);
-    add(B(2.16, 0.14, 0.12), M.chrome, 0, 0.55, 2.45);
-    add(B(2.16, 0.14, 0.12), M.chrome, 0, 0.55, -2.45);
-    for (const x of [-0.75, 0.75]) { add(B(0.4, 0.16, 0.06), M.light, x, 0.86, 2.44); add(B(0.55, 0.12, 0.06), M.tail, x, 0.92, -2.44); }
-    for (const x of [-1.07, 1.07]) { wheel(x, 1.5, 0.47, 0.42, true); wheel(x, -1.5, 0.5, 0.52, false); }
+  // A muscle car: a long bonnet with a scoop, twin stripes, chrome bumpers.
+  muscle({ K, M, wheel }) {
+    const W = 2.5, pinch = K.plan({ nose: [2.0, 2.46, 0.06], tail: [-2.0, -2.46, 0.06], top: [0.8, 1.15, 0.05], waist: [[1.5, -1.5], 0.05, 0.7] });
+    const body = [...K.under(-2.42, 2.38, 0.36, [[-1.5, 0.5], [1.5, 0.47]]), [2.45, 0.44], [2.46, 0.9], [2.3, 0.99], [1.5, 1.08], [0.9, 1.1], [-1.5, 1.15], [-2.3, 1.13], [-2.44, 1.04], [-2.46, 0.5]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.05, thick: 0.1, pinch })); K.wells([[-1.5, 0.5], [1.5, 0.47]], 0.36, 1.23, 0.05, M.dark);
+    const line = [[0.95, 1.08], [0.2, 1.56], [-0.75, 1.61], [-1.1, 1.56], [-1.95, 1.13]], cab = K.cabin(line, 1.8, 0.15, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.94, 0.08, cab, M.glass); K.screen(line[3], line[4], 0.08, 0.85, 0.1, cab, M.glass);
+    K.pane([[0.76, 1.16], [0.22, 1.52], [-0.75, 1.56], [-1.1, 1.51], [-1.6, 1.18]], cab, M.glass);
+    for (const x of [-0.34, 0.2]) { K.stripe(body, -2.42, 2.4, x, x + 0.14, 0.056, M.accent); K.stripe(line, -1.95, 0.95, x, x + 0.14, 0.046, M.accent); }
+    const zf = y => K.edgeZ(body, y, 1) + 0.05, zr = y => K.edgeZ(body, y, -1) - 0.05;
+    K.put(M.dark, K.box(2.0, 0.3, 0.05), 0, 0.74, zf(0.74)); // the grille
+    for (const s of [-1, 1]) {
+      for (const x of [0.62, 0.86]) { K.put(M.light, K.disc(0.1, 0.05, 12), s * x, 0.76, zf(0.76) + 0.02); K.put(M.chrome, new THREE.TorusGeometry(0.105, 0.018, 4, 12), s * x, 0.76, zf(0.76) + 0.04); }
+      K.put(M.tail, K.box(0.62, 0.14, 0.05), s * 0.62, 0.92, zr(0.92) + 0.01);
+      K.put(M.chrome, K.disc(0.07, 0.16), s * 0.55, 0.38, zr(0.46) + 0.02);
+      K.put(M.chrome, K.box(0.18, 0.08, 0.14), s * 1.02, 1.18, 0.6);
+    }
+    K.put(M.chrome, K.box(2.3, 0.13, 0.12), 0, 0.52, 2.5); K.put(M.chrome, K.box(2.3, 0.13, 0.12), 0, 0.52, -2.5);
+    K.put(M.dark, K.box(0.62, 0.18, 0.95, { tb: 0.12, tf: 0.02 }), 0, K.topY(body, 1.25) + 0.1, 1.25); K.put(M.dark, K.box(0.5, 0.1, 0.03), 0, K.topY(body, 1.25) + 0.12, 1.72);
+    K.put(M.paint, K.box(1.9, 0.06, 0.3, { sb: 0.08 }), 0, K.topY(body, -2.25) + 0.06, -2.25, -0.15);
+    for (const x of [-1.07, 1.07]) { wheel(x, 1.5, 0.47, 0.42, true, 'deep'); wheel(x, -1.5, 0.5, 0.52, false, 'deep'); }
   },
-  drift({ add, B, M, wheel }) {
-    add(B(2.05, 0.6, 4.4, { tf: 0.22 }), M.paint, 0, 0.72, 0);
-    add(B(1.66, 0.5, 1.9, { nt: 0.12, sf: 0.42, sb: 0.35 }), M.glass, 0, 1.26, -0.25);
-    add(B(1.5, 0.06, 1.0), M.accent, 0, 1.52, -0.3);
-    add(B(1.6, 0.03, 1.4, { tf: 0.02 }), M.accent, 0, 1.03, 1.35);
-    add(B(2.1, 0.07, 0.55), M.accent, 0, 1.75, -1.95);
-    for (const x of [-0.6, 0.6]) add(B(0.08, 0.6, 0.2), M.dark, x, 1.38, -1.95);
-    for (const x of [-1.05, 1.05]) add(B(0.08, 0.25, 0.6), M.accent, x, 1.75, -1.95);
-    for (const x of [-0.98, 0.98]) add(B(0.3, 0.04, 0.25), M.accent, x, 0.55, 2.2);
-    for (const x of [-0.65, 0.65]) { add(B(0.45, 0.12, 0.06), M.light, x, 0.72, 2.21); add(B(0.5, 0.14, 0.06), M.tail, x, 0.88, -2.21); }
-    for (const x of [-1.12, 1.12]) { wheel(x, 1.38, 0.45, 0.42, true); wheel(x, -1.38, 0.46, 0.48, false); }
+  // A drift coupé: boxy, bolted-on wheel arches, a big wing.
+  drift({ K, M, wheel }) {
+    const W = 2.26, pinch = K.plan({ nose: [1.7, 2.24, 0.08], tail: [-1.8, -2.24, 0.06], top: [0.8, 1.1, 0.05] });
+    const body = [...K.under(-2.2, 2.14, 0.3, [[-1.38, 0.46], [1.38, 0.45]]), [2.24, 0.36], [2.23, 0.7], [2.12, 0.86], [1.4, 1.05], [0.75, 1.07], [-1.4, 1.1], [-2.1, 1.08], [-2.22, 1.0], [-2.24, 0.42]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.04, thick: 0.08, pinch })); K.wells([[-1.38, 0.46], [1.38, 0.45]], 0.3, 1.12, 0.04, M.dark);
+    const line = [[0.82, 1.04], [0.15, 1.5], [-0.6, 1.54], [-0.9, 1.5], [-1.6, 1.09]], cab = K.cabin(line, 1.72, 0.14, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.94, 0.08, cab, M.glass); K.screen(line[3], line[4], 0.07, 0.86, 0.1, cab, M.glass);
+    K.pane([[0.64, 1.12], [0.17, 1.46], [-0.5, 1.5], [-0.5, 1.12]], cab, M.glass); K.pane([[-0.6, 1.12], [-0.6, 1.5], [-0.88, 1.46], [-1.38, 1.14]], cab, M.glass);
+    // Bolted-on arches round each wheel, with a ring of bolts.
+    for (const [z, r] of [[1.38, 0.45], [-1.38, 0.46]]) {
+      const R = r + 0.1, yc = r + 0.03;
+      K.sides(K.flare(z, r, 0.3, 0.13), 0.22, W / 2 + 0.03, M.dark, { bev: 0.03, thick: 0.05 });
+      for (const s of [-1, 1]) for (let k = 1; k < 8; k++) { const a = Math.PI * k / 8; K.put(M.chrome, K.side(0.022, 0.03, 6), s * (W / 2 + 0.15), yc + Math.sin(a) * (R + 0.07), z + Math.cos(a) * (R + 0.07)); }
+    }
+    const zf = y => K.edgeZ(body, y, 1) + 0.04, zr = y => K.edgeZ(body, y, -1) - 0.04;
+    K.put(M.accent, K.box(1.66, 0.03, 1.3, { tf: 0.02 }), 0, K.topY(body, 1.45) + 0.05, 1.45, 0.1); // the bonnet
+    K.put(M.accent, K.box(2.14, 0.07, 0.55, { tf: 0.03 }), 0, 1.86, -1.95); K.put(M.dark, K.box(0.08, 0.7, 0.2), -0.6, 1.5, -1.95); K.put(M.dark, K.box(0.08, 0.7, 0.2), 0.6, 1.5, -1.95);
+    for (const s of [-1, 1]) {
+      K.put(M.accent, K.box(0.08, 0.28, 0.62), s * 1.08, 1.86, -1.95);
+      K.put(M.accent, K.box(0.3, 0.03, 0.22), s * 1.0, 0.52, 2.2, 0, s * 0.3);
+      K.put(M.light, K.box(0.5, 0.12, 0.05), s * 0.66, 0.76, zf(0.76));
+      K.put(M.tail, K.box(0.56, 0.14, 0.05), s * 0.66, 0.9, zr(0.9));
+      K.put(M.dark, K.box(0.2, 0.1, 0.16), s * 0.96, 1.14, 0.6);
+    }
+    K.put(M.dark, K.box(1.0, 0.1, 0.05), 0, 0.64, zf(0.64) - 0.01); K.put(M.dark, K.box(1.8, 0.16, 0.05), 0, 0.44, zf(0.44) - 0.01);
+    K.put(M.chrome, K.disc(0.1, 0.2), 0.62, 0.34, zr(0.4) + 0.04); K.put(M.accent, K.box(0.05, 0.12, 0.2), -0.7, 0.38, 2.27);
+    for (const x of [-1.12, 1.12]) { wheel(x, 1.38, 0.45, 0.42, true, { t: 'deep', m: 'hub' }); wheel(x, -1.38, 0.46, 0.48, false, { t: 'deep', m: 'hub' }); }
   },
-  rally({ add, B, M, wheel }) {
-    add(B(1.95, 0.75, 3.85, { tf: 0.22 }), M.paint, 0, 0.82, 0.05);
-    add(B(1.78, 0.62, 2.1, { nt: 0.08, sf: 0.45, sb: 0.05 }), M.glass, 0, 1.5, -0.45);
-    add(B(1.65, 0.06, 1.7), M.paint, 0, 1.83, -0.6);
-    add(B(0.5, 0.18, 0.6, { tf: 0.12 }), M.dark, 0, 1.94, -0.3);
-    add(B(1.97, 0.3, 3.2), M.accent, 0, 0.75, -0.1);
-    for (const x of [-0.6, -0.2, 0.2, 0.6]) { const m = add(new THREE.CylinderGeometry(0.13, 0.13, 0.1, 10), M.light, x, 1.0, 2.05); m.rotation.x = Math.PI / 2; }
-    for (const x of [-0.9, 0.9]) add(B(0.4, 0.4, 0.04), M.dark, x, 0.3, -1.75);
-    add(B(1.6, 0.1, 0.4), M.dark, 0, 1.75, -1.72);
-    for (const x of [-1.0, 1.0]) { wheel(x, 1.25, 0.45, 0.4, true); wheel(x, -1.25, 0.45, 0.4, false); }
+  // A rally hatchback: short and tall, a roof scoop, lamps on the bonnet, mud flaps.
+  rally({ K, M, wheel }) {
+    const W = 2.26, pinch = K.plan({ nose: [1.3, 1.98, 0.08], tail: [-1.6, -1.96, 0.05], top: [0.8, 1.14, 0.05] });
+    const body = [...K.under(-1.94, 1.86, 0.36, [[-1.25, 0.45], [1.25, 0.45]]), [1.98, 0.44], [1.98, 0.78], [1.82, 0.96], [1.1, 1.1], [0.85, 1.12], [-1.7, 1.14], [-1.92, 1.1], [-1.96, 0.5]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.05, thick: 0.1, pinch })); K.wells([[-1.25, 0.45], [1.25, 0.45]], 0.36, 1.12, 0.05, M.dark);
+    const line = [[0.95, 1.1], [0.3, 1.66], [-1.5, 1.74], [-1.82, 1.7], [-1.94, 1.12]], cab = K.cabin(line, 1.88, 0.12, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.94, 0.08, cab, M.glass); K.screen(line[3], line[4], 0.12, 0.7, 0.14, cab, M.glass);
+    K.pane([[0.78, 1.2], [0.34, 1.6], [-0.3, 1.64], [-0.3, 1.2]], cab, M.glass); K.pane([[-0.4, 1.2], [-0.4, 1.64], [-1.2, 1.66], [-1.2, 1.2]], cab, M.glass); K.pane([[-1.3, 1.2], [-1.3, 1.66], [-1.7, 1.64], [-1.78, 1.2]], cab, M.glass);
+    // Box arches, a livery stripe, lamps on the bonnet, the roof scoop and spoiler, mud flaps.
+    for (const z of [1.25, -1.25]) K.sides(K.flare(z, 0.45, 0.36, 0.12), 0.16, W / 2, M.paint, { bev: 0.03, thick: 0.05 });
+    K.pane([[-0.6, 0.66], [0.6, 0.66], [0.6, 0.9], [-0.6, 0.9]], (y, z) => W / 2 * pinch(y, z), M.accent, 0.012); // the livery
+    K.pane([[-1.95, 0.66], [-1.95, 0.9], [-1.86, 0.9], [-1.86, 0.66]].map(([z, y]) => [z, y]), (y, z) => W / 2 * pinch(y, z), M.accent, 0.012);
+    const zf = y => K.edgeZ(body, y, 1) + 0.05, zr = y => K.edgeZ(body, y, -1) - 0.05;
+    for (const x of [-0.6, -0.2, 0.2, 0.6]) { K.put(M.light, K.disc(0.12, 0.08, 12), x, 1.1, 1.98); K.put(M.dark, K.disc(0.14, 0.06, 12), x, 1.1, 1.93); }
+    K.put(M.dark, K.box(1.6, 0.05, 0.1), 0, 0.98, 1.95);
+    for (const s of [-1, 1]) {
+      K.put(M.light, K.box(0.36, 0.12, 0.05), s * 0.7, 0.8, zf(0.8) - 0.01);
+      K.put(M.tail, K.box(0.14, 0.34, 0.05), s * 0.86, 0.9, zr(0.9) + 0.01);
+      K.put(M.dark, K.box(0.42, 0.4, 0.03), s * 0.86, 0.3, -1.7);
+      K.put(M.dark, K.box(0.18, 0.12, 0.14), s * 1.0, 1.22, 0.7);
+    }
+    K.put(M.dark, K.box(1.0, 0.14, 0.05), 0, 0.64, zf(0.64) - 0.01);
+    K.put(M.dark, K.box(0.5, 0.16, 0.6, { tf: 0.12 }), 0, 1.82, -0.25); K.put(M.paint, K.box(1.7, 0.08, 0.42, { sb: 0.1 }), 0, 1.72, -1.8);
+    K.put(M.chrome, K.disc(0.07, 0.14), 0.5, 0.38, zr(0.42) + 0.02);
+    for (const x of [-1.0, 1.0]) { wheel(x, 1.25, 0.45, 0.4, true, { t: 'steel', tread: true }); wheel(x, -1.25, 0.45, 0.4, false, { t: 'steel', tread: true }); }
   },
-  truck({ add, B, M, wheel }) {
-    add(B(2.2, 0.75, 5.3, { tf: 0.15 }), M.paint, 0, 1.25, 0);
-    add(B(2.0, 0.85, 2.0, { nt: 0.08, sf: 0.35 }), M.glass, 0, 2.0, 0.55);
-    add(B(1.85, 0.06, 1.5), M.paint, 0, 2.44, 0.4);
-    for (const x of [-1.05, 1.05]) add(B(0.1, 0.45, 2.1), M.paint, x, 1.82, -1.45);
-    add(B(2.2, 0.45, 0.1), M.paint, 0, 1.82, -2.6);
-    add(B(1.6, 0.12, 0.16), M.accentGlow, 0, 2.53, 0.9);
-    add(B(2.3, 0.3, 0.2), M.dark, 0, 0.95, 2.7);
-    add(B(1.5, 0.35, 0.08), M.chrome, 0, 1.35, 2.66);
-    for (const x of [-0.85, 0.85]) { add(B(0.3, 0.2, 0.06), M.light, x, 1.45, 2.66); add(B(0.3, 0.3, 0.06), M.tail, x, 1.5, -2.66); }
-    for (const x of [-1.12, 1.12]) { wheel(x, 1.75, 0.62, 0.5, true); wheel(x, -1.65, 0.62, 0.5, false); }
+  // A pickup on big tyres: an open bed, a bull bar, a light bar on the roof.
+  truck({ K, M, wheel }) {
+    const W = 2.4, pinch = K.plan({ nose: [2.2, 2.74, 0.06], top: [1.3, 1.8, 0.04] });
+    const body = [...K.under(-2.66, 2.62, 0.72, [[-1.65, 0.62], [1.75, 0.62]]), [2.74, 0.86], [2.74, 1.48], [2.6, 1.66], [1.6, 1.74], [0.95, 1.8], [-0.5, 1.8], [-0.5, 1.55], [-2.62, 1.55], [-2.7, 1.45], [-2.7, 0.86]];
+    K.put(M.paint, K.slab(body, W, { bev: 0.05, thick: 0.1, pinch })); K.wells([[-1.65, 0.62], [1.75, 0.62]], 0.72, 1.18, 0.05, M.dark);
+    const line = [[0.95, 1.78], [0.45, 2.4], [-0.3, 2.44], [-0.45, 2.4], [-0.5, 1.78]], cab = K.cabin(line, 2.08, 0.08, M.paint);
+    K.screen(line[0], line[1], 0.1, 0.92, 0.1, cab, M.glass); K.screen(line[3], line[4], 0.15, 0.8, 0.2, cab, M.glass);
+    K.pane([[0.82, 1.88], [0.48, 2.32], [-0.36, 2.36], [-0.36, 1.88]], cab, M.glass);
+    for (const z of [1.75, -1.65]) K.sides(K.flare(z, 0.62, 0.72, 0.14), 0.16, W / 2 + 0.03, M.dark, { bev: 0.02, thick: 0.04 });
+    for (const s of [-1, 1]) {
+      K.put(M.paint, K.box(0.1, 0.5, 2.15), s * (W / 2 - 0.05), 1.78, -1.6); // the bed sides
+      K.put(M.dark, K.box(0.06, 0.06, 2.2), s * (W / 2 - 0.05), 2.06, -1.6);
+      K.put(M.dark, K.box(0.24, 0.06, 1.3), s * (W / 2 + 0.06), 0.72, 0.05); // the step
+      K.put(M.light, K.box(0.34, 0.2, 0.05), s * 0.84, 1.42, 2.76); K.put(M.tail, K.box(0.2, 0.36, 0.06), s * 0.98, 1.66, -2.66);
+      K.put(M.dark, K.box(0.2, 0.18, 0.18), s * 1.18, 1.98, 0.86);
+      K.put(M.chrome, new THREE.CylinderGeometry(0.04, 0.04, 0.7, 6), s * 0.55, 1.12, 2.92); // bull bar uprights
+    }
+    K.put(M.paint, K.box(W - 0.02, 0.5, 0.1), 0, 1.78, -2.66); // the tailgate
+    K.put(M.chrome, K.box(1.4, 0.36, 0.06), 0, 1.38, 2.76); for (const y of [1.28, 1.38, 1.48]) K.put(M.dark, K.box(1.3, 0.04, 0.03), 0, y, 2.8);
+    K.put(M.chrome, K.side(0.04, 1.3, 6), 0, 1.42, 2.95); K.put(M.chrome, K.side(0.04, 1.6, 6), 0, 0.92, 2.9);
+    K.put(M.dark, K.box(2.4, 0.3, 0.24), 0, 0.92, 2.72); K.put(M.dark, K.box(2.4, 0.22, 0.2), 0, 0.92, -2.7);
+    K.put(M.dark, K.box(1.7, 0.1, 0.18), 0, 2.5, 0.75); K.put(M.accentGlow, K.box(1.6, 0.08, 0.05), 0, 2.5, 0.85);
+    for (const x of [-1.12, 1.12]) { wheel(x, 1.75, 0.62, 0.5, true, { t: 'beadlock', tread: true }); wheel(x, -1.65, 0.62, 0.5, false, { t: 'beadlock', tread: true }); }
   },
-  roadster({ add, B, M, wheel }) {
-    add(B(1.9, 0.55, 4.1, { tf: 0.18, tb: 0.18 }), M.paint, 0, 0.72, 0);
-    add(B(1.6, 0.18, 1.3), M.dark, 0, 1.0, -0.35);
-    const ws = add(B(1.55, 0.42, 0.05), M.glass, 0, 1.2, 0.45); ws.rotation.x = -0.35;
-    add(new THREE.SphereGeometry(0.2, 10, 8), M.white, -0.4, 1.35, -0.4);
-    for (const x of [-0.95, 0.95]) { add(B(0.32, 0.36, 1.2, { tf: 0.15, tb: 0.15 }), M.paint, x, 0.78, 1.3); add(B(0.32, 0.36, 1.2, { tf: 0.15, tb: 0.15 }), M.paint, x, 0.78, -1.3); }
-    add(B(1.95, 0.12, 0.1), M.chrome, 0, 0.52, 2.07);
-    add(B(1.95, 0.12, 0.1), M.chrome, 0, 0.52, -2.07);
-    add(B(1.9, 0.04, 0.35), M.accent, 0, 1.0, 0.95);
-    const hl = new THREE.CylinderGeometry(0.15, 0.15, 0.1, 12); hl.rotateX(Math.PI / 2);
-    for (const x of [-0.62, 0.62]) { add(hl, M.light, x, 0.85, 2.08); add(B(0.25, 0.12, 0.05), M.tail, x, 0.82, -2.08); }
-    for (const x of [-0.98, 0.98]) { wheel(x, 1.32, 0.44, 0.34, true); wheel(x, -1.32, 0.44, 0.36, false); }
+  // A classic open roadster: curvy wings over the wheels, chrome, two seats behind a little windscreen.
+  roadster({ K, M, wheel }) {
+    const core = [[-2.08, 0.42], [2.0, 0.42], [2.1, 0.5], [2.08, 0.7], [1.85, 0.82], [1.0, 0.88], [0.4, 0.9], [-1.4, 0.9], [-1.9, 0.84], [-2.08, 0.72], [-2.12, 0.52]];
+    K.put(M.paint, K.slab(core, 1.66, { bev: 0.08, thick: 0.14, segs: 3, pinch: K.plan({ nose: [1.0, 2.12, 0.3], tail: [-1.1, -2.12, 0.24] }) }));
+    const wing = [...K.under(-2.06, 1.98, 0.42, [[-1.32, 0.44], [1.32, 0.44]]), [2.08, 0.5], [2.05, 0.66], [1.8, 0.92], [1.32, 1.04], [0.8, 0.96], [0.45, 0.86], [-0.6, 0.84], [-0.95, 0.94], [-1.32, 1.04], [-1.8, 0.96], [-2.06, 0.72], [-2.1, 0.52]];
+    K.sides(wing, 0.44, 0.88, M.paint, { bev: 0.08, thick: 0.15, segs: 3, pinch: K.plan({ nose: [1.2, 2.1, 0.12], tail: [-1.2, -2.1, 0.12], top: [0.8, 1.12, 0.1] }) }); K.wells([[-1.32, 0.44], [1.32, 0.44]], 0.42, 1.08, 0.08, M.dark);
+    K.put(M.dark, K.box(1.4, 0.03, 1.15), 0, 0.99, -0.42); // the cockpit
+    for (const s of [-1, 1]) {
+      K.put(M.accent, K.box(0.5, 0.12, 0.5), s * 0.34, 1.02, -0.5); K.put(M.accent, K.box(0.48, 0.48, 0.12, { tf: 0.06 }), s * 0.34, 1.2, -0.78, -0.18); // seats
+      K.put(M.light, K.disc(0.14, 0.08, 14), s * 0.81, 0.8, 1.96, -0.77); K.put(M.chrome, new THREE.TorusGeometry(0.145, 0.022, 4, 16), s * 0.81, 0.81, 1.98, -0.77);
+      K.put(M.tail, K.box(0.12, 0.2, 0.05), s * 0.88, 0.78, -2.12);
+      K.put(M.chrome, K.box(0.02, 0.03, 1.4), s * 1.105, 0.72, -0.05);
+      K.put(M.chrome, K.box(0.03, 0.42, 0.04), s * 0.72, 1.16, 0.32, -0.35); // the windscreen frame
+    }
+    K.put(M.paint, K.box(0.5, 0.2, 0.6, { tb: 0.18, nt: 0.3 }), -0.34, 1.02, -1.15); // the fairing behind the driver
+    K.put(M.glass, K.box(1.42, 0.4, 0.03), 0, 1.16, 0.32, -0.35); K.put(M.chrome, K.box(1.46, 0.03, 0.05), 0, 1.36, 0.25, -0.35);
+    K.put(M.dark, new THREE.TorusGeometry(0.16, 0.025, 4, 14), -0.34, 1.18, 0.05, -0.5); // the steering wheel
+    K.put(M.chrome, K.disc(0.3, 0.04, 16).scale(1.2, 0.7, 1), 0, 0.62, 2.15); K.put(M.dark, K.disc(0.25, 0.04, 16).scale(1.2, 0.66, 1), 0, 0.62, 2.17);
+    for (let i = -3; i <= 3; i++) K.put(M.chrome, K.box(0.02, 0.3, 0.03), i * 0.07, 0.62, 2.19);
+    K.put(M.chrome, K.box(2.0, 0.1, 0.1), 0, 0.48, 2.12); K.put(M.chrome, K.box(2.0, 0.1, 0.1), 0, 0.5, -2.14);
+    K.put(M.white, K.ball(0.18, 10), -0.34, 1.48, -0.55); K.put(M.dark, K.box(0.3, 0.06, 0.2), -0.34, 1.58, -0.5); // the driver's cap
+    for (const x of [-0.98, 0.98]) { wheel(x, 1.32, 0.44, 0.34, true, 'whitewall'); wheel(x, -1.32, 0.44, 0.36, false, 'whitewall'); }
   },
-  kart({ add, B, M, wheel }) {
-    add(B(1.2, 0.1, 2.0), M.dark, 0, 0.18, 0);
-    add(B(0.9, 0.25, 0.6, { tf: 0.12 }), M.paint, 0, 0.3, 1.05);
-    for (const x of [-0.62, 0.62]) add(B(0.18, 0.2, 1.0), M.paint, x, 0.28, 0.0);
-    add(B(0.5, 0.45, 0.35, { tb: 0.1 }), M.dark, 0, 0.45, -0.45);
-    add(B(0.55, 0.5, 0.4, { nt: 0.2 }), M.accent, 0, 0.72, -0.3);
-    add(new THREE.SphereGeometry(0.22, 10, 8), M.paint, 0, 1.08, -0.25);
-    const sw = add(new THREE.TorusGeometry(0.15, 0.03, 4, 10), M.dark, 0, 0.7, 0.2); sw.rotation.x = -0.6;
-    add(B(1.4, 0.1, 0.15), M.paint, 0, 0.35, -1.05);
-    for (const x of [-0.7, 0.7]) { wheel(x, 0.75, 0.24, 0.24, true); wheel(x, -0.72, 0.26, 0.32, false); }
+  // A go-kart: a tube frame, bodywork pods, a seat and a driver.
+  kart({ K, M, wheel }) {
+    K.put(M.dark, K.box(1.0, 0.06, 1.8), 0, 0.14, 0);
+    K.sides([[-0.7, 0.14], [0.55, 0.14], [0.5, 0.36], [-0.65, 0.36]], 0.28, 0.64, M.paint, { bev: 0.04, thick: 0.07 }); // side pods
+    for (const s of [-1, 1]) K.put(M.chrome, new THREE.CylinderGeometry(0.025, 0.025, 1.5, 6).rotateX(Math.PI / 2), s * 0.42, 0.2, 0); // frame rails
+    K.put(M.paint, K.slab([[0.75, 0.1], [1.12, 0.12], [1.18, 0.3], [0.85, 0.38], [0.6, 0.34]], 1.1, { bev: 0.04, thick: 0.1, pinch: K.plan({ nose: [0.8, 1.18, 0.3] }) })); // the nose
+    K.put(M.white, K.box(0.34, 0.24, 0.02), 0, 0.48, 0.66, -0.4); K.put(M.dark, new THREE.CylinderGeometry(0.015, 0.015, 0.4, 5), 0, 0.5, 0.42, -0.9);
+    K.put(M.dark, K.box(1.42, 0.12, 0.16), 0, 0.3, -1.04); // the rear bumper
+    K.put(M.dark, K.box(0.48, 0.3, 0.42, { tb: 0.08 }), 0, 0.34, -0.42); K.put(M.dark, K.box(0.44, 0.4, 0.1, { tf: 0.05 }), 0, 0.54, -0.62, 0.25); // the seat
+    K.put(M.chrome, K.box(0.24, 0.26, 0.3), 0.42, 0.36, -0.68); K.put(M.chrome, K.side(0.04, 0.4, 6), 0.62, 0.34, -0.82);
+    // The driver: a suit in the accent colour, gloves on the wheel, a helmet in the paint colour.
+    K.put(M.accent, K.box(0.42, 0.46, 0.26, { nt: 0.15 }), 0, 0.72, -0.48, -0.22);
+    for (const s of [-1, 1]) { K.put(M.accent, K.box(0.09, 0.09, 0.42), s * 0.2, 0.68, -0.16, 0.4); K.put(M.accent, K.box(0.13, 0.12, 0.6), s * 0.14, 0.34, 0.2, 0.15); }
+    K.put(M.dark, new THREE.TorusGeometry(0.13, 0.022, 4, 14), 0, 0.62, 0.06, -0.55);
+    K.put(M.paint, K.ball(0.18, 10), 0, 1.06, -0.4); K.put(M.dark, K.box(0.26, 0.08, 0.1), 0, 1.06, -0.25);
+    for (const x of [-0.7, 0.7]) { wheel(x, 0.75, 0.24, 0.24, true, 'kart'); wheel(x, -0.72, 0.26, 0.32, false, 'kart'); }
   },
   // A 1960s British grand tourer. The body and the cabin are side profiles
   // (length × height, with the wheel arches cut out) pushed out across the car
@@ -2006,44 +2324,60 @@ const MODELS = {
     ]);
     const hubs = { [-1]: hub(-1), 1: hub(1) };
     for (const [x, z, front] of [[-1.02, 1.45, true], [1.02, 1.45, true], [-1.02, -1.4, false], [1.02, -1.4, false]]) {
-      wheel(x, z, 0.38, 0.28, front, true);
+      wheel(x, z, 0.38, 0.28, front, 'bare');
       g.children[g.children.length - 1].children[0].add(new THREE.Mesh(hubs[Math.sign(x)], M.chrome));
     }
   },
 };
 
 function carMaterials(color, accent, ghost, opacity = 0.38) {
-  if (ghost) { const m = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, depthWrite: false, flatShading: true }); return { paint: m, accent: m, dark: m, glass: m, light: m, tail: m, chrome: m, white: m, tire: m, accentGlow: m }; }
+  if (ghost) { const m = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, depthWrite: false, flatShading: true }); return { paint: m, accent: m, dark: m, glass: m, light: m, tail: m, chrome: m, white: m, tire: m, accentGlow: m, hub: m }; }
   const std = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.55, flatShading: true }, o));
   return {
     paint: std(color, { roughness: 0.42, metalness: 0.15 }),
     accent: std(accent, { roughness: 0.45 }),
     accentGlow: std(accent, { emissive: accent, emissiveIntensity: 0.9 }),
     dark: std(0x1b1f27, { roughness: 0.8 }),
-    glass: std(0x223044, { roughness: 0.2, metalness: 0.4 }),
+    glass: std(0x223044, { roughness: 0.2, metalness: 0.4, side: THREE.DoubleSide }),
     light: std(0xfff6d5, { emissive: 0xfff1b0, emissiveIntensity: 0.8 }),
     tail: std(0xff2a2a, { emissive: 0xff1010, emissiveIntensity: 0.7 }),
-    chrome: std(0xd8dde6, { roughness: 0.2, metalness: 0.8 }),
+    chrome: std(0xe4e8ee, { roughness: 0.3, metalness: 0.35 }),
     white: std(0xf4f4f4),
     tire: std(0x16181d, { roughness: 0.9 }),
-    hub: std(0xb8c0cc, { roughness: 0.4, metalness: 0.5 }),
+    hub: std(0xb8c0cc, { roughness: 0.35, metalness: 0.5 }),
   };
 }
 function buildCarModel(spec, opts = {}) {
   const ghost = !!opts.ghost; const g = new THREE.Group();
   const M = carMaterials(opts.color || spec.color, spec.accent, ghost, opts.opacity);
   const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = !ghost; g.add(m); return m; };
+  // Most parts are gathered by material and merged at the end.
+  const parts = new Map(), put = (mat, geo, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
+    if (rx) geo.rotateX(rx); if (ry) geo.rotateY(ry); if (rz) geo.rotateZ(rz);
+    geo.translate(x, y, z); if (!parts.has(mat)) parts.set(mat, []); parts.get(mat).push(geo); return geo;
+  };
   const wheels = [];
-  const wheel = (x, z, r, w, front, aero) => {
+  const wheel = (x, z, r, w, front, style = 'spoke5') => {
+    if (typeof style === 'string') style = { t: style };
+    const sx = Math.sign(x) || 1, ws = wheelParts(r, w, sx, style, M);
     const pivot = new THREE.Group(); pivot.position.set(x, r, z); g.add(pivot);
-    const geo = new THREE.CylinderGeometry(r, r, w, 12); geo.rotateZ(Math.PI / 2);
-    const tyre = new THREE.Mesh(geo, M.tire || M.dark); tyre.castShadow = !ghost; pivot.add(tyre);
-    const hubGeo = aero ? new THREE.CylinderGeometry(r * 0.72, r * 0.72, w + 0.02, 12).rotateZ(Math.PI / 2) : new THREE.BoxGeometry(w + 0.02, r * 0.35, r * 0.35);
-    tyre.add(new THREE.Mesh(hubGeo, aero ? M.accent : (M.hub || M.dark)));
-    if (!aero) { const spoke = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, r * 1.3, r * 0.14), M.hub || M.dark); tyre.add(spoke); }
+    let tyre;
+    if (ghost) { // a ghost's wheels don't turn, so they go into its one merged mesh
+      tyre = new THREE.Object3D(); pivot.add(tyre);
+      for (const geo of [ws.tyre, ...ws.rim, ...ws.dark, ...ws.white, ws.cal]) if (geo) put(M.paint, geo, x, r, z);
+    } else {
+      tyre = new THREE.Mesh(ws.tyre, M.tire); tyre.castShadow = true; pivot.add(tyre);
+      for (const [geos, mat] of [[ws.rim, M[style.m || WHEEL_STYLES[style.t]] || M.hub], [ws.dark, M.dark], [ws.white, M.white]]) if (geos.length) tyre.add(new THREE.Mesh(mergeGeos(geos), mat));
+      if (ws.cal) pivot.add(new THREE.Mesh(ws.cal, M[style.cal || 'tail']));
+    }
     wheels.push({ pivot, w: tyre, front, r, x, z });
   };
-  MODELS[spec.model]({ add, B: shapedBox, M, wheel, g });
+  MODELS[spec.model]({ add, B: shapedBox, M, wheel, g, K: carKit(put) });
+  for (const [mat, geos] of parts) add(mergeGeos(geos), mat, 0, 0, 0);
+  if (ghost) { // a see-through car shows only its outside: its depth goes down first, then its colour where nothing of it is nearer
+    const depth = new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true });
+    g.traverse(c => { if (c.isMesh && c.material !== depth) { c.renderOrder = 2; const d = new THREE.Mesh(c.geometry, depth); d.renderOrder = 1; d.position.copy(c.position); d.quaternion.copy(c.quaternion); c.parent.add(d); } });
+  }
   g.userData.wheels = wheels; g.userData.paint = M.paint;
   return g;
 }
@@ -2235,7 +2569,8 @@ class Car {
     this.hw = Math.max(...xs) + 0.12; this.hl = Math.max(...zs) + 0.2;
     this.buildBody();
     // Exhaust flames, shown while boosting.
-    this.flames = [-0.42, 0.42].map(x => { const f = exhaustFlame(); f.position.set(x, spec.comY * 0.62, -(this.hl - 0.15)); f.visible = false; this.mesh.add(f); return f; });
+    const tail = new THREE.Box3().setFromObject(this.mesh).min.z; // at the very back of the body
+    this.flames = [-0.42, 0.42].map(x => { const f = exhaustFlame(); f.position.set(x, 0.4, tail + 0.08); f.visible = false; this.mesh.add(f); return f; });
   }
   // Bullet chassis + raycast vehicle for the current car.
   buildBody() {
@@ -2942,16 +3277,24 @@ function updateAudio(car, active, thr) {
   audio.wg.gain.setTargetAtTime(w * w * (car.grounded ? 0.07 : 0.12), t, 0.12);
 }
 
-// Background music: a relaxed theme on the menus and a racing theme on the track
-// (both made for the game, music-menu.mp3 and music-race.mp3), faded from one to
-// the other, quieter while paused, and off while your car plays its own theme.
+// Background music: a relaxed theme on the menus and four racing tunes on the
+// track (all made for the game), faded from one to the other, quieter while
+// paused, and off while your car plays its own theme. Each time you go from the
+// menus to a track you get the next race tune, in a shuffled order, and a tune
+// that ends (in a long City drive, say) is followed by another.
 // It goes through the sound engine where it can, so its volume works on iPhones
 // and iPads too (a web page can't set an audio element's volume there).
-const MUSIC = { menu: 'music-menu.mp3', race: 'music-race.mp3' };
-const music = { tracks: {}, cur: '', waiting: false };
+const MUSIC = { menu: 'music-menu.mp3', race: 'music-race.mp3', night: 'music-night.mp3', breaks: 'music-breaks.mp3', rock: 'music-rock.mp3' };
+const RACE_TUNES = ['race', 'night', 'breaks', 'rock'];
+const music = { tracks: {}, cur: '', waiting: false, race: '', order: [], racing: false };
+function nextRaceTune() {
+  if (!music.order.length) { music.order = RACE_TUNES.filter(k => k !== music.race); for (let i = music.order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [music.order[i], music.order[j]] = [music.order[j], music.order[i]]; } }
+  return music.race = music.order.shift();
+}
 function musicTrack(name) {
   if (music.tracks[name]) return music.tracks[name];
-  const el = new Audio(MUSIC[name]); el.loop = true; el.preload = 'auto';
+  const el = new Audio(MUSIC[name]); el.loop = name === 'menu'; el.preload = 'auto';
+  if (name !== 'menu') el.addEventListener('ended', () => { if (music.cur === name) { nextRaceTune(); updateMusic(); } });
   const t = music.tracks[name] = { el, gain: null, vol: 0, fade: 0, stop: 0 };
   if (location.protocol !== 'file:') { // (a page opened from a file can't route its audio)
     try { const src = audio.ctx.createMediaElementSource(el); t.gain = audio.ctx.createGain(); t.gain.gain.value = 0; src.connect(t.gain); t.gain.connect(audio.musicBus); } catch (e) { t.gain = null; }
@@ -2968,7 +3311,9 @@ function musicVol(t, v, secs) {
 function updateMusic() {
   if (!audio.ctx) return; // until the first click or key press
   const s = game.state, racing = s === 'race' || s === 'paused' || s === 'finished';
-  const want = !settings.sound || !settings.music || document.hidden || carById(settings.car).theme ? '' : racing ? 'race' : 'menu';
+  if (racing && !music.racing) nextRaceTune(); // onto the track from the menus: a new tune
+  music.racing = racing;
+  const want = !settings.sound || !settings.music || document.hidden || carById(settings.car).theme ? '' : racing ? music.race : 'menu';
   for (const [name, t] of Object.entries(music.tracks)) if (name !== want && t.vol > 0) {
     musicVol(t, 0, 0.9); clearTimeout(t.stop); t.stop = setTimeout(() => { if (t.vol === 0) t.el.pause(); }, 1000);
   }
@@ -4269,7 +4614,8 @@ async function mpJoin(name, hosting) {
   catch (e) { toast(e && e.code === 'not_permitted' ? 'Live races aren’t available to you here.' : 'Could not join that race. Try again.'); return; }
   finally { mp.joining = false; }
   Object.assign(mp, { r, name, peers: r.peers(), joinedAt: Date.now(), hs: hosting ? Date.now() : 0, sel: hosting ? { k: 'o', id: OFFICIAL[0].id } : null,
-    go: null, lastN: 0, synced: hosting, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0, heardAt: 0, firstSeen: new Map(), welcomed: new Set() });
+    go: null, lastN: 0, synced: hosting, race: null, status: 'room', fin: null, sent: '', chat: [], chatSeen: new Set(), myMsgs: [], unread: 0, heardAt: 0, firstSeen: new Map(), welcomed: new Set(),
+    ai: hosting ? ('cpuRacers' in settings ? clamp(settings.cpuRacers | 0, 0, 5) : 3) : 0 });
   mp.unsub = r.onPeers(ch => { mp.peers = ch.peers; mp.heardAt = mp.heardAt || Date.now(); mpPeersChanged(); }, () => {
     if (mp.r !== r) return;
     toast('Lost the connection to the race.'); mpLeave(); if (game.state === 'online') mpRender();
@@ -4318,7 +4664,7 @@ function mpSend(force) {
   if (!force && now - mp.sentAt < MP_SEND_MS) { if (!mp.trail) mp.trail = setTimeout(() => { mp.trail = 0; mpSend(false); }, MP_SEND_MS); return; }
   const c = game.car, racing = (mp.status === 'race' || mp.status === 'city') && (game.state === 'race' || game.state === 'paused');
   const pr = { v: 1, nm: settings.nick || null, cr: creator.sig, c: c.spec.id, k: paintFor(c.spec), hs: mp.hs || null, st: mp.status, n: mp.race ? mp.race.n : 0, s: null,
-    cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null,
+    cp: mp.race ? game.cpHit.size : 0, p: Math.round(mp.prog * 1000) / 1000, f: mp.fin, sel: mp.hs ? mp.sel : null, go: mp.hs ? mp.go : null, ai: mp.hs ? mp.ai : null,
     m: mp.myMsgs.filter(m => Date.now() - m[2] < CHAT_KEEP), ev: rally.res && rally.res[0] === rallyNow().id ? rally.res : null };
   if (racing) { const q = c.q, m = new V3(0, -c.spec.comY, 0).applyQuaternion(q).add(c.pos); pr.s = [m.x, m.y, m.z, q.x, q.y, q.z, q.w].map((v, i) => Math.round(v * (i < 3 ? 100 : 1000)) / (i < 3 ? 100 : 1000)); }
   const s = JSON.stringify(pr); if (s === mp.sent) return;
@@ -4327,7 +4673,7 @@ function mpSend(force) {
 
 function mpHostStart() {
   if (!mpTrack(mp.sel)) { toast('Pick a track first.'); return; }
-  mp.lastN += 1; mp.go = { n: mp.lastN, tr: mp.sel };
+  mp.lastN += 1; mp.go = { n: mp.lastN, tr: mp.sel, ai: mp.ai };
   mpStartRace(mp.go);
 }
 // Everyone starts on the host's signal with the same 3-second countdown; each
@@ -4335,9 +4681,9 @@ function mpHostStart() {
 function mpStartRace(go) {
   const tr = mpTrack(go.tr);
   if (!tr) { toast('Could not load the race track.'); return; }
-  mp.race = { n: go.n, tr: go.tr }; mp.status = 'race'; mp.fin = null; mp.pi = 0; mp.prog = 0;
+  mp.race = { n: go.n, tr: go.tr, goAt: performance.now() + MP_COUNT }; mp.status = 'race'; mp.fin = null; mp.pi = 0; mp.prog = 0;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // the keys go to the car, not the chat box
-  closeModal(); startTrack(tr);
+  closeModal(); startTrack(tr); cpuForRace(go);
   game.lockUntil = performance.now() + MP_COUNT; game.cdShown = 0; $('hud-hint').hidden = true;
   mpSyncCars(); mpSend(true);
 }
@@ -4365,6 +4711,7 @@ function mpStandings() {
     rows.push({ name: mpName(p), cr: isCreator(p), car: mpCar(p), done, f: done ? pr.f : null, cp: pr.cp | 0, prog: +pr.p || 0, me: false });
   }
   if (mp.race && mp.race.n === n && mp.status !== 'room') rows.push({ name: 'You', car: game.car.spec.id, done: mp.fin != null, f: mp.fin, cp: game.cpHit.size, prog: mp.prog, me: true });
+  if (mp.race && mp.race.n === n) rows.push(...cpuRows());
   return rows.sort((a, b) => (b.done - a.done) || (a.done ? a.f - b.f : (b.cp - a.cp) || (b.prog - a.prog)));
 }
 function mpCps(spec) { const tr = mpTrack(spec); return tr ? tr.tiles.filter(t => t.type === 'checkpoint').length : 0; }
@@ -4421,8 +4768,9 @@ function mpHud() {
     const now = performance.now(); if (now - mp.hudAt < 400) return; mp.hudAt = now;
     const others = mpPlayers().filter(p => !p.sameTab && p.presence.st === 'city');
     el.hidden = false; el.classList.add('city');
+    const bots = cpu.key === 'city' ? cityCpuCount() : 0;
     el.innerHTML = `<div class="me"><span>In the City</span><span>${others.length + 1} driving</span></div>` + [[withCup('You', community.me), false], ...others.slice(0, 7).map(p => [mpName(p), isCreator(p)])]
-      .map(([n, cr]) => `<div><span${cr ? ' class="cr"' : ''}>${escapeHtml(cr ? CREATOR.title : n)}</span><span></span></div>`).join('');
+      .map(([n, cr]) => `<div><span${cr ? ' class="cr"' : ''}>${escapeHtml(cr ? CREATOR.title : n)}</span><span></span></div>`).join('') + (bots ? `<div class="cpu"><span>+ ${bots} computer drivers</span><span></span></div>` : '');
     cityChatRender(); return;
   }
   if (!mp.race || game.state !== 'race') { if (!el.hidden) el.hidden = true; return; }
@@ -4597,6 +4945,7 @@ function rallyFinish(courseId, time) {
 }
 function rallyResults(r) {
   const rows = rally.res && rally.res[0] === r.id ? [{ me: true, name: withCup('You', community.me), t: rally.res[1] }] : [];
+  rows.push(...rallyCpu(r));
   if (mp.city) for (const p of mp.peers) {
     const e = !p.sameTab && p.presence.ev;
     if (Array.isArray(e) && e[0] === r.id && Number.isFinite(e[1]) && e[1] > 3000) rows.push({ name: isCreator(p) ? CREATOR.title : mpName(p), t: Math.round(e[1]) });
@@ -4631,6 +4980,196 @@ function rallyRender(force) {
 }
 $('hud-rally').addEventListener('click', e => { if (e.target.closest('[data-rally]')) rallyJoin(); });
 
+// ============================================================================
+// Computer drivers. They keep the City busy when it's quiet, fill the empty
+// places in live races and post times in City Rallies. They're always shown as
+// computer drivers ("CPU" after the name), see-through like other players'
+// cars, and drive set lines rather than the physics, worked out from the clock
+// in the City and from the "Go" in a race, so everyone sees the same ones.
+// ============================================================================
+const CPU_NAMES = ['Max', 'Zara', 'Leo', 'Nova', 'Kai', 'Ruby', 'Finn', 'Ivy', 'Jett', 'Luna', 'Remy', 'Skye', 'Ozzy', 'Tara'];
+const CPU_CARS = ['street', 'rosso', 'flat6', 'muscle', 'drift', 'rally', 'volt', 'stock', 'hyper', 'lmp', 'roadster', 'truck'];
+const CPU_PAINTS = ['#ff5a36', '#3fa7ff', '#ffd23f', '#3ee38a', '#b06bff', '#ff7ad9', '#f2f4f8', '#2fb8a6', '#ff9f1c'];
+const CITY_CPUS = 6; // the City's computer drivers; fewer show as more people drive there
+const cpu = { cars: [], key: '', route: null, doneN: -1, city: null };
+const cpuLabel = name => name + ' (CPU)';
+function cpuMake(name, carId, paint) {
+  const mesh = buildCarModel(carById(carId), { ghost: true, color: paint, opacity: 0.5 }), tag = nameTag(cpuLabel(name), paint);
+  mesh.visible = tag.visible = false; scene.add(mesh, tag);
+  return { name, car: carId, paint, mesh, tag, lat: 0, line: null, phase: 0 };
+}
+function cpuClear() {
+  for (const c of cpu.cars) { scene.remove(c.mesh, c.tag); disposeTree(c.mesh); c.tag.material.map.dispose(); c.tag.material.dispose(); }
+  cpu.cars = []; cpu.key = ''; cpu.route = null; cpu.doneN = -1;
+}
+// A line to follow: positions and up directions, and the time (s) each is reached.
+function cpuIndex(L, s) {
+  const T = L.t; let lo = 0, hi = T.length - 1;
+  if (s <= T[0]) return [0, Math.min(1, hi), 0]; if (s >= T[hi]) return [hi - 1, hi, 1];
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (T[mid] <= s) lo = mid; else hi = mid; }
+  return [lo, hi, (s - T[lo]) / Math.max(1e-6, T[hi] - T[lo])];
+}
+const cpuV = { f: new V3(), u: new V3(), r: new V3(), m: new THREE.Matrix4(), q: new THREE.Quaternion() };
+function cpuPlace(c, s) {
+  const L = c.line, [a, b, k] = cpuIndex(L, s), P = L.p, N = L.n, { f, u, r, m, q } = cpuV;
+  f.set(P[b * 3] - P[a * 3], P[b * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] - P[a * 3 + 2]); if (f.lengthSq() < 1e-8) return; f.normalize();
+  u.set(N[a * 3] + (N[b * 3] - N[a * 3]) * k, N[a * 3 + 1] + (N[b * 3 + 1] - N[a * 3 + 1]) * k, N[a * 3 + 2] + (N[b * 3 + 2] - N[a * 3 + 2]) * k);
+  u.addScaledVector(f, -u.dot(f)).normalize(); r.crossVectors(u, f);
+  c.mesh.position.set(P[a * 3] + (P[b * 3] - P[a * 3]) * k, P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * k, P[a * 3 + 2] + (P[b * 3 + 2] - P[a * 3 + 2]) * k).addScaledVector(r, c.lat);
+  q.setFromRotationMatrix(m.makeBasis(r, u, f)); c.mesh.quaternion.copy(q);
+  c.tag.position.set(c.mesh.position.x, c.mesh.position.y + 2.6 + c.tag.userData.lift, c.mesh.position.z);
+}
+
+// In a live race: the route, at speeds that reach the finish in a set time
+// (the car's own corner speeds, scaled), from a standing start, over each jump.
+function cpuRaceLine(route, spec, secs) {
+  const P = route.pts, N = P.length, v = routeSpeeds(route, spec).slice(), step = route.step;
+  for (let i = 0, w = 0; i < N; i++) { w = Math.min(v[i], Math.sqrt(w * w + 2 * 16 * step)); v[i] = Math.max(3, w); }
+  const lift = new Float32Array(N);
+  for (const j of route.jumps) {
+    const q = nearestIdx(P, j.Q), D = Math.hypot(j.Q.x - j.P.x, j.Q.z - j.P.z), h = D * (D > 300 ? 0.12 : 0.16);
+    for (let i = j.idx + 1; i < q; i++) { const t = (i - j.idx) / (q - j.idx); lift[i] = 4 * h * t * (1 - t); }
+  }
+  const t = new Float64Array(N), p = new Float32Array(N * 3), n = new Float32Array(N * 3);
+  for (let i = 1; i < N; i++) t[i] = t[i - 1] + 2 * step / (v[i - 1] + v[i]);
+  const k = secs / Math.max(1e-3, t[N - 1]);
+  for (let i = 0; i < N; i++) { t[i] *= k; p.set([P[i].x, P[i].y + lift[i], P[i].z], i * 3); const nr = route.nrms[i]; n.set([nr.x, nr.y, nr.z], i * 3); }
+  return { t, p, n, total: secs };
+}
+// The host picks how many; every page makes the same ones from the race's room and number.
+function cpuForRace(go) {
+  cpuClear();
+  const count = clamp(go.ai | 0, 0, 5), r = world.route, m = world.medals; if (!count || !r || !r.ok || !m) return;
+  const rnd = mulberry32(hashStr(mp.name + ':' + go.n)), names = CPU_NAMES.slice();
+  for (let k = 0; k < count; k++) {
+    const name = names.splice(Math.floor(rnd() * names.length), 1)[0], car = CPU_CARS[Math.floor(rnd() * CPU_CARS.length)], c = cpuMake(name, car, CPU_PAINTS[Math.floor(rnd() * CPU_PAINTS.length)]);
+    // From about gold-medal pace for the quickest to about bronze for the slowest.
+    const pace = count > 1 ? 0.98 + 0.41 * k / (count - 1) : 1.1;
+    c.lat = [-3, 3, -4.6, 4.6, -1.5][k]; c.line = cpuRaceLine(r, carById(car), m.gold * pace * (0.985 + rnd() * 0.03) / 1000);
+    cpu.cars.push(c);
+  }
+  cpu.key = 'race'; cpu.route = r;
+}
+const cpuRaceSecs = () => mp.race && mp.race.goAt ? (performance.now() - mp.race.goAt) / 1000 : 0;
+// Their places in the standings.
+function cpuRows() {
+  if (cpu.key !== 'race' || !mp.race) return [];
+  const s = cpuRaceSecs(), cps = cpu.route.cpIdx, N = cpu.route.pts.length;
+  return cpu.cars.map(c => {
+    const done = s >= c.line.total, [a] = cpuIndex(c.line, s);
+    return { name: cpuLabel(c.name), cpu: true, car: c.car, done, f: done ? Math.round(c.line.total * 1000) : null, cp: done ? cps.length : cps.filter(i => i <= a).length, prog: a / Math.max(1, N - 1), me: false };
+  });
+}
+
+// In the City: loops round the open floor, between buildings and parks, with the
+// corners rounded off; each driver takes a few minutes to go round its loop.
+function cityFloor() {
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const t of world.tiles) for (const [x, z] of footprint(t)) { x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z); }
+  const w = x1 - x0 + 1, h = z1 - z0 + 1, seen = new Uint8Array(w * h), shut = new Uint8Array(w * h);
+  for (const t of world.tiles) { const open = (t.type === 'plaza' || t.type.startsWith('yard')) && !t.l; for (const [x, z] of footprint(t)) { const i = (z - z0) * w + (x - x0); seen[i] = 1; if (!open) shut[i] = 1; } }
+  const ok = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) ok[i] = seen[i] && !shut[i] ? 1 : 0;
+  return { x0, z0, w, h, ok, at: (x, z) => x >= x0 && z >= z0 && x <= x1 && z <= z1 && ok[(z - z0) * w + (x - x0)] === 1 };
+}
+function cityLoop(F, rnd) {
+  const { x0, z0, w, h, ok, at } = F, open = []; for (let i = 0; i < w * h; i++) if (ok[i]) open.push(i);
+  const prev = new Int32Array(w * h), queue = new Int32Array(w * h), cx = i => i % w + x0, cz = i => Math.floor(i / w) + z0;
+  const path = (a, b) => { // the fewest cells from a to b (grid indexes), diagonals only past two open sides
+    prev.fill(-1); prev[a] = a; let head = 0, tail = 0; queue[tail++] = a;
+    while (head < tail && prev[b] < 0) {
+      const i = queue[head++], x = i % w, z = (i - x) / w;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dz) continue; const nx = x + dx, nz = z + dz; if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+        const j = nz * w + nx; if (prev[j] >= 0 || !ok[j] || (dx && dz && !(ok[z * w + nx] && ok[nz * w + x]))) continue;
+        prev[j] = i; queue[tail++] = j;
+      }
+    }
+    if (prev[b] < 0) return null;
+    const out = []; for (let i = b; i !== a; i = prev[i]) out.push(i); out.push(a); return out.reverse();
+  };
+  const start = open[Math.floor(rnd() * open.length)]; let cells = [start], cur = start;
+  for (let trip = 0; trip < 24; trip++) {
+    let p = null;
+    for (let tries = 0; tries < 30 && !p; tries++) { const b = open[Math.floor(rnd() * open.length)], d = Math.abs(cx(b) - cx(cur)) + Math.abs(cz(b) - cz(cur)); if (d > 6 && d < 26) p = path(cur, b); }
+    if (p) { cells.push(...p.slice(1)); cur = p[p.length - 1]; }
+  }
+  const home = path(cur, start); if (home) cells.push(...home.slice(1));
+  cells = cells.map(i => [cx(i), cz(i)]);
+  // Straighten it where the way is clear (with room either side), then round the corners.
+  const clear = (a, b) => { const L = Math.hypot(b.x - a.x, b.z - a.z), sx = (b.z - a.z) / (L || 1), sz = -(b.x - a.x) / (L || 1);
+    for (let d = 0; d <= L; d += 2) for (const o of [-4, 0, 4]) { const x = a.x + (b.x - a.x) * d / (L || 1) + sx * o, z = a.z + (b.z - a.z) * d / (L || 1) + sz * o; if (!at(Math.round(x / S), Math.round(z / S))) return false; }
+    return true; };
+  const pts = cells.map(([x, z]) => ({ x: x * S, z: z * S })), keep = [pts[0]];
+  for (let i = 0; i < pts.length - 1;) { let j = i + 1; while (j + 1 < pts.length && clear(pts[i], pts[j + 1])) j++; keep.push(pts[j]); i = j; }
+  // Each corner is a curve that starts and ends 8 m from it, so it never leaves the corner's own (open) square.
+  const ring = keep.slice(0, -1).filter((p, i, a) => !i || Math.hypot(p.x - a[i - 1].x, p.z - a[i - 1].z) > 0.5), nr = ring.length, line = [];
+  for (let i = 0; i < nr; i++) {
+    const a = ring[(i + nr - 1) % nr], c = ring[i], b = ring[(i + 1) % nr], la = Math.hypot(a.x - c.x, a.z - c.z), lb = Math.hypot(b.x - c.x, b.z - c.z);
+    const ka = Math.min(8, la * 0.45) / (la || 1), kb = Math.min(8, lb * 0.45) / (lb || 1), p0 = { x: c.x + (a.x - c.x) * ka, z: c.z + (a.z - c.z) * ka }, p2 = { x: c.x + (b.x - c.x) * kb, z: c.z + (b.z - c.z) * kb };
+    for (let k = 0; k <= 6; k++) { const u = k / 6, w0 = (1 - u) ** 2, w1 = 2 * u * (1 - u), w2 = u * u; line.push({ x: w0 * p0.x + w1 * c.x + w2 * p2.x, z: w0 * p0.z + w1 * c.z + w2 * p2.z }); }
+  }
+  line.push(line[0]);
+  // Evenly spaced points, at speeds the bends allow.
+  const even = [line[0]]; let carry = 0;
+  for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], d = Math.hypot(b.x - a.x, b.z - a.z); let s = 2 - carry; while (s <= d) { even.push({ x: a.x + (b.x - a.x) * s / d, z: a.z + (b.z - a.z) * s / d }); s += 2; } carry = d - (s - 2); }
+  const N = even.length, vmax = 22 + rnd() * 8, v = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const a = even[Math.max(0, i - 2)], b = even[i], c = even[Math.min(N - 1, i + 2)];
+    let dh = Math.abs(Math.atan2(c.x - b.x, c.z - b.z) - Math.atan2(b.x - a.x, b.z - a.z)); if (dh > Math.PI) dh = 2 * Math.PI - dh;
+    v[i] = Math.min(vmax, Math.sqrt(12 / Math.max(1e-4, dh / 4)));
+  }
+  for (let pass = 0; pass < 2; pass++) { for (let i = N - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * 12 * 2)); for (let i = 1; i < N; i++) v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * 6 * 2)); }
+  const t = new Float64Array(N), p = new Float32Array(N * 3), n = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { if (i) t[i] = t[i - 1] + 4 / (v[i - 1] + v[i]); p.set([even[i].x, 0, even[i].z], i * 3); n[i * 3 + 1] = 1; }
+  return { t, p, n, total: t[N - 1] };
+}
+// The drivers' loops are worked out one a frame (the first time you drive into the City), so nothing stalls.
+function cpuForCity() {
+  if (cpu.key !== 'city') { cpuClear(); cpu.key = 'city'; }
+  if (!cpu.city || cpu.city.tiles !== world.tiles) cpu.city = { tiles: world.tiles, floor: cityFloor(), lines: [] };
+  const k = cpu.cars.length; if (k >= CITY_CPUS) return;
+  const line = cpu.city.lines[k] || (cpu.city.lines[k] = cityLoop(cpu.city.floor, mulberry32(hashStr('city driver ' + k))));
+  const c = cpuMake(CPU_NAMES[k], CPU_CARS[(k * 5) % CPU_CARS.length], CPU_PAINTS[k % CPU_PAINTS.length]); c.line = line; c.skip = line.total < 10; cpu.cars.push(c);
+}
+// How many show: six when nobody else is about, down to two once the City's busy.
+const cityCpuCount = () => clamp(CITY_CPUS + 1 - (mp.city ? mpPlayers().filter(p => !p.sameTab && p.presence.st === 'city').length + 1 : 1), 2, CITY_CPUS);
+
+// Every frame: make, move, show and hide them.
+function cpuTick() {
+  const st = game.state, show = st === 'race' || st === 'finished' || st === 'paused', city = !!(world.track && world.track.free);
+  if (city && show) { if (cpu.key !== 'city' || cpu.cars.length < CITY_CPUS) cpuForCity(); }
+  else if (cpu.key === 'city') cpuClear();
+  if (cpu.key === 'race' && (!mp.race || !mp.r)) cpuClear();
+  if (!cpu.cars.length) return;
+  if (cpu.key === 'city') {
+    const n = cityCpuCount(), now = Date.now() / 1000;
+    cpu.cars.forEach((c, k) => { const on = k < n && !c.skip; c.mesh.visible = c.tag.visible = on; if (on) cpuPlace(c, (now + k * 137) % c.line.total); });
+    return;
+  }
+  const on = show && mp.status !== 'room' && world.route === cpu.route, s = cpuRaceSecs();
+  for (const c of cpu.cars) { c.mesh.visible = c.tag.visible = on; if (on) cpuPlace(c, Math.max(0, s)); }
+  // After you finish, the results fill in as they cross the line.
+  if (st === 'finished') { const d = cpu.cars.filter(c => s >= c.line.total).length; if (d !== cpu.doneN) { cpu.doneN = d; renderFinishBoard(); } }
+}
+
+// City Rallies: three of the City's computer drivers each post a time during
+// the rally, from about gold-medal pace for the course to a little slower.
+const courseGold = new Map();
+function rallyCpu(r) {
+  if (!courseGold.has(r.course)) {
+    const c = CITY_COURSES.find(c => c[0] === r.course); let g = 0;
+    if (c) { const tiles = turtle(c[2].replace(/^CG/, 'ST').replace(/CF$/, 'F')), route = computeRoute(tiles), m = route.ok && medalTimes(route, null); g = m ? m.gold : tiles.length * 1000; } // (about 20 m/s if the course has no route to time)
+    courseGold.set(r.course, g);
+  }
+  const base = courseGold.get(r.course); if (!base) return [];
+  const rnd = mulberry32(hashStr('rally ' + r.id)), out = [];
+  for (let k = 0; k < 3; k++) {
+    const who = CPU_NAMES[(r.id + k * 2) % CITY_CPUS], at = r.start + 20000 + k * 40000 + rnd() * 20000, t = Math.round(base * (1 + 0.05 * k + rnd() * 0.06));
+    if (r.now >= at) out.push({ name: cpuLabel(who), t, cpu: true });
+  }
+  return out;
+}
+
 // The live race screen: the lobby's open races, or the room you're in.
 function showOnline() {
   if (game.state !== 'online') { setState('online'); loadDemo(); }
@@ -4647,9 +5186,10 @@ function mpRender() {
       <div class="lb-head"><span>Free roam</span></div>
       <div class="mp-list"><div class="mp-item"><div><b>The City</b><small>Drive with everyone online, any time: rooftop jumps, skate parks, loops and big air to practise on. <span id="mp-city-n"></span></small></div><button class="btn primary" id="mp-city">Drive</button></div></div>
       <div class="lb-head"><span>Open races</span></div><div class="mp-list" id="mp-list"></div>
-      <div class="row"><button class="btn primary" id="mp-host">Host a race</button><button class="btn" id="mp-back">Back</button></div>`
+      <div class="row"><button class="btn primary" id="mp-quick">Quick race</button><button class="btn" id="mp-host">Host a race</button><button class="btn" id="mp-back">Back</button></div>`
       : `<div class="eyebrow" id="mp-eyebrow">Live race</div><h2 id="mp-trackname"></h2>
-      ${view === 'host' ? `<div class="field"><label for="mp-track">Track</label><select id="mp-track">${mpTrackOptions()}</select></div>` : ''}
+      ${view === 'host' ? `<div class="field"><label for="mp-track">Track</label><select id="mp-track">${mpTrackOptions()}</select></div>
+      <div class="field"><label for="mp-cpu">Computer racers</label><select id="mp-cpu">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}">${n || 'None'}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label for="mp-car">Your car</label><select id="mp-car">${CARS.filter(c => carUsable(c.id)).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
       <div class="lb-head"><span>Players</span><span id="mp-count"></span></div><table class="lb world" id="mp-players"></table>
       <p class="lb-note" id="mp-status"></p>
@@ -4659,7 +5199,15 @@ function mpRender() {
       <div class="row">${view === 'host' ? '<button class="btn primary" id="mp-start">Start race</button>' : ''}<button class="btn" id="mp-leave">Leave</button></div>`;
     if ($('mp-msg')) { $('mp-msg').value = draft; if (typing) $('mp-msg').focus(); }
     const on = (id, fn, ev = 'onclick') => { const el = $(id); if (el) el[ev] = fn; };
-    on('mp-host', () => mpJoin('race-' + Array.from({ length: 6 }, () => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)]).join(''), true));
+    const roomName = () => 'race-' + Array.from({ length: 6 }, () => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)]).join('');
+    on('mp-host', () => mpJoin(roomName(), true));
+    // A quick race: host one and start straight away on an easy or medium track, against computer racers until people join.
+    on('mp-quick', async () => {
+      await mpJoin(roomName(), true); if (!mp.r || !mp.hs) return;
+      const pool = OFFICIAL.filter(t => t.diff === 'Easy' || t.diff === 'Medium'); mp.sel = { k: 'o', id: pool[Math.floor(Math.random() * pool.length)].id };
+      if (!mp.ai) mp.ai = 3; mpSend(true); mpAdvertise(); mpHostStart();
+    });
+    on('mp-cpu', e => { mp.ai = settings.cpuRacers = clamp(+e.target.value | 0, 0, 5); saveSettings(); mpSend(true); mpRender(); }, 'onchange');
     on('mp-back', () => { setState('menu'); loadDemo(); });
     on('mp-city', cityJoin);
     on('mp-leave', () => { mpLeave(); mpRender(); });
@@ -4670,11 +5218,11 @@ function mpRender() {
     on('mp-say', e => { e.preventDefault(); if (mpSay($('mp-msg').value)) $('mp-msg').value = ''; }, 'onsubmit');
   }
   if (view === 'lobby') {
-    const c = cityDrivers(), rn = rallyNow(); $('mp-city-n').textContent = (c ? c + (c === 1 ? ' person' : ' people') + ' driving now.' : 'Nobody there yet.') +
+    const c = cityDrivers(), rn = rallyNow(); $('mp-city-n').textContent = (c ? c + (c === 1 ? ' person' : ' people') + ' driving now.' : 'No other players there right now, but computer drivers keep it busy.') +
       (rn.phase === 'run' ? ' A City Rally is on now.' : ` Next City Rally in ${Math.max(1, Math.ceil((rn.start - rn.now) / 60000))} min.`);
     const races = mpOpenRaces(), el = $('mp-list');
     el.innerHTML = races.length ? races.map(r => `<div class="mp-item"><div><b>${r.nm ? escapeHtml(r.nm) + '’s race' : r.by ? `<span data-uid="${escapeHtml(r.by)}"></span>’s race` : 'Open race'}</b><small>${escapeHtml(r.track)} · ${r.n} player${r.n > 1 ? 's' : ''} · ${r.live ? 'racing now' : 'waiting'}</small></div><button class="btn" data-join="${r.room}">Join</button></div>`).join('')
-      : '<p class="empty-note">No open races right now. Host one and anyone who opens the game can join it.</p>';
+      : '<p class="empty-note">No open races right now. Start a quick race against computer racers, or host one: anyone who opens the game can join it.</p>';
     fillNames(el); return;
   }
   const tr = mpTrack(mp.sel), host = mpHost(), live = mpLive();
@@ -4683,6 +5231,7 @@ function mpRender() {
   $('mp-trackname').textContent = tr ? tr.name : 'Waiting for the host…';
   $('mp-eyebrow').textContent = 'Live race · ' + (view === 'host' ? 'you’re the host' : host ? mpName(host) + ' is the host' : 'finding the host…');
   const sel = $('mp-track'); if (sel && document.activeElement !== sel) sel.value = mpSpecValue(mp.sel);
+  const cs = $('mp-cpu'); if (cs && document.activeElement !== cs) cs.value = String(mp.ai || 0);
   const car = $('mp-car'); if (document.activeElement !== car) car.value = game.car.spec.id;
   // The race standings first, then everyone else in the room.
   const raceN = mp.race ? mp.race.n : mp.lastN, cps = mpCps(mp.race ? mp.race.tr : mp.go && mp.go.tr), standings = mpStandings();
@@ -4693,8 +5242,9 @@ function mpRender() {
     others.map(p => row('', mpName(p), p.sameTab ? game.car.spec.id : mpCar(p), p === host ? 'Host' : 'In room', p.sameTab, !p.sameTab && isCreator(p))).join('');
   const n = mpPlayers().length; $('mp-count').textContent = n + (n === 1 ? ' player' : ' players');
   const start = $('mp-start'); if (start) start.textContent = live ? 'Start a new race' : mp.lastN ? 'Start next race' : 'Start race';
-  $('mp-status').textContent = view === 'host' ? (n < 2 ? 'Waiting for players. Anyone who opens the game can join from Race online. You can also start on your own.' : 'Everyone races when you press Start.')
-    : live ? 'A race is on. You’ll join the next one.' : host ? 'Waiting for ' + mpName(host) + ' to start the race.' : '';
+  const ai = view === 'host' ? mp.ai : host ? clamp(host.presence.ai | 0, 0, 5) : 0, bots = ai ? ` ${ai} computer racer${ai > 1 ? 's' : ''} join${ai > 1 ? '' : 's'} each race.` : '';
+  $('mp-status').textContent = (view === 'host' ? (n < 2 ? 'Waiting for players. Anyone who opens the game can join from Race online. You can also start on your own.' : 'Everyone races when you press Start.')
+    : live ? 'A race is on. You’ll join the next one.' : host ? 'Waiting for ' + mpName(host) + ' to start the race.' : '') + bots;
 }
 
 const routeCache = new Map();
@@ -5514,7 +6064,7 @@ function frame(now) {
   for (const o of world.dyn) o.userData.dyn(o, world.clock + game.acc);
   const st = game.state; const car = game.car;
   for (const c of scenery.children) if (c.userData.drift) c.position.x += c.userData.drift * dt;
-  updateSmoke(dt); updateSparks(dt); updateSpeedLines(car, st === 'race');
+  updateSmoke(dt); updateSparks(dt); updateSpeedLines(car, st === 'race'); cpuTick();
 
   if (st === 'menu' || st === 'online') {
     game.acc += dt;
@@ -5634,7 +6184,7 @@ $('btn-install').onclick = async () => {
   $('m-done').onclick = closeModal;
 };
 // Debug/test hooks.
-window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, CITY_COURSES, cityJoin, tilePoint, openEditor, editorTrack, goToCourse, showCourses };
+window.__mt = { Ammo: () => A, routeSpeeds, phys, game, world, nearestOnCentreline, surfaceAt, OFFICIAL, selectCar, events, CARS, TYPES, generateSeq, randomTrack, dailyTrack, turtle, occupied, openGarage, computeRoute, medalTimes, demoInput, physicsTick, loadTrack, spawnPoint, PHYS_DT, setState, startTrack, encodeTrack, decodeTrack, onFinish, boardKey, packGhost, unpackGhost, mp, renderer, scenery, editor, CITY, CITY_COURSES, cityJoin, tilePoint, openEditor, editorTrack, goToCourse, showCourses, cpu, rallyCpu, rallyNow, cityCpuCount, buildCarModel, footprint };
 // Ammo() returns a "thenable" module: wait for it with .then (awaiting it never settles).
 Ammo().then(lib => { initPhysics(lib); $('loading').hidden = true; start(); });
 </script>
