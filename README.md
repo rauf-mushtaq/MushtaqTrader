@@ -1,6 +1,6 @@
 # MushtaqTrader
 
-Real market data, a transparent "best buy" ranking, and paper trading with pretend money so you can learn without losing any.
+A market analysis app built on real data. It tracks stocks, ETFs, crypto, commodities, currencies and consumer and economic indicators, then ranks which assets look like the best buy right now using a transparent scoring model. It also includes a practice account for trying trades before you use real money.
 
 ## What it does
 
