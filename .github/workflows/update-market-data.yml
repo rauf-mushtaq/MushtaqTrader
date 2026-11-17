@@ -8,6 +8,7 @@ on:
     - cron: "17 */4 * * 0,6"
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - "scripts/fetch_market_data.py"
       - ".github/workflows/update-market-data.yml"
