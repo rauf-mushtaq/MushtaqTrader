@@ -557,10 +557,14 @@ def nyfed_effr_points():
 
 
 def census_retail_points():
-    data = json.loads(http_get(
+    raw = http_get(
         "https://api.census.gov/data/timeseries/eits/marts?get=cell_value,time_slot_id"
         f"&for=us:*&time=from+{start_year() - 1}&category_code=44X72&data_type_code=SM&seasonally_adj=yes"
-    ))
+    )
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise RuntimeError(f"Census replied with non-JSON: {raw[:150]!r}") from None
     head, rows = data[0], data[1:]
     iv, it = head.index("cell_value"), head.index("time")
     pts = []
