@@ -437,12 +437,42 @@ def build_asset(spec: dict, data: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
-# FRED consumer / economic data
+# Consumer / economic data: FRED first, then official fallback sources
 # --------------------------------------------------------------------------
-def fetch_fred(spec: dict) -> dict:
+FRED = Breaker("FRED", threshold=2)
+_CACHE: dict = {}
+MONTHS = {m: i + 1 for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july",
+     "august", "september", "october", "november", "december"])}
+
+
+def http_post_json(url: str, body: dict, timeout: int = 20) -> dict:
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(), method="POST",
+        headers={"User-Agent": UA, "Content-Type": "application/json"},
+    )
+    with _OPENER.open(req, timeout=timeout) as r:
+        return json.loads(r.read())
+
+
+def to_monthly(pts, how="last"):
+    """[(YYYY-MM-DD, value)] -> [(YYYY-MM-01, value)] one point per month."""
+    groups: dict = {}
+    for d, v in sorted(pts):
+        groups.setdefault(d[:7], []).append(v)
+    agg = (lambda vs: vs[-1]) if how == "last" else (lambda vs: sum(vs) / len(vs))
+    return [(k + "-01", agg(vs)) for k, vs in sorted(groups.items())]
+
+
+def start_year() -> int:
+    return datetime.now(timezone.utc).year - 5
+
+
+def fred_points(series_id: str):
     start = (datetime.now(timezone.utc) - timedelta(days=365 * 6)).strftime("%Y-%m-%d")
     raw = http_get(
-        f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={spec['id']}&cosd={start}"
+        f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}",
+        timeout=20, retries=1,
     ).decode("utf-8", "replace")
     reader = csv.reader(io.StringIO(raw))
     next(reader, None)
@@ -454,31 +484,120 @@ def fetch_fred(spec: dict) -> dict:
             pts.append((row[0], float(row[1])))
         except ValueError:
             continue
-    if not pts:
-        raise RuntimeError(f"fred {spec['id']}: empty")
+    if len(pts) > 200:  # daily series -> month-end values
+        pts = to_monthly(pts)
+    return pts
 
-    # Daily series (rates) -> keep the last observation of each month.
-    if len(pts) > 200:
-        monthly = {}
-        for d, val in pts:
-            monthly[d[:7]] = (d, val)
-        pts = [monthly[k] for k in sorted(monthly)]
 
+def umich_points():
+    raw = http_get("https://www.sca.isr.umich.edu/files/tbmics.csv").decode("utf-8", "replace")
+    pts = []
+    for rec in csv.DictReader(io.StringIO(raw)):
+        rec = {(k or "").strip().lower(): (v or "").strip() for k, v in rec.items()}
+        try:
+            m = MONTHS[rec["month"].lower()]
+            pts.append((f"{int(rec['yyyy'])}-{m:02d}-01", float(rec["ics_all"])))
+        except (KeyError, ValueError):
+            continue
+    return pts
+
+
+def bls_points(series_id: str):
+    if "bls" not in _CACHE:
+        yr = datetime.now(timezone.utc).year
+        data = http_post_json(
+            "https://api.bls.gov/publicAPI/v1/timeseries/data/",
+            {"seriesid": ["CUSR0000SA0", "LNS14000000"], "startyear": str(yr - 6), "endyear": str(yr)},
+        )
+        if data.get("status") != "REQUEST_SUCCEEDED":
+            raise RuntimeError(f"BLS: {data.get('status')} {data.get('message')}")
+        _CACHE["bls"] = {
+            ser["seriesID"]: [
+                (f"{row['year']}-{row['period'][1:]}-01", float(row["value"]))
+                for row in ser.get("data", [])
+                if row.get("period", "").startswith("M") and row["period"] != "M13" and row.get("value") not in ("-", "")
+            ]
+            for ser in data["Results"]["series"]
+        }
+    return sorted(_CACHE["bls"].get(series_id, []))
+
+
+def treasury_rows():
+    if "treasury" not in _CACHE:
+        rows = []
+        for yr in range(start_year(), datetime.now(timezone.utc).year + 1):
+            raw = http_get(
+                "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
+                f"daily-treasury-rates.csv/{yr}/all?type=daily_treasury_yield_curve"
+                f"&field_tdr_date_value={yr}&page&_format=csv"
+            ).decode("utf-8", "replace")
+            for rec in csv.DictReader(io.StringIO(raw)):
+                try:
+                    d = datetime.strptime(rec["Date"], "%m/%d/%Y").strftime("%Y-%m-%d")
+                    rows.append((d, float(rec["10 Yr"]), float(rec["2 Yr"])))
+                except (KeyError, ValueError):
+                    continue
+        _CACHE["treasury"] = sorted(rows)
+    return _CACHE["treasury"]
+
+
+def nyfed_effr_points():
+    today = datetime.now(timezone.utc).date()
+    data = json.loads(http_get(
+        "https://markets.newyorkfed.org/api/rates/unsecured/effr/search.json"
+        f"?startDate={start_year()}-01-01&endDate={today.isoformat()}"
+    ))
+    pts = [(r["effectiveDate"], float(r["percentRate"])) for r in data.get("refRates", []) if r.get("percentRate") is not None]
+    return to_monthly(pts, how="mean")
+
+
+MACRO_FALLBACKS = {
+    "UMCSENT": [("University of Michigan", umich_points)],
+    "CPIAUCSL": [("US Bureau of Labor Statistics", lambda: bls_points("CUSR0000SA0"))],
+    "UNRATE": [("US Bureau of Labor Statistics", lambda: bls_points("LNS14000000"))],
+    "FEDFUNDS": [("Federal Reserve Bank of New York", nyfed_effr_points)],
+    "DGS10": [("US Treasury", lambda: to_monthly([(d, ten) for d, ten, _ in treasury_rows()]))],
+    "T10Y2Y": [("US Treasury", lambda: to_monthly([(d, ten - two) for d, ten, two in treasury_rows()]))],
+}
+
+
+def finish_macro(spec: dict, pts, source: str) -> dict:
     if spec["transform"] == "yoy":
         lookup = {d[:7]: val for d, val in pts}
-        yoy = []
-        for d, val in pts:
-            y, m = int(d[:4]), d[5:7]
-            prev = lookup.get(f"{y - 1}-{m}")
-            if prev:
-                yoy.append((d, (val / prev - 1) * 100))
-        pts = yoy
+        pts = [
+            (d, (val / lookup[f"{int(d[:4]) - 1}-{d[5:7]}"] - 1) * 100)
+            for d, val in pts if lookup.get(f"{int(d[:4]) - 1}-{d[5:7]}")
+        ]
     pts = pts[-60:]
+    if len(pts) < 6:
+        raise RuntimeError(f"{source}: too few points ({len(pts)})")
     out = {k: spec[k] for k in ("id", "name", "unit", "transform")}
     out["dates"] = [d for d, _ in pts]
     out["values"] = [round(val, 3) for _, val in pts]
-    out["source"] = "FRED, Federal Reserve Bank of St. Louis"
+    out["source"] = source
     return out
+
+
+def fetch_macro(spec: dict) -> dict:
+    sources = []
+    if not FRED.is_open():
+        sources.append(("FRED, Federal Reserve Bank of St. Louis", lambda: fred_points(spec["id"]), FRED))
+    sources += [(name, fn, None) for name, fn in MACRO_FALLBACKS.get(spec["id"], [])]
+    errs = []
+    for name, fn, breaker in sources:
+        try:
+            out = finish_macro(spec, fn(), name)
+            if breaker:
+                breaker.record(True)
+            log(f"  ok   {spec['id']:<10} {name} (latest {out['dates'][-1]})")
+            return out
+        except Exception as e:  # noqa: BLE001
+            if breaker:
+                breaker.record(False)
+            errs.append(f"{name}: {e}")
+    msg = " | ".join(errs) or "no source available"
+    log(f"  FAIL {spec['id']:<10} {msg[:220]}")
+    raise RuntimeError(msg)
 
 
 # --------------------------------------------------------------------------
@@ -512,11 +631,11 @@ def main() -> int:
                     stale["stale"] = True
                     assets.append(stale)
 
+    log("Fetching consumer & economic data...")
     macro = []
     for spec in MACRO:
         try:
-            macro.append(fetch_fred(spec))
-            log(f"  ok   {spec['id']:<10} FRED")
+            macro.append(fetch_macro(spec))
         except Exception as e:  # noqa: BLE001
             errors.append(f"{spec['id']}: {e}")
             if spec["id"] in prev_macro:
@@ -536,7 +655,7 @@ def main() -> int:
     assets.sort(key=lambda a: order.get(a["symbol"], 1e9))
     payload = dict(
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        sources=sorted({a.get("source", "") for a in assets} | {"FRED (Federal Reserve Bank of St. Louis)"}),
+        sources=sorted({a.get("source", "") for a in assets} | {m.get("source", "") for m in macro}),
         assets=assets,
         macro=macro,
         errors=errors[:50],
