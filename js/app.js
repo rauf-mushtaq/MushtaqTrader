@@ -30,7 +30,20 @@
     tf: '6M',
     chartMode: 'candle',
     live: { status: 'off', at: null },
+    watch: loadWatch(),
+    prevBy: {},        // symbol -> {score, signal} as of the previous close
+    track: [],         // past top-5 picks and how they did
   };
+
+  // ---------------------------------------------------------------- watchlist
+  function loadWatch() {
+    try { const w = JSON.parse(localStorage.getItem('mushtaqtrader.watchlist') || '[]'); return Array.isArray(w) ? w : []; } catch (e) { return []; }
+  }
+  function toggleWatch(sym) {
+    state.watch = state.watch.includes(sym) ? state.watch.filter((s) => s !== sym) : state.watch.concat(sym);
+    try { localStorage.setItem('mushtaqtrader.watchlist', JSON.stringify(state.watch)); } catch (e) { /* ignore */ }
+  }
+  const starBtn = (sym) => `<button class="star ${state.watch.includes(sym) ? 'on' : ''}" data-star="${esc(sym)}" title="${state.watch.includes(sym) ? 'Remove from' : 'Add to'} watchlist" aria-label="Watchlist">★</button>`;
 
   // ---------------------------------------------------------------- formatting
   function fmtNum(x, dp) {
@@ -112,7 +125,12 @@
     return Object.assign({}, n, { topics, mentions });
   }
   function newsFor(sym) {
-    const own = ((state.data.news || {}).symbols || {})[sym] || [];
+    let own = ((state.data.news || {}).symbols || {})[sym] || [];
+    // Prefer headlines that actually name the company; Yahoo's per-ticker feed includes generic list articles.
+    const m = mentionMatchers.find((x) => x.sym === sym);
+    const bare = sym.replace(/[-.].*$/, '');
+    const named = own.filter((n) => (m && m.re.test(n.title)) || new RegExp(`\\b${bare}\\b`).test(n.title));
+    if (named.length) own = named;
     const mentioned = state.news.filter((n) => n.mentions.includes(sym));
     const seen = new Set();
     return own.concat(mentioned)
@@ -137,12 +155,62 @@
       buildMatchers();
       state.news = ((data.news || {}).market || []).filter((n) => safeUrl(n.link)).map(tagHeadline);
       rescore();
+      computeHistory();
       if (initial) { render(); pollCrypto(); } else softRender();
     } catch (e) {
       if (initial) {
         state.loadError = e.message || String(e);
         render();
       }
+    }
+  }
+
+  // Re-score the universe using only data up to a past point, to see what changed and how past picks did.
+  function scoreAsOf(cutoffSec, dropLastBar) {
+    const assets = state.assets.map((a) => {
+      let k = a.c.length - 1;
+      if (!dropLastBar) { k = 0; while (k < a.t.length && a.t[k] <= cutoffSec) k++; }
+      return Object.assign({}, a, {
+        t: a.t.slice(0, k), o: a.o.slice(0, k), h: a.h.slice(0, k), l: a.l.slice(0, k), c: a.c.slice(0, k), v: a.v.slice(0, k),
+        live: false, metrics: null, score: null, signal: null,
+      });
+    }).filter((a) => a.c.length >= 2);
+    const cutDate = cutoffSec ? new Date(cutoffSec * 1000).toISOString().slice(0, 10) : null;
+    const macro = (state.data.macro || []).map((m) => {
+      if (!cutDate) return m;
+      const n = m.dates.filter((d) => d <= cutDate).length;
+      return Object.assign({}, m, { dates: m.dates.slice(0, n), values: m.values.slice(0, n) });
+    });
+    return Scoring.scoreAll(assets, macro);
+  }
+
+  function computeHistory() {
+    try {
+      const prev = scoreAsOf(null, true);
+      state.prevBy = Object.fromEntries(prev.ranked.map((a) => [a.symbol, { score: a.score, signal: a.signal }]));
+      const spx = state.bySym.SPY || state.bySym['^GSPC'];
+      const lastT = spx ? spx.t[spx.t.length - 1] : Math.floor(Date.now() / 1000);
+      const fwd = (sym, cut) => {
+        const a = state.bySym[sym];
+        if (!a) return null;
+        let k = -1;
+        for (let i = 0; i < a.t.length && a.t[i] <= cut; i++) k = i;
+        return k >= 0 && a.c[k] ? a.c[a.c.length - 1] / a.c[k] - 1 : null;
+      };
+      const avg = (xs) => { const v = xs.filter(isNum); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+      state.track = [30, 61, 91].map((days) => {
+        const cut = lastT - days * 86400;
+        const res = scoreAsOf(cut, false);
+        const picks = res.ranked.slice(0, 5).map((a) => ({ sym: a.symbol, score: a.score, ret: fwd(a.symbol, cut) }));
+        return {
+          days, cut, regime: res.regime.label, picks,
+          avg: avg(picks.map((p) => p.ret)),
+          all: avg(res.ranked.map((a) => fwd(a.symbol, cut))),
+          spy: fwd('SPY', cut),
+        };
+      }).filter((r) => r.picks.length);
+    } catch (e) {
+      state.prevBy = {}; state.track = [];
     }
   }
 
@@ -207,6 +275,13 @@
     return `<div class="scorebar"><div class="track"><div class="fill" style="width:${score}%;background:${scoreColor(score)}"></div></div><b>${score}</b></div>`;
   }
   const badge = (sig) => (sig ? `<span class="badge ${sig}">${sig}</span>` : '');
+  function scoreDelta(a) {
+    const p = state.prevBy[a.symbol];
+    if (!p || a.score == null) return '';
+    const d = a.score - p.score;
+    if (Math.abs(d) < 1) return '';
+    return `<span class="delta-chip ${d > 0 ? 'up' : 'down'}" title="Change since the previous close">${d > 0 ? '▲' : '▼'}${Math.abs(d)}</span>`;
+  }
 
   // ---------------------------------------------------------------- news rendering
   function headline(n, opts = {}) {
@@ -244,9 +319,26 @@
       <span class="muted">TOP PICK <a href="#" data-open="${esc(top.symbol)}"><b>${esc(top.symbol)}</b></a> ${top.score}</span>` : '';
   }
 
+  // ---------------------------------------------------------------- routing (#best, #news, #asset/AAPL ...)
+  const TABS = ['best', 'news', 'markets', 'economy', 'asset'];
+  function readRoute() {
+    let h = '';
+    try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) { h = ''; }
+    if (h.startsWith('asset/')) { state.tab = 'asset'; state.selected = h.slice(6) || state.selected; }
+    else if (TABS.includes(h)) state.tab = h;
+  }
+  function writeRoute() {
+    const h = state.tab === 'asset' && state.selected ? '#asset/' + encodeURIComponent(state.selected) : '#' + state.tab;
+    if (location.hash !== h) { try { history.pushState(null, '', h); } catch (e) { /* ignore */ } }
+    const a = state.tab === 'asset' && state.bySym[state.selected];
+    document.title = a ? `${a.symbol} ${a.signal ? '(' + a.signal + ') ' : ''}– MushtaqTrader` : 'MushtaqTrader – Real Market Data & Best Buys';
+  }
+  window.addEventListener('popstate', () => { readRoute(); render(); });
+
   // ---------------------------------------------------------------- views
   function render() {
     renderStatus();
+    if (state.data) writeRoute();
     document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
     const view = $('#view');
     if (!state.data) {
@@ -298,6 +390,7 @@
 
   function filterRanked(filter, sector) {
     return state.ranked.filter((a) => {
+      if (filter === 'watch' && !state.watch.includes(a.symbol)) return false;
       if (filter === 'us' && !(a.cls === 'stock' && a.region === 'US')) return false;
       if (filter === 'uk' && !(a.cls === 'stock' && a.region === 'UK')) return false;
       if (filter === 'etf' && a.cls !== 'etf') return false;
@@ -376,6 +469,8 @@
         </div>
       </div>
 
+      <div class="grid cols-2" style="margin-top:12px">${changesCard()}${watchCard()}</div>
+
       <h2 class="section-title">Best in each market</h2>
       <div class="grid cols-4">
         ${winners.map(([label, a]) => `
@@ -385,8 +480,11 @@
               <div class="small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.name)}</div></div>
               ${scoreBar(a.score)}</div>
             <div class="row between mono small" style="margin-top:8px"><span>${fmtPrice(a, a.metrics.price)}</span><span>3M ${pct(a.metrics.r3m, 1)}</span>${badge(a.signal)}</div>
+            ${a.signal !== 'BUY' ? '<div class="faint tiny" style="margin-top:6px">None in this group is rated BUY right now.</div>' : ''}
           </div>`).join('')}
       </div>
+
+      ${sectorCard()}
 
       ${bigNews.length ? `<h2 class="section-title">Big-picture news to know</h2>
       <div class="card"><ul class="news-list">${bigNews.map((n) => headline(n)).join('')}</ul>
@@ -396,7 +494,7 @@
       <div class="card">
         <div class="row wrap between" style="margin-bottom:10px">
           <div class="chips">
-            ${[['all', 'All'], ['us', 'US stocks'], ['uk', 'UK stocks'], ['etf', 'ETFs'], ['crypto', 'Crypto']].map(([k, l]) => `<button class="fchip ${state.lbFilter === k ? 'active' : ''}" data-lb="${k}">${l}</button>`).join('')}
+            ${[['all', 'All'], ['watch', '★ Watchlist'], ['us', 'US stocks'], ['uk', 'UK stocks'], ['etf', 'ETFs'], ['crypto', 'Crypto']].map(([k, l]) => `<button class="fchip ${state.lbFilter === k ? 'active' : ''}" data-lb="${k}">${l}</button>`).join('')}
           </div>
           <select class="input" id="lb-sector" aria-label="Sector">
             <option value="all">All sectors</option>
@@ -405,11 +503,12 @@
         </div>
         <div class="small muted" style="margin-bottom:6px">${list.length} assets · <span class="up">${counts.BUY} BUY</span> · <span style="color:var(--hold)">${counts.HOLD} HOLD</span> · <span class="down">${counts.AVOID} AVOID</span></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>#</th><th>Asset</th><th class="hide-sm">Type</th><th class="num">Price</th><th class="num">1D</th>
+          <thead><tr><th></th><th>#</th><th>Asset</th><th class="hide-sm">Type</th><th class="num">Price</th><th class="num">1D</th>
             <th class="num hide-sm">1M</th><th class="num">3M</th><th class="num hide-sm">1Y</th><th class="num hide-sm">RSI</th><th>Score</th><th>Signal</th></tr></thead>
           <tbody>${shown.map((a) => {
             const mm = a.metrics;
             return `<tr class="click" data-open="${esc(a.symbol)}">
+              <td class="star-cell">${starBtn(a.symbol)}</td>
               <td class="mono faint">${a.rankPos}</td>
               <td class="asset-cell"><b>${esc(a.symbol)}</b>${a.live ? ' <span class="badge live">LIVE</span>' : ''}<div>${esc(a.name)}</div></td>
               <td class="hide-sm"><span class="badge type">${esc(typeLabel(a))}</span></td>
@@ -419,11 +518,78 @@
               <td class="num">${pct(mm.r3m, 1)}</td>
               <td class="num hide-sm">${pct(mm.r1y, 1)}</td>
               <td class="num hide-sm">${isNum(mm.rsi14) ? mm.rsi14.toFixed(0) : '—'}</td>
-              <td>${scoreBar(a.score)}</td><td>${badge(a.signal)}</td></tr>`;
+              <td><div class="row" style="gap:6px">${scoreBar(a.score)}${scoreDelta(a)}</div></td><td>${badge(a.signal)}</td></tr>`;
           }).join('')}</tbody></table></div>
         ${list.length > shown.length ? `<div style="text-align:center;margin-top:10px"><button class="btn sm" id="lb-more">Show all ${list.length}</button></div>` : ''}
+        ${state.lbFilter === 'watch' && !list.length ? '<div class="empty small">Your watchlist is empty. Tap ★ next to any asset to add it.</div>' : ''}
       </div>
+      ${trackCard()}
       ${methodology()}`;
+  }
+
+  function changesCard() {
+    const now = state.ranked;
+    const gained = now.filter((a) => a.signal === 'BUY' && state.prevBy[a.symbol] && state.prevBy[a.symbol].signal !== 'BUY');
+    const lost = now.filter((a) => a.signal !== 'BUY' && state.prevBy[a.symbol] && state.prevBy[a.symbol].signal === 'BUY');
+    const movers = now.filter((a) => state.prevBy[a.symbol])
+      .map((a) => [a, a.score - state.prevBy[a.symbol].score]).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1])).slice(0, 4);
+    const chip = (a) => `<button class="nasset big" data-open="${esc(a.symbol)}">${esc(a.symbol)} ${badge(a.signal)} <span class="faint">${a.score}</span></button>`;
+    const empty = !gained.length && !lost.length;
+    return `<div class="card">
+      <div class="card-title">What changed since the last close</div>
+      ${gained.length ? `<div class="small muted" style="margin-bottom:6px">New BUY signals</div><div class="chips" style="margin-bottom:10px">${gained.slice(0, 8).map(chip).join('')}</div>` : ''}
+      ${lost.length ? `<div class="small muted" style="margin-bottom:6px">Lost their BUY signal</div><div class="chips" style="margin-bottom:10px">${lost.slice(0, 8).map(chip).join('')}</div>` : ''}
+      ${empty ? '<p class="small muted" style="margin:0 0 10px">No BUY signals were gained or lost since the previous close.</p>' : ''}
+      ${movers.length ? `<div class="small muted" style="margin-bottom:6px">Biggest score moves</div>${movers.map(([a, d]) => `<div class="kv click" data-open="${esc(a.symbol)}" style="cursor:pointer"><span><b class="mono">${esc(a.symbol)}</b> <span class="muted small">${esc(a.name)}</span></span><span>${a.score} <span class="${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'}${Math.abs(d)}</span></span></div>`).join('')}` : ''}
+    </div>`;
+  }
+
+  function watchCard() {
+    const items = state.watch.map((s) => state.bySym[s]).filter(Boolean);
+    return `<div class="card">
+      <div class="card-title">Your watchlist</div>
+      ${items.length ? items.map((a) => `<div class="kv click" data-open="${esc(a.symbol)}" style="cursor:pointer">
+          <span><b class="mono">${esc(a.symbol)}</b> <span class="muted small">${esc(a.name)}</span></span>
+          <span class="row" style="gap:8px"><span class="mono small">${fmtPrice(a, a.metrics.price)}</span><span class="mono small">${pct(a.metrics.change1d)}</span>${a.signal ? badge(a.signal) : ''}${scoreDelta(a)}</span></div>`).join('')
+        : '<p class="small muted" style="margin:0">Tap ★ next to any asset in the ranking or on its analysis page to follow it here. Saved in this browser only.</p>'}
+    </div>`;
+  }
+
+  function sectorCard() {
+    const groups = {};
+    state.ranked.filter((a) => a.cls === 'stock').forEach((a) => { (groups[a.sector] = groups[a.sector] || []).push(a); });
+    const rows = Object.entries(groups).map(([sec, xs]) => ({
+      sec, n: xs.length,
+      score: Math.round(xs.reduce((s, a) => s + a.score, 0) / xs.length),
+      buys: xs.filter((a) => a.signal === 'BUY').length,
+      r1m: xs.map((a) => a.metrics.r1m).filter(isNum).reduce((s, x, _, arr) => s + x / arr.length, 0),
+      best: xs[0],
+    })).sort((x, y) => y.score - x.score);
+    if (!rows.length) return '';
+    return `<h2 class="section-title">Sector strength</h2>
+      <p class="section-sub">Average score of the stocks tracked in each sector. Strong sectors tend to stay strong for a while; weak ones can take time to turn.</p>
+      <div class="card"><div class="table-wrap"><table>
+        <thead><tr><th>Sector</th><th>Avg score</th><th class="num">BUYs</th><th class="num hide-sm">1M avg</th><th>Best in sector</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr class="click" data-sector="${esc(r.sec)}">
+          <td><b>${esc(r.sec)}</b> <span class="faint small">(${r.n})</span></td><td>${scoreBar(r.score)}</td>
+          <td class="num">${r.buys}/${r.n}</td><td class="num hide-sm">${pct(r.r1m, 1)}</td>
+          <td><a href="#" data-open="${esc(r.best.symbol)}" class="mono">${esc(r.best.symbol)}</a> ${badge(r.best.signal)}</td></tr>`).join('')}</tbody>
+      </table></div><div class="faint tiny" style="margin-top:6px">Tap a sector to filter the full ranking.</div></div>`;
+  }
+
+  function trackCard() {
+    if (!state.track.length) return '';
+    const beat = state.track.filter((r) => isNum(r.avg) && isNum(r.spy) && r.avg > r.spy).length;
+    return `<h2 class="section-title">Track record</h2>
+      <p class="section-sub">If you had bought the model's top 5 on these dates, here's how they'd have done since — compared with the S&amp;P 500 and with every asset the model ranks.</p>
+      <div class="card"><div class="table-wrap"><table>
+        <thead><tr><th>Picked on</th><th>Top 5 then</th><th class="num">Top 5 avg</th><th class="num">S&amp;P 500</th><th class="num hide-sm">All assets</th></tr></thead>
+        <tbody>${state.track.map((r) => `<tr>
+          <td class="nowrap">${fmtDate(r.cut)}<div class="faint tiny">${r.days} days ago · ${esc(r.regime)}</div></td>
+          <td>${r.picks.map((p) => `<a href="#" data-open="${esc(p.sym)}" class="mono">${esc(p.sym)}</a> <span class="tiny">${pct(p.ret, 0)}</span>`).join(' · ')}</td>
+          <td class="num"><b>${pct(r.avg, 1)}</b></td><td class="num">${pct(r.spy, 1)}</td><td class="num hide-sm">${pct(r.all, 1)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      <p class="small muted" style="margin:10px 0 0">The top 5 beat the S&amp;P 500 in <b>${beat} of ${state.track.length}</b> of these periods. This is a quick check, not proof: three short windows, using today's list of tracked assets. Past picks working doesn't guarantee future ones will.</p></div>`;
   }
 
   function methodology() {
@@ -578,10 +744,10 @@
         <div class="stack">
           <div class="card">
             <div class="asset-head">
-              <div><div class="sym">${esc(a.symbol)}</div><div class="muted small" style="margin-top:4px">${esc(a.name)} · ${esc(typeLabel(a))} · ${esc(a.sector)}${a.exchange ? ' · ' + esc(a.exchange) : ''}</div></div>
+              <div><div class="row" style="gap:8px"><div class="sym">${esc(a.symbol)}</div>${starBtn(a.symbol)}</div><div class="muted small" style="margin-top:4px">${esc(a.name)} · ${esc(typeLabel(a))} · ${esc(a.sector)}${a.exchange ? ' · ' + esc(a.exchange) : ''}</div></div>
               <div><div class="px">${fmtPrice(a, m.price)}</div><div class="mono small" style="margin-top:4px">${pct(m.change1d)} today</div></div>
               <div class="spacer"></div>
-              ${a.score != null ? `<div class="row">${badge(a.signal)}<span class="mono small muted">Score <b style="color:${scoreColor(a.score)}">${a.score}</b> · Rank #${a.rankPos} of ${state.ranked.length}</span></div>` : ''}
+              ${a.score != null ? `<div class="row">${badge(a.signal)}<span class="mono small muted">Score <b style="color:${scoreColor(a.score)}">${a.score}</b>${scoreDelta(a)} · Rank #${a.rankPos} of ${state.ranked.length}</span></div>` : ''}
             </div>
             <div class="row wrap between" style="margin:14px 0 8px">
               <div class="legend"><span><i style="background:var(--sma50)"></i>50-day avg</span><span><i style="background:var(--sma200)"></i>200-day avg</span></div>
@@ -771,10 +937,12 @@
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('button, a, [data-open], tr.click');
+    const t = e.target.closest('button, a, [data-open], [data-sector], tr.click');
     if (!t) return;
     const d = t.dataset;
     if (t.tagName === 'A' && t.target === '_blank') return; // external news link
+    if (d.star) { e.preventDefault(); e.stopPropagation(); toggleWatch(d.star); render(); return; }
+    if (d.sector) { state.lbSector = d.sector; state.lbFilter = 'all'; state.lbLimit = 1000; render(); const el = $('#lb-sector'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (d.tab) { e.preventDefault(); state.tab = d.tab; render(); window.scrollTo({ top: 0 }); return; }
     if (d.open) { e.preventDefault(); openAsset(d.open); return; }
     if (d.lb) { state.lbFilter = d.lb; state.lbLimit = 25; render(); return; }
@@ -812,6 +980,7 @@
   try { localStorage.removeItem('mushtaqtrader.portfolio.v2'); } catch (e) { /* ignore */ }
 
   // ---------------------------------------------------------------- boot
+  readRoute();
   loadData(true);
   setInterval(pollCrypto, LIVE_CRYPTO_MS);
   setInterval(() => loadData(false), DATA_RELOAD_MS);

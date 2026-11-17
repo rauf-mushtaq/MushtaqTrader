@@ -5,10 +5,15 @@ An app that helps you decide what to buy. It tracks real prices for stocks, ETFs
 ## What it does
 
 - **Best Buys**: about 115 real US and UK stocks, ETFs and cryptocurrencies get a 0–100 score from the last year of prices. The score covers momentum, trend, return per unit of risk, volatility and distance from the 52-week high. The #1 pick, the best in each market and a full ranking are shown, each with plain-English reasons and risks.
+- **What changed**: assets that gained or lost a BUY signal since the previous close, and the biggest score moves.
+- **Track record**: the model's top 5 picks from 1, 2 and 3 months ago, and how they've done since compared with the S&P 500.
+- **Sector strength**: average score and number of BUYs for each sector. Tap a sector to filter the ranking.
+- **Watchlist**: star any asset to follow it. It's saved in your browser.
 - **Market backdrop**: the S&P 500 trend, the VIX, market breadth and consumer and economic data (sentiment, inflation, unemployment and the yield curve) are combined into a Risk-on / Neutral / Cautious reading. When the reading is Cautious, the score favours steadier assets.
 - **Market News**: market headlines from CNBC, MarketWatch, BBC Business, the Federal Reserve and CoinDesk. They're tagged by topic (interest rates, inflation, earnings, oil, tariffs and so on), and any tracked company a headline mentions is linked to its rating.
 - **Markets**: indices, stocks, ETFs, crypto, commodities and currencies with real prices.
 - **Consumer & Economy**: US consumer sentiment, inflation, unemployment, interest rates and the yield curve.
+- **Links**: every view has its own address (for example `#asset/AAPL`), so you can share or bookmark it and the Back button works.
 - **Chart & Analysis**: for any asset, a candlestick chart with 50 and 200-day averages, key stats, the score breakdown, a plain-English verdict, its latest news and how it compares with others in the same sector.
 
 > The scores are a mechanical ranking of past data. News is shown alongside them but doesn't change them. Nothing here predicts prices or is financial advice.
