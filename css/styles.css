@@ -304,3 +304,13 @@ footer.foot { max-width: 1400px; margin: 0 auto; padding: 16px; color: var(--fai
 .star-cell { width: 24px; padding-right: 0; }
 .asset-head .star { font-size: 22px; }
 .delta-chip { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+
+/* ---------- analysts & health ---------- */
+.gradebar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); margin: 6px 0 4px; }
+.gradebar .b { background: var(--up); } .gradebar .h { background: var(--hold); } .gradebar .s { background: var(--down); }
+.health { display: grid; grid-template-columns: auto auto; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 6px 0; align-items: center; }
+.dots { display: inline-flex; gap: 3px; justify-self: end; }
+.dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border-2); }
+.dots i.on { background: var(--accent); }
+.grade { font-family: var(--mono); font-weight: 900; }
+.grade.gA { color: var(--up); } .grade.gB { color: #a3e635; } .grade.gC { color: var(--hold); } .grade.gD, .grade.gF { color: var(--down); }

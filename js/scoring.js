@@ -254,8 +254,57 @@
     return 'AVOID';
   }
 
+  // ---------- second opinion: analysts, financial health, earnings ----------
+  // Small, capped adjustment on top of the price-based score. Only applied when
+  // fundamentals data is available for the asset (US stocks on the free data plan).
+  const HEALTH_WORDS = { debt: 'heavy debt', roe: 'low return on shareholders\' money', roa: 'low return on assets', pe: 'expensive versus its earnings', dcf: 'priced above its estimated cash-flow value' };
+  function nextEarnings(fundamentals, sym, nowSec) {
+    const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
+    const list = (fundamentals.earnings || []).filter((e) => e.symbol === sym && e.date >= today).sort((x, y) => (x.date < y.date ? -1 : 1));
+    if (!list.length) return null;
+    const days = Math.round((Date.parse(list[0].date + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+    return Object.assign({ days: Math.max(0, days) }, list[0]);
+  }
+  function secondOpinion(a, fundamentals, pros, cons) {
+    const fd = (fundamentals.stocks || {})[a.symbol];
+    const nowSec = a.metrics.lastTime || Math.floor(Date.now() / 1000);
+    const earn = nextEarnings(fundamentals, a.symbol, nowSec);
+    const out = { adj: 0, earnings: earn };
+    if (earn && earn.days <= 7) cons.push(`Reports earnings ${earn.days === 0 ? 'today' : earn.days === 1 ? 'tomorrow' : 'in ' + earn.days + ' days'} (${earn.date}) — results can move the price sharply`);
+    if (!fd) return out;
+    let adj = 0;
+    const price = a.metrics.price;
+    if (fd.target && isNum(fd.target.consensus) && a.currency === 'USD' && price > 0) {
+      const up = fd.target.consensus / price - 1;
+      out.upside = up;
+      if (up >= 0.15) { adj += 3; pros.push(`Analysts' average target ($${fd.target.consensus.toFixed(2)}) is ${fmtPct(up, 0)} above the price`); }
+      else if (up >= 0.05) pros.push(`Analysts' average target ($${fd.target.consensus.toFixed(2)}) is ${fmtPct(up, 0)} above the price`);
+      else if (up < -0.01) { adj -= 4; cons.push(`Already ${fmtPct(-up, 0)} above analysts' average target ($${fd.target.consensus.toFixed(2)})`); }
+    }
+    if (fd.grades) {
+      const g = fd.grades;
+      const total = g.strongBuy + g.buy + g.hold + g.sell + g.strongSell;
+      const buys = g.strongBuy + g.buy, sells = g.sell + g.strongSell;
+      if (total) {
+        out.buyShare = buys / total;
+        if (/sell/i.test(g.consensus)) { adj -= 5; cons.push(`Analysts lean Sell (${sells} of ${total})`); }
+        else if (/hold/i.test(g.consensus)) { adj -= 2; cons.push(`Most analysts say Hold (${g.hold} of ${total})`); }
+        else if (buys / total >= 0.75) { adj += 2; pros.push(`${buys} of ${total} analysts rate it Buy`); }
+      }
+    }
+    if (fd.health && fd.health.rating) {
+      const h = fd.health, letter = h.rating[0];
+      const weak = Object.keys(HEALTH_WORDS).filter((k) => h[k] === 1).map((k) => HEALTH_WORDS[k]);
+      if (letter === 'A') { adj += 2; pros.push(`Strong financial health (rating ${h.rating})`); }
+      else if (letter === 'C' || letter === 'D' || letter === 'F') { adj -= 3; cons.push(`Weak financial health (rating ${h.rating})${weak.length ? ': ' + weak.slice(0, 2).join(', ') : ''}`); }
+    }
+    out.adj = clamp(adj, -8, 8);
+    out.data = fd;
+    return out;
+  }
+
   // ---------- main entry ----------
-  function scoreAll(assets, macroList) {
+  function scoreAll(assets, macroList, fundamentals) {
     assets.forEach((a) => { a.metrics = computeMetrics(a); });
     const regime = marketRegime(assets, macroList);
     const w = WEIGHTS[regime.label];
@@ -315,6 +364,11 @@
         else if (m.trendMax === 3 && m.trendPoints === 3 && m.rsi14 >= 40 && m.rsi14 <= 60) { score += 4; adjustments.push(4); pros.push(`Healthy pause in an uptrend (RSI ${m.rsi14.toFixed(0)}) — a reasonable entry point`); }
       }
       if (a.stale) { score -= 5; adjustments.push(-5); cons.push('Price did not refresh in the latest data update'); }
+      a.fund = null;
+      if (fundamentals) {
+        a.fund = secondOpinion(a, fundamentals, pros, cons);
+        if (a.fund.adj) { score += a.fund.adj; adjustments.push(a.fund.adj); }
+      }
       if (m.change1d != null && Math.abs(m.change1d) > (a.cls === 'crypto' ? 0.1 : 0.07)) {
         cons.push(`Big one-day move (${signed(m.change1d)}) — wait for it to settle`);
       }

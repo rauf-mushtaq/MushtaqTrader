@@ -30,6 +30,8 @@
     tf: '6M',
     chartMode: 'candle',
     live: { status: 'off', at: null },
+    fund: null,        // analyst / financial-health / earnings snapshot (data/fundamentals.json)
+    cg: null,          // live crypto market overview from CoinGecko
     watch: loadWatch(),
     prevBy: {},        // symbol -> {score, signal} as of the previous close
     track: [],         // past top-5 picks and how they did
@@ -140,6 +142,15 @@
   }
 
   // ---------------------------------------------------------------- data
+  async function loadFundamentals() {
+    try {
+      const res = await fetch('data/fundamentals.json?v=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return null;
+      const f = await res.json();
+      return f && f.stocks ? f : null;
+    } catch (e) { return null; }
+  }
+
   async function loadData(initial) {
     try {
       const res = await fetch(DATA_URL + '?v=' + Date.now(), { cache: 'no-store' });
@@ -147,6 +158,10 @@
       const data = await res.json();
       if (!data || !Array.isArray(data.assets) || !data.assets.length) throw new Error('empty data file');
       if (!initial && state.data && data.generated_at === state.data.generated_at) return;
+      state.fund = await loadFundamentals();
+      // Add economy series that only the fundamentals snapshot has (e.g. retail sales).
+      const have = new Set((data.macro || []).map((m) => m.id));
+      data.macro = (data.macro || []).concat(((state.fund || {}).macro || []).filter((m) => !have.has(m.id)));
       state.data = data;
       state.assets = data.assets;
       state.bySym = Object.fromEntries(data.assets.map((a) => [a.symbol, a]));
@@ -166,7 +181,7 @@
   }
 
   // Re-score the universe using only data up to a past point, to see what changed and how past picks did.
-  function scoreAsOf(cutoffSec, dropLastBar) {
+  function scoreAsOf(cutoffSec, dropLastBar, withFundamentals) {
     const assets = state.assets.map((a) => {
       let k = a.c.length - 1;
       if (!dropLastBar) { k = 0; while (k < a.t.length && a.t[k] <= cutoffSec) k++; }
@@ -181,12 +196,12 @@
       const n = m.dates.filter((d) => d <= cutDate).length;
       return Object.assign({}, m, { dates: m.dates.slice(0, n), values: m.values.slice(0, n) });
     });
-    return Scoring.scoreAll(assets, macro);
+    return Scoring.scoreAll(assets, macro, withFundamentals ? state.fund : null);
   }
 
   function computeHistory() {
     try {
-      const prev = scoreAsOf(null, true);
+      const prev = scoreAsOf(null, true, true);
       state.prevBy = Object.fromEntries(prev.ranked.map((a) => [a.symbol, { score: a.score, signal: a.signal }]));
       const spx = state.bySym.SPY || state.bySym['^GSPC'];
       const lastT = spx ? spx.t[spx.t.length - 1] : Math.floor(Date.now() / 1000);
@@ -215,10 +230,32 @@
   }
 
   function rescore() {
-    const res = Scoring.scoreAll(state.assets, state.data.macro || []);
+    const res = Scoring.scoreAll(state.assets, state.data.macro || [], state.fund);
     state.regime = res.regime;
     state.ranked = res.ranked;
     if (!state.selected && res.ranked.length) state.selected = res.ranked[0].symbol;
+  }
+
+  async function pollCryptoMarket() {
+    try {
+      const [g, t] = await Promise.all([
+        fetch('https://api.coingecko.com/api/v3/global').then((r) => (r.ok ? r.json() : null)),
+        fetch('https://api.coingecko.com/api/v3/search/trending').then((r) => (r.ok ? r.json() : null)),
+      ]);
+      const gd = g && g.data;
+      state.cg = {
+        at: Date.now(),
+        cap: gd && gd.total_market_cap ? gd.total_market_cap.usd : null,
+        capChange: gd ? gd.market_cap_change_percentage_24h_usd : null,
+        btcDom: gd && gd.market_cap_percentage ? gd.market_cap_percentage.btc : null,
+        ethDom: gd && gd.market_cap_percentage ? gd.market_cap_percentage.eth : null,
+        trending: ((t && t.coins) || []).slice(0, 7).map((c) => c.item).filter(Boolean).map((i) => ({
+          name: i.name, symbol: i.symbol, rank: i.market_cap_rank,
+          change: i.data && i.data.price_change_percentage_24h ? i.data.price_change_percentage_24h.usd : null,
+        })),
+      };
+      if (state.tab === 'markets') softRender();
+    } catch (e) { /* keep last values */ }
   }
 
   async function pollCrypto() {
@@ -446,6 +483,7 @@
               <div class="name">${esc(top.name)}</div>
               <div class="row wrap" style="margin-top:6px">
                 <span class="price">${fmtPrice(top, m.price)}</span>
+                ${top.fund && top.fund.data && top.fund.data.grades ? `<span class="badge type">Analysts: ${esc(top.fund.data.grades.consensus)}${isNum(top.fund.upside) ? (Math.abs(top.fund.upside) < 0.01 ? ' · at target' : ' · target ' + (top.fund.upside >= 0 ? '+' : '−') + Math.abs(top.fund.upside * 100).toFixed(0) + '%') : ''}</span>` : ''}
                 <span class="mono">${pct(m.change1d)} today</span>
                 ${badge(top.signal)}${top.live ? '<span class="badge live">LIVE</span>' : ''}
               </div>
@@ -469,7 +507,7 @@
         </div>
       </div>
 
-      <div class="grid cols-2" style="margin-top:12px">${changesCard()}${watchCard()}</div>
+      <div class="grid cols-3" style="margin-top:12px">${changesCard()}${earningsCard() || ''}${watchCard()}</div>
 
       <h2 class="section-title">Best in each market</h2>
       <div class="grid cols-4">
@@ -504,7 +542,7 @@
         <div class="small muted" style="margin-bottom:6px">${list.length} assets · <span class="up">${counts.BUY} BUY</span> · <span style="color:var(--hold)">${counts.HOLD} HOLD</span> · <span class="down">${counts.AVOID} AVOID</span></div>
         <div class="table-wrap"><table>
           <thead><tr><th></th><th>#</th><th>Asset</th><th class="hide-sm">Type</th><th class="num">Price</th><th class="num">1D</th>
-            <th class="num hide-sm">1M</th><th class="num">3M</th><th class="num hide-sm">1Y</th><th class="num hide-sm">RSI</th><th>Score</th><th>Signal</th></tr></thead>
+            <th class="num hide-sm">1M</th><th class="num">3M</th><th class="num hide-sm">1Y</th><th class="num hide-sm">RSI</th><th class="num hide-sm" title="Analysts' average price target vs today's price">Target</th><th>Score</th><th>Signal</th></tr></thead>
           <tbody>${shown.map((a) => {
             const mm = a.metrics;
             return `<tr class="click" data-open="${esc(a.symbol)}">
@@ -518,6 +556,7 @@
               <td class="num">${pct(mm.r3m, 1)}</td>
               <td class="num hide-sm">${pct(mm.r1y, 1)}</td>
               <td class="num hide-sm">${isNum(mm.rsi14) ? mm.rsi14.toFixed(0) : '—'}</td>
+              <td class="num hide-sm">${a.fund && isNum(a.fund.upside) ? pct(a.fund.upside, 0) : '<span class="faint">—</span>'}</td>
               <td><div class="row" style="gap:6px">${scoreBar(a.score)}${scoreDelta(a)}</div></td><td>${badge(a.signal)}</td></tr>`;
           }).join('')}</tbody></table></div>
         ${list.length > shown.length ? `<div style="text-align:center;margin-top:10px"><button class="btn sm" id="lb-more">Show all ${list.length}</button></div>` : ''}
@@ -602,6 +641,7 @@
       <p>Entry-timing adjustments: −8 to −12 if overbought (RSI above 75), −5 if oversold while still falling, +4 for a calm pause inside an uptrend.
       Signals: <b class="up">BUY</b> 70+, <b style="color:var(--hold)">HOLD</b> 45–69, <b class="down">AVOID</b> under 45.</p>
       <p>The backdrop combines the S&amp;P 500 trend, the VIX fear gauge, how many stocks are in uptrends, consumer sentiment, inflation, unemployment and the yield curve (plus retail sales when available). When it is <i>Cautious</i>, steadier assets are favoured.</p>
+      <p><b>Second opinion</b> (US stocks covered by the free data plan): +3 if analysts' average target is 15%+ above the price, −4 if the price is already above it; +2 if 75%+ of analysts say Buy, −2 if most say Hold, −5 if they lean Sell; +2 for an A financial-health rating, −3 for C or worse. Capped at ±8. A warning (no score change) appears when earnings are due within 7 days. The track record uses price data only.</p>
       <p>News headlines are shown next to each asset so you can spot events the numbers can't see yet (earnings, lawsuits, rate decisions). They do <b>not</b> change the score.</p>
       <p><b>Limits:</b> the score uses price history and economic data only — no company earnings or valuations. Momentum and trend effects are well documented, but they fail regularly, especially at turning points. The model has not been back-tested here. Treat the ranking as a shortlist for your own research. This is not financial advice.</p>
       <p class="faint">Data generated ${fmtDate(Date.parse(state.data.generated_at) / 1000, true)}${errs ? ` · ${errs} source error(s) in the last refresh (previous data kept)` : ''}.</p>
@@ -660,6 +700,7 @@
       <div class="chips">
         ${[['all', 'All']].concat(MARKET_GROUPS.map(([k, l]) => [k, l])).map(([k, l]) => `<button class="fchip ${state.mktFilter === k ? 'active' : ''}" data-mkt="${k}">${l}</button>`).join('')}
       </div>
+      ${state.mktFilter === 'all' || state.mktFilter === 'crypto' ? cryptoMarketCard() : ''}
       ${groups || '<div class="card empty" style="margin-top:12px">No matches.</div>'}`;
   }
 
@@ -769,7 +810,7 @@
           ${a.factors ? `<div class="card">
             <div class="card-title">Score breakdown</div>
             ${factorRows}
-            <div class="faint tiny" style="margin-top:4px">Bars show how this asset ranks against all others on each factor; % is the factor's weight.${a.adjustment ? ` Entry-timing adjustment: ${a.adjustment > 0 ? '+' : ''}${a.adjustment}.` : ''}</div>
+            <div class="faint tiny" style="margin-top:4px">Bars show how this asset ranks against all others on each factor; % is the factor's weight.${a.adjustment ? ` Adjustments (entry timing${a.fund && a.fund.adj ? ', analysts &amp; health' : ''}): ${a.adjustment > 0 ? '+' : ''}${a.adjustment}.` : ''}</div>
             <div class="grid cols-2" style="margin-top:12px">
               <div><div class="card-title">Strengths</div><ul class="reasons pros">${a.reasons.pros.map((r) => `<li>${esc(r)}</li>`).join('') || '<li class="faint">None stand out</li>'}</ul></div>
               <div><div class="card-title">Risks</div><ul class="reasons cons">${a.reasons.cons.map((r) => `<li>${esc(r)}</li>`).join('') || '<li class="faint">None flagged</li>'}</ul></div>
@@ -783,6 +824,7 @@
             <div class="row" style="gap:12px">${a.score != null ? scoreRing(a.score) : ''}<div><div class="vtitle">${esc(v.title)}</div>${badge(a.signal)}</div></div>
             <p class="small" style="margin:10px 0 0">${esc(v.text)}</p>
           </div>
+          ${analystCard(a)}
           <div class="card">
             <div class="card-title">Latest ${esc(a.symbol)} news</div>
             ${news.length ? `<ul class="news-list compact">${news.map((n) => headline(n, { hideMentions: true })).join('')}</ul>` : '<div class="empty small">No recent headlines for this asset.</div>'}
@@ -792,6 +834,73 @@
           </div>` : ''}
         </div>
       </div>`;
+  }
+
+  function fmtBig(x) {
+    if (!isNum(x)) return '—';
+    if (x >= 1e12) return '$' + (x / 1e12).toFixed(2) + 'T';
+    if (x >= 1e9) return '$' + (x / 1e9).toFixed(1) + 'B';
+    return '$' + fmtNum(x, 0);
+  }
+  function dots(n) { return `<span class="dots" title="${n} of 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span>`; }
+  function earnLabel(e) {
+    if (!e) return '';
+    const when = e.days === 0 ? 'today' : e.days === 1 ? 'tomorrow' : `in ${e.days} days`;
+    return `${new Date(e.date + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })} (${when})`;
+  }
+  function analystCard(a) {
+    const f = a.fund, fd = f && f.data;
+    const earn = f && f.earnings;
+    if (!fd && !earn) {
+      return a.cls === 'stock' ? `<div class="card"><div class="card-title">Analysts &amp; financial health</div>
+        <p class="small muted" style="margin:0">Not covered by the free data plan for this ${a.region === 'UK' ? 'UK ' : ''}stock. The score uses price data only.</p></div>` : '';
+    }
+    const g = fd && fd.grades, t = fd && fd.target, h = fd && fd.health;
+    const total = g ? g.strongBuy + g.buy + g.hold + g.sell + g.strongSell : 0;
+    const seg = (n, cls) => (total && n ? `<div class="${cls}" style="width:${(n / total) * 100}%"></div>` : '');
+    const asOf = state.fund && state.fund.generated_at ? fmtDate(Date.parse(state.fund.generated_at) / 1000) : '';
+    return `<div class="card">
+      <div class="card-title">Analysts &amp; financial health</div>
+      ${g && total ? `<div class="row between"><span>Analyst consensus</span><b>${esc(g.consensus)}</b></div>
+        <div class="gradebar">${seg(g.strongBuy + g.buy, 'b')}${seg(g.hold, 'h')}${seg(g.sell + g.strongSell, 's')}</div>
+        <div class="row between tiny muted"><span class="up">${g.strongBuy + g.buy} buy</span><span style="color:var(--hold)">${g.hold} hold</span><span class="down">${g.sell + g.strongSell} sell</span></div>` : ''}
+      ${t ? `<div class="kv" style="margin-top:8px"><span class="muted">Average price target</span><span>$${t.consensus.toFixed(2)} ${isNum(f.upside) ? `(${pct(f.upside, 0)})` : ''}</span></div>
+        <div class="kv"><span class="muted">Target range</span><span>$${fmtNum(t.low, 0)} – $${fmtNum(t.high, 0)}</span></div>` : ''}
+      ${h ? `<div class="kv" style="margin-top:6px"><span class="muted">Financial health rating</span><span class="grade g${esc(h.rating[0])}">${esc(h.rating)}</span></div>
+        <div class="health">
+          <span>Profitability (ROE)</span>${dots(h.roe)}<span>Asset returns (ROA)</span>${dots(h.roa)}
+          <span>Debt level</span>${dots(h.debt)}<span>Value vs earnings (P/E)</span>${dots(h.pe)}
+          <span>Value vs cash flow</span>${dots(h.dcf)}<span>Value vs book</span>${dots(h.pb)}
+        </div><div class="faint tiny">More dots = better. A low "value" score means the stock is priced expensively.</div>` : ''}
+      ${earn ? `<div class="kv" style="margin-top:8px"><span class="muted">Next earnings</span><span>${earnLabel(earn)}${isNum(earn.epsEstimated) ? ` · EPS est. $${earn.epsEstimated.toFixed(2)}` : ''}</span></div>` : ''}
+      ${f && f.adj ? `<div class="small" style="margin-top:8px">Second-opinion effect on score: <b class="${f.adj > 0 ? 'up' : 'down'}">${f.adj > 0 ? '+' : ''}${f.adj}</b></div>` : ''}
+      <div class="faint tiny" style="margin-top:6px">Source: Financial Modeling Prep${asOf ? ', as of ' + asOf : ''}.</div>
+    </div>`;
+  }
+  function earningsCard() {
+    if (!state.fund || !state.fund.earnings) return '';
+    const today = new Date().toISOString().slice(0, 10);
+    const soon = state.fund.earnings.filter((e) => e.date >= today && state.bySym[e.symbol])
+      .sort((x, y) => (x.date < y.date ? -1 : 1)).slice(0, 10);
+    if (!soon.length) return '';
+    return `<div class="card"><div class="card-title">Upcoming earnings (tracked stocks)</div>
+      ${soon.map((e) => { const a = state.bySym[e.symbol]; const days = Math.round((Date.parse(e.date) - Date.parse(today)) / 86400000);
+        return `<div class="kv click" data-open="${esc(e.symbol)}" style="cursor:pointer"><span><b class="mono">${esc(e.symbol)}</b> <span class="muted small">${esc(a.name)}</span></span>
+          <span class="row" style="gap:8px"><span class="small">${earnLabel({ date: e.date, days })}</span>${a.signal ? badge(a.signal) : ''}</span></div>`; }).join('')}
+      <div class="faint tiny" style="margin-top:6px">Prices often jump or drop sharply on results day.</div></div>`;
+  }
+  function cryptoMarketCard() {
+    const c = state.cg;
+    if (!c || !isNum(c.cap)) return '';
+    return `<div class="card" style="margin-top:12px">
+      <div class="card-title">Crypto market — live from CoinGecko</div>
+      <div class="stats">
+        ${stat('Total value', fmtBig(c.cap))}${stat('24h change', pct(isNum(c.capChange) ? c.capChange / 100 : null, 1))}
+        ${stat('Bitcoin share', isNum(c.btcDom) ? c.btcDom.toFixed(1) + '%' : '—')}${stat('Ethereum share', isNum(c.ethDom) ? c.ethDom.toFixed(1) + '%' : '—')}
+      </div>
+      ${c.trending.length ? `<div class="small muted" style="margin:10px 0 6px">Trending searches right now</div><div class="chips">${c.trending.map((t) => `<span class="ntag" style="padding:2px 8px">${esc(t.name)} <span class="mono">${esc(t.symbol)}</span>${isNum(t.change) ? ' ' + pct(t.change / 100, 1) : ''}</span>`).join('')}</div>
+        <div class="faint tiny" style="margin-top:6px">Trending means lots of people are searching for it, not that it's a good buy.</div>` : ''}
+    </div>`;
   }
 
   function stat(k, v) { return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
@@ -983,6 +1092,8 @@
   readRoute();
   loadData(true);
   setInterval(pollCrypto, LIVE_CRYPTO_MS);
+  pollCryptoMarket();
+  setInterval(pollCryptoMarket, 5 * LIVE_CRYPTO_MS);
   setInterval(() => loadData(false), DATA_RELOAD_MS);
   setInterval(renderStatus, 60 * 1000);
 })();

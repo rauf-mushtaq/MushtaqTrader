@@ -40,6 +40,7 @@ from email.utils import parsedate_to_datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_PATH = os.path.join(ROOT, "data", "market.json")
+FUND_PATH = os.path.join(ROOT, "data", "fundamentals.json")
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -193,7 +194,7 @@ def http_get(url: str, timeout: int = 12, retries: int = 2) -> bytes:
                 return r.read()
         except urllib.error.HTTPError as e:
             last = f"HTTP {e.code}"
-            if e.code in (400, 401, 403, 404):
+            if e.code in (400, 401, 402, 403, 404):
                 break
             if attempt + 1 < retries:
                 time.sleep(2 * (attempt + 1) + (3 if e.code == 429 else 0))
@@ -714,6 +715,111 @@ def fetch_news(prev_news: dict) -> tuple[dict, list[str]]:
 
 
 # --------------------------------------------------------------------------
+# Fundamentals (analysts, financial health, earnings, retail sales) -> data/fundamentals.json
+# Runs only when the free API keys are saved as GitHub secrets, at most once a day.
+# Without keys the existing snapshot file is left as it is.
+# --------------------------------------------------------------------------
+FMP = "https://financialmodelingprep.com/stable"
+
+
+def _fmp(path: str, key: str):
+    sep = "&" if "?" in path else "?"
+    return json.loads(http_get(f"{FMP}/{path}{sep}apikey={urllib.parse.quote(key)}", timeout=15, retries=1))
+
+
+def refresh_fundamentals() -> None:
+    fmp_key = os.environ.get("FMP_API_KEY", "").strip()
+    av_key = os.environ.get("ALPHAVANTAGE_API_KEY", "").strip()
+    if not fmp_key and not av_key:
+        log("Fundamentals: no FMP_API_KEY / ALPHAVANTAGE_API_KEY secret - keeping the existing snapshot")
+        return
+    try:
+        with open(FUND_PATH, encoding="utf-8") as f:
+            prev = json.load(f)
+    except Exception:  # noqa: BLE001
+        prev = {}
+    try:
+        age_h = (datetime.now(timezone.utc) - datetime.strptime(prev["generated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() / 3600
+    except Exception:  # noqa: BLE001
+        age_h = 1e9
+    if age_h < 20 and os.environ.get("FORCE_FUNDAMENTALS") != "1":
+        log(f"Fundamentals: snapshot is {age_h:.0f}h old - refreshing once a day only")
+        return
+
+    out = dict(prev)
+    out.setdefault("sources", {})
+    if fmp_key:
+        stocks, denied = {}, 0
+        for spec in [u for u in UNIVERSE if u["cls"] == "stock" and u["region"] == US]:
+            sym = spec["symbol"]
+            try:
+                t = _fmp(f"price-target-consensus?symbol={sym}", fmp_key)
+            except Exception:  # noqa: BLE001 - not on this plan, skip the rest for this symbol
+                denied += 1
+                continue
+            rec = {}
+            if t:
+                t = t[0]
+                rec["target"] = dict(high=t.get("targetHigh"), low=t.get("targetLow"),
+                                     consensus=t.get("targetConsensus"), median=t.get("targetMedian"))
+            for path, key in ((f"grades-consensus?symbol={sym}", "grades"), (f"ratings-snapshot?symbol={sym}", "health")):
+                try:
+                    r = _fmp(path, fmp_key)
+                    if not r:
+                        continue
+                    r = r[0]
+                    if key == "grades":
+                        rec["grades"] = {k: r.get(k, 0) for k in ("strongBuy", "buy", "hold", "sell", "strongSell")}
+                        rec["grades"]["consensus"] = r.get("consensus", "")
+                    else:
+                        rec["health"] = dict(rating=r.get("rating"), overall=r.get("overallScore"), dcf=r.get("discountedCashFlowScore"),
+                                             roe=r.get("returnOnEquityScore"), roa=r.get("returnOnAssetsScore"),
+                                             debt=r.get("debtToEquityScore"), pe=r.get("priceToEarningsScore"), pb=r.get("priceToBookScore"))
+                except Exception as e:  # noqa: BLE001
+                    log(f"  fmp {path.split('?')[0]} {sym}: {str(e)[:120]}")
+            if rec:
+                stocks[sym] = rec
+        log(f"Fundamentals: FMP data for {len(stocks)} stocks ({denied} not on this plan)")
+        if stocks:
+            out["stocks"] = stocks
+            out["sources"].update(analysts="Financial Modeling Prep", health="Financial Modeling Prep")
+        try:
+            today = datetime.now(timezone.utc).date()
+            cal = _fmp(f"earnings-calendar?from={today}&to={today + timedelta(days=90)}", fmp_key)
+            tracked = {u["symbol"] for u in UNIVERSE}
+            earn = [dict(symbol=e["symbol"], date=e["date"], epsEstimated=e.get("epsEstimated"))
+                    for e in cal if e.get("symbol") in tracked and e.get("date")]
+            if earn:
+                out["earnings"] = sorted(earn, key=lambda e: e["date"])
+                out["sources"]["earnings"] = "Financial Modeling Prep"
+            log(f"Fundamentals: {len(earn)} upcoming earnings for tracked stocks")
+        except Exception as e:  # noqa: BLE001
+            log(f"Fundamentals: earnings calendar failed: {str(e)[:160]}")
+    if av_key:
+        try:
+            r = json.loads(http_get(f"https://www.alphavantage.co/query?function=RETAIL_SALES&datatype=json&apikey={urllib.parse.quote(av_key)}"))
+            raw = {d["date"][:7]: float(d["value"]) for d in r.get("data", []) if d.get("value") not in (None, ".", "")}
+            pts = []
+            for k in sorted(raw):
+                y, m = k.split("-")
+                prev_v = raw.get(f"{int(y) - 1}-{m}")
+                if prev_v:
+                    pts.append((k + "-01", round((raw[k] / prev_v - 1) * 100, 3)))
+            pts = pts[-48:]
+            if len(pts) >= 6:
+                out["macro"] = [dict(id="RSAFS", name="Retail Sales", unit="% y/y", transform="yoy",
+                                     dates=[d for d, _ in pts], values=[v for _, v in pts], source="Alpha Vantage (US Census Bureau)")]
+                out["sources"]["retail_sales"] = "Alpha Vantage (US Census Bureau data)"
+                log(f"Fundamentals: retail sales to {pts[-1][0]}")
+        except Exception as e:  # noqa: BLE001
+            log(f"Fundamentals: Alpha Vantage retail sales failed: {str(e)[:160]}")
+    out["generated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out["method"] = "api"
+    with open(FUND_PATH, "w", encoding="utf-8") as f:
+        json.dump(out, f, separators=(",", ":"))
+
+
+# --------------------------------------------------------------------------
 def load_previous() -> dict:
     try:
         with open(OUT_PATH, encoding="utf-8") as f:
@@ -761,6 +867,11 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         errors.append(f"news: {e}")
         news = prev.get("news") or {"market": [], "symbols": {}}
+
+    try:
+        refresh_fundamentals()
+    except Exception as e:  # noqa: BLE001 - never let this break the price update
+        errors.append(f"fundamentals: {e}")
 
     fresh = sum(1 for a in assets if not a.get("stale"))
     log(f"assets: {fresh} fresh, {len(assets) - fresh} stale, {len(UNIVERSE) - len(assets)} missing")
