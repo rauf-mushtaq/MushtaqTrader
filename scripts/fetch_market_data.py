@@ -8,8 +8,9 @@ Sources (all free, no API key):
   * Yahoo Finance chart API  - 1 year of daily OHLCV for stocks, ETFs, indices,
                                crypto, commodities and FX.
   * Stooq CSV                - fallback for US stocks/ETFs if Yahoo fails.
-  * FRED (St. Louis Fed)     - consumer & economic series (sentiment, CPI,
-                               retail sales, unemployment, rates...).
+  * Consumer & economic data - FRED first; it often times out from GitHub
+                               runners, so each series falls back to its official
+                               source: U. Michigan, BLS, Census, NY Fed, US Treasury.
 
 If a symbol fails to download, the previous good copy from the existing
 data/market.json is kept so one bad run never blanks the app.
@@ -158,10 +159,8 @@ for s, n in [("GBPUSD=X", "GBP / USD"), ("EURUSD=X", "EUR / USD"), ("USDJPY=X", 
 MACRO = [
     dict(id="UMCSENT", name="Consumer Sentiment (U. Michigan)", unit="index", transform="level"),
     dict(id="RSAFS", name="Retail Sales", unit="% y/y", transform="yoy"),
-    dict(id="PCE", name="Consumer Spending (PCE)", unit="% y/y", transform="yoy"),
     dict(id="CPIAUCSL", name="Inflation (CPI)", unit="% y/y", transform="yoy"),
     dict(id="UNRATE", name="Unemployment Rate", unit="%", transform="level"),
-    dict(id="PSAVERT", name="Personal Saving Rate", unit="%", transform="level"),
     dict(id="FEDFUNDS", name="Fed Funds Rate", unit="%", transform="level"),
     dict(id="DGS10", name="10-Year Treasury Yield", unit="%", transform="level"),
     dict(id="T10Y2Y", name="Yield Curve (10y - 2y)", unit="pp", transform="level"),
@@ -551,7 +550,24 @@ def nyfed_effr_points():
     return to_monthly(pts, how="mean")
 
 
+def census_retail_points():
+    data = json.loads(http_get(
+        "https://api.census.gov/data/timeseries/eits/marts?get=cell_value,time_slot_id"
+        f"&for=us:*&time=from+{start_year() - 1}&category_code=44X72&data_type_code=SM&seasonally_adj=yes"
+    ))
+    head, rows = data[0], data[1:]
+    iv, it = head.index("cell_value"), head.index("time")
+    pts = []
+    for r in rows:
+        try:
+            pts.append((r[it][:7] + "-01", float(str(r[iv]).replace(",", ""))))
+        except (ValueError, IndexError):
+            continue
+    return sorted(pts)
+
+
 MACRO_FALLBACKS = {
+    "RSAFS": [("US Census Bureau", census_retail_points)],
     "UMCSENT": [("University of Michigan", umich_points)],
     "CPIAUCSL": [("US Bureau of Labor Statistics", lambda: bls_points("CUSR0000SA0"))],
     "UNRATE": [("US Bureau of Labor Statistics", lambda: bls_points("LNS14000000"))],

@@ -542,7 +542,7 @@
           <span class="delta ${cls}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(2)} vs ${back} mo. ago</span></div>
         ${sparkline(s.values.slice(-36), 200, 44, 'var(--accent)')}
         <p>${esc(MACRO_NOTES[s.id] || '')}</p>
-        <p class="faint tiny" style="margin-top:6px">${s.unit === '% y/y' ? 'Year-on-year change · ' : ''}Latest: ${dt} · FRED ${esc(s.id)}</p>
+        <p class="faint tiny" style="margin-top:6px">${s.unit === '% y/y' ? 'Year-on-year change · ' : ''}Latest: ${dt} · ${esc(s.source || 'FRED')}</p>
       </div>`;
     }).join('');
     const consumerSectors = ['XLY', 'XLP', 'AMZN', 'WMT', 'COST', 'TSCO.L', 'ULVR.L', 'MCD', 'NKE', 'HD'].map((s) => state.bySym[s]).filter((a) => a && a.metrics);
