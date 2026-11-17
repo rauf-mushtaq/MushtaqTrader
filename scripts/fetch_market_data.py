@@ -18,11 +18,13 @@ data/market.json is kept so one bad run never blanks the app.
 from __future__ import annotations
 
 import csv
+import http.cookiejar
 import io
 import json
 import math
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -169,22 +171,65 @@ MACRO = [
 # --------------------------------------------------------------------------
 # HTTP helpers
 # --------------------------------------------------------------------------
-def http_get(url: str, timeout: int = 20, retries: int = 3) -> bytes:
+_JAR = http.cookiejar.CookieJar()
+_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_JAR))
+ASSET_BUDGET_S = 9 * 60          # stop starting new downloads after this
+_DEADLINE = [time.monotonic() + ASSET_BUDGET_S]
+
+
+def log(*args):
+    print(*args, flush=True)
+
+
+def http_get(url: str, timeout: int = 12, retries: int = 2) -> bytes:
     last = None
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with _OPENER.open(req, timeout=timeout) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
-            last = e
-            if e.code in (400, 404):
+            last = f"HTTP {e.code}"
+            if e.code in (400, 401, 403, 404):
                 break
-            time.sleep(1.5 * (attempt + 1) + (3 if e.code == 429 else 0))
+            if attempt + 1 < retries:
+                time.sleep(2 * (attempt + 1) + (3 if e.code == 429 else 0))
         except Exception as e:  # noqa: BLE001 - network errors of all kinds
-            last = e
-            time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"{url}: {last}")
+            last = f"{type(e).__name__}: {e}"
+            if attempt + 1 < retries:
+                time.sleep(1 + attempt)
+    raise RuntimeError(f"{url.split('?')[0]}: {last}")
+
+
+class Breaker:
+    """Stops hammering a source that is clearly down (no successes, many failures)."""
+
+    def __init__(self, name: str, threshold: int = 8):
+        self.name, self.threshold = name, threshold
+        self.ok = self.fail = self.streak = 0
+        self.lock = threading.Lock()
+
+    def is_open(self) -> bool:
+        return self.ok == 0 and self.streak >= self.threshold
+
+    def record(self, success: bool):
+        with self.lock:
+            if success:
+                self.ok += 1
+                self.streak = 0
+            else:
+                self.fail += 1
+                self.streak += 1
+                if self.is_open() and self.streak == self.threshold:
+                    log(f"  !! {self.name} looks unavailable ({self.streak} failures, 0 successes) - skipping it")
+
+
+YAHOO = Breaker("Yahoo Finance")
+STOOQ = Breaker("Stooq")
+COINGECKO = Breaker("CoinGecko", threshold=4)
+_CG_LOCK = threading.Lock()
+_CG_LAST = [0.0]
+_YAHOO_CRUMB: list = []
 
 
 def rnd(x):
@@ -201,13 +246,35 @@ def rnd(x):
 # --------------------------------------------------------------------------
 # Price history
 # --------------------------------------------------------------------------
+def yahoo_crumb() -> str:
+    """Yahoo sometimes rate-limits cookieless clients; grab a session cookie + crumb once."""
+    if _YAHOO_CRUMB:
+        return _YAHOO_CRUMB[0]
+    crumb = ""
+    try:
+        http_get("https://fc.yahoo.com", timeout=8, retries=1)
+    except Exception:  # noqa: BLE001 - fc.yahoo.com answers 404 but still sets the cookie
+        pass
+    try:
+        crumb = http_get("https://query1.finance.yahoo.com/v1/test/getcrumb", timeout=8, retries=1).decode().strip()
+        if len(crumb) > 40 or "<" in crumb:
+            crumb = ""
+    except Exception as e:  # noqa: BLE001
+        log(f"  (no Yahoo crumb: {e})")
+    _YAHOO_CRUMB.append(crumb)
+    return crumb
+
+
 def fetch_yahoo(symbol: str) -> dict:
     q = urllib.parse.quote(symbol)
     params = "range=1y&interval=1d&includePrePost=false&events=div%2Csplit"
+    crumb = _YAHOO_CRUMB[0] if _YAHOO_CRUMB else ""
+    if crumb:
+        params += "&crumb=" + urllib.parse.quote(crumb)
     last = None
     for host in ("query1", "query2"):
         try:
-            raw = http_get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{q}?{params}")
+            raw = http_get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{q}?{params}", retries=1)
             data = json.loads(raw)
             res = (data.get("chart") or {}).get("result")
             if not res:
@@ -215,7 +282,7 @@ def fetch_yahoo(symbol: str) -> dict:
             return parse_yahoo(res[0])
         except Exception as e:  # noqa: BLE001
             last = e
-    raise RuntimeError(f"yahoo {symbol}: {last}")
+    raise RuntimeError(f"yahoo: {last}")
 
 
 def parse_yahoo(r: dict) -> dict:
@@ -257,8 +324,28 @@ def parse_yahoo(r: dict) -> dict:
     )
 
 
-def fetch_stooq(symbol: str) -> dict:
-    s = symbol.lower().replace("-", ".") + ".us"
+STOOQ_MAP = {
+    "^GSPC": "^spx", "^IXIC": "^ndq", "^DJI": "^dji", "^FTSE": "^ukx", "^GDAXI": "^dax",
+    "^N225": "^nkx", "GC=F": "gc.f", "SI=F": "si.f", "CL=F": "cl.f", "NG=F": "ng.f",
+    "GBPUSD=X": "gbpusd", "EURUSD=X": "eurusd", "USDJPY=X": "usdjpy",
+}
+
+
+def stooq_symbol(spec: dict) -> str | None:
+    s = spec["symbol"]
+    if s in STOOQ_MAP:
+        return STOOQ_MAP[s]
+    if spec["cls"] in ("stock", "etf"):
+        if s.endswith(".L"):
+            return s[:-2].lower() + ".uk"
+        return s.lower() + ".us"
+    return None
+
+
+def fetch_stooq(spec: dict) -> dict:
+    s = stooq_symbol(spec)
+    if not s:
+        raise RuntimeError("no stooq symbol")
     raw = http_get(f"https://stooq.com/q/d/l/?s={urllib.parse.quote(s)}&i=d").decode("utf-8", "replace")
     reader = csv.DictReader(io.StringIO(raw))
     cutoff = datetime.now(timezone.utc).date() - timedelta(days=372)
@@ -266,30 +353,69 @@ def fetch_stooq(symbol: str) -> dict:
     for rec in reader:
         try:
             d = datetime.strptime(rec["Date"], "%Y-%m-%d").date()
-        except (KeyError, ValueError):
+            row = (float(rec["Open"]), float(rec["High"]), float(rec["Low"]), float(rec["Close"]))
+        except (KeyError, ValueError, TypeError):
             continue
         if d < cutoff:
             continue
         t = int(datetime(d.year, d.month, d.day, 14, 30, tzinfo=timezone.utc).timestamp())
-        rows.append((t, float(rec["Open"]), float(rec["High"]), float(rec["Low"]),
-                     float(rec["Close"]), float(rec.get("Volume") or 0)))
+        rows.append((t, *row, float(rec.get("Volume") or 0)))
     if len(rows) < 20:
-        raise RuntimeError(f"stooq {symbol}: too little history")
-    return dict(currency="USD", exchange="", market_time=rows[-1][0], prev_close=None, rows=rows, source="Stooq")
+        raise RuntimeError(f"stooq: too little history ({raw[:60]!r})")
+    currency = "GBp" if s.endswith(".uk") else "USD"
+    return dict(currency=currency, exchange="", market_time=rows[-1][0], prev_close=None, rows=rows, source="Stooq")
+
+
+def fetch_coingecko(spec: dict) -> dict:
+    with _CG_LOCK:  # free tier allows only a few calls per minute
+        wait = _CG_LAST[0] + 6 - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _CG_LAST[0] = time.monotonic()
+    raw = http_get(
+        f"https://api.coingecko.com/api/v3/coins/{spec['cg']}/market_chart?vs_currency=usd&days=365&interval=daily"
+    )
+    d = json.loads(raw)
+    vols = {int(t // 86400000): v for t, v in d.get("total_volumes", [])}
+    by_day = {}
+    for t_ms, p in d.get("prices", []):
+        by_day[int(t_ms // 86400000)] = (int(t_ms // 1000), p)
+    rows, prev = [], None
+    for day in sorted(by_day):
+        t, p = by_day[day]
+        o = prev if prev is not None else p
+        rows.append((t, o, max(o, p), min(o, p), p, vols.get(day, 0)))
+        prev = p
+    if len(rows) < 20:
+        raise RuntimeError("coingecko: too little history")
+    return dict(currency="USD", exchange="CoinGecko", market_time=rows[-1][0], prev_close=None, rows=rows, source="CoinGecko")
 
 
 def fetch_asset(spec: dict) -> tuple[dict, dict | None, str | None]:
     sym = spec["symbol"]
-    try:
-        return spec, fetch_yahoo(sym), None
-    except Exception as e:  # noqa: BLE001
-        err = str(e)
-    if spec["region"] == US and spec["cls"] in ("stock", "etf"):
+    if time.monotonic() > _DEADLINE[0]:
+        return spec, None, "skipped: time budget used up"
+    errs = []
+    attempts = []
+    if not YAHOO.is_open():
+        attempts.append((YAHOO, fetch_yahoo, sym))
+    if spec.get("cg") and not COINGECKO.is_open():
+        attempts.append((COINGECKO, fetch_coingecko, spec))
+    elif stooq_symbol(spec) and not STOOQ.is_open():
+        attempts.append((STOOQ, fetch_stooq, spec))
+    for breaker, fn, arg in attempts:
         try:
-            return spec, fetch_stooq(sym), None
+            data = fn(arg)
+            breaker.record(True)
+            log(f"  ok   {sym:<10} {data['source']} ({len(data['rows'])} days)")
+            return spec, data, None
         except Exception as e:  # noqa: BLE001
-            err += f" | {e}"
-    return spec, None, err
+            breaker.record(False)
+            errs.append(f"{breaker.name}: {e}")
+    if not attempts:
+        errs.append("all sources unavailable")
+    log(f"  FAIL {sym:<10} {' | '.join(errs)[:220]}")
+    return spec, None, " | ".join(errs)
 
 
 def build_asset(spec: dict, data: dict) -> dict:
@@ -370,6 +496,10 @@ def main() -> int:
     prev_macro = {m["id"]: m for m in prev.get("macro", [])}
     errors: list[str] = []
 
+    _DEADLINE[0] = time.monotonic() + ASSET_BUDGET_S
+    log(f"Fetching {len(UNIVERSE)} assets...")
+    crumb = yahoo_crumb()
+    log(f"  Yahoo session {'ready' if crumb else 'without crumb'}")
     assets = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         for spec, data, err in pool.map(fetch_asset, UNIVERSE):
@@ -386,14 +516,15 @@ def main() -> int:
     for spec in MACRO:
         try:
             macro.append(fetch_fred(spec))
+            log(f"  ok   {spec['id']:<10} FRED")
         except Exception as e:  # noqa: BLE001
             errors.append(f"{spec['id']}: {e}")
             if spec["id"] in prev_macro:
                 macro.append(prev_macro[spec["id"]])
 
     fresh = sum(1 for a in assets if not a.get("stale"))
-    print(f"assets: {fresh} fresh, {len(assets) - fresh} stale, {len(UNIVERSE) - len(assets)} missing")
-    print(f"macro series: {len(macro)}/{len(MACRO)}")
+    log(f"assets: {fresh} fresh, {len(assets) - fresh} stale, {len(UNIVERSE) - len(assets)} missing")
+    log(f"macro series: {len(macro)}/{len(MACRO)}")
     for e in errors:
         print("  !", e[:300])
 
@@ -405,7 +536,7 @@ def main() -> int:
     assets.sort(key=lambda a: order.get(a["symbol"], 1e9))
     payload = dict(
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        sources=["Yahoo Finance", "Stooq", "FRED (Federal Reserve Bank of St. Louis)"],
+        sources=sorted({a.get("source", "") for a in assets} | {"FRED (Federal Reserve Bank of St. Louis)"}),
         assets=assets,
         macro=macro,
         errors=errors[:50],
