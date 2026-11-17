@@ -1,17 +1,15 @@
-/* MushtaqTrader – real market data, best-buy ranking and paper trading. */
+/* MushtaqTrader – real market data, best-buy ranking and market news to help decide what to buy. */
 (function () {
   'use strict';
 
   const DATA_URL = 'data/market.json';
   const LIVE_CRYPTO_MS = 60 * 1000;
   const DATA_RELOAD_MS = 10 * 60 * 1000;
-  const START_CASH = 10000;
-  const PF_KEY = 'mushtaqtrader.portfolio.v2';
-  const TRADABLE = new Set(['stock', 'etf', 'crypto']);
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const isNum = (x) => typeof x === 'number' && isFinite(x);
+  const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null);
 
   const state = {
     data: null,
@@ -19,6 +17,7 @@
     bySym: {},
     regime: null,
     ranked: [],
+    news: [],          // market headlines, each tagged with topics + mentioned assets
     loadError: null,
     tab: 'best',
     selected: null,
@@ -26,29 +25,12 @@
     lbSector: 'all',
     lbLimit: 25,
     mktFilter: 'all',
+    newsTopic: 'all',
     search: '',
     tf: '6M',
     chartMode: 'candle',
     live: { status: 'off', at: null },
-    pf: loadPortfolio(),
-    side: 'BUY',
-    orderType: 'MARKET',
   };
-
-  // ---------------------------------------------------------------- storage
-  function loadPortfolio() {
-    try {
-      const raw = localStorage.getItem(PF_KEY);
-      if (raw) {
-        const p = JSON.parse(raw);
-        if (p && isNum(p.cash)) return Object.assign({ positions: {}, orders: [], history: [] }, p);
-      }
-    } catch (e) { /* storage unavailable */ }
-    return { cash: START_CASH, positions: {}, orders: [], history: [] };
-  }
-  function savePortfolio() {
-    try { localStorage.setItem(PF_KEY, JSON.stringify(state.pf)); } catch (e) { /* ignore */ }
-  }
 
   // ---------------------------------------------------------------- formatting
   function fmtNum(x, dp) {
@@ -65,21 +47,11 @@
     const sym = { USD: '$', GBP: '£', EUR: '€', JPY: '¥' }[cur];
     return sym ? sym + n : n + ' ' + esc(cur || '');
   }
-  function usd(x, dp = 2) {
-    if (!isNum(x)) return '—';
-    return (x < 0 ? '−$' : '$') + fmtNum(Math.abs(x), dp);
-  }
   function pct(x, dp = 2) {
     if (!isNum(x)) return '<span class="faint">—</span>';
     const cls = x > 0 ? 'up' : x < 0 ? 'down' : 'muted';
     return `<span class="${cls}">${x > 0 ? '+' : x < 0 ? '−' : ''}${fmtNum(Math.abs(x * 100), dp)}%</span>`;
   }
-  function signedUsd(x) {
-    if (!isNum(x)) return '—';
-    const cls = x > 0 ? 'up' : x < 0 ? 'down' : 'muted';
-    return `<span class="${cls}">${x >= 0 ? '+' : '−'}$${fmtNum(Math.abs(x), 2)}</span>`;
-  }
-  function fmtQty(q) { return Number.isInteger(q) ? String(q) : fmtNum(q, q < 1 ? 6 : 4).replace(/0+$/, '').replace(/\.$/, ''); }
   function ago(ms) {
     const s = Math.max(0, (Date.now() - ms) / 1000);
     if (s < 90) return 'just now';
@@ -100,23 +72,53 @@
   }
   function scoreColor(s) { return s >= 70 ? 'var(--up)' : s >= 45 ? 'var(--hold)' : 'var(--down)'; }
 
-  // ---------------------------------------------------------------- currency
-  function fxRate(sym, fallback) {
-    const a = state.bySym[sym];
-    return a && a.metrics && isNum(a.metrics.price) ? a.metrics.price : fallback;
+  // ---------------------------------------------------------------- news tagging
+  const TOPICS = [
+    ['fed', 'Fed & interest rates', /\b(fed|federal reserve|fomc|powell|interest rates?|rate cuts?|rate hikes?|treasur(y|ies)|bond yields?|yields|central bank|ecb|bank of england)\b/i],
+    ['inflation', 'Inflation', /\b(inflation|cpi|pce|price index|deflation|cost of living)\b/i],
+    ['economy', 'Jobs & economy', /\b(jobs?|payrolls?|unemployment|jobless|gdp|recession|economy|economic|growth)\b/i],
+    ['earnings', 'Earnings', /\b(earnings|quarterly|results|revenue|profits?|guidance|forecast|outlook)\b/i],
+    ['energy', 'Oil & energy', /\b(oil|crude|opec|brent|natural gas|gasoline|energy prices?)\b/i],
+    ['trade', 'Trade & tariffs', /\b(tariffs?|trade war|trade deal|sanctions?|exports?|imports?)\b/i],
+    ['consumer', 'Consumers & retail', /\b(consumers?|retail(ers?)?|shoppers?|spending|holiday sales|black friday)\b/i],
+    ['crypto', 'Crypto', /\b(bitcoin|crypto(currency|currencies)?|ethereum|ether|stablecoins?|solana|xrp|dogecoin)\b/i],
+    ['uk', 'UK', /\b(uk|britain|british|ftse|london|sterling|bank of england|reeves|starmer)\b/i],
+  ];
+  // Extra names a company goes by in headlines (matched case-sensitively, whole words).
+  const ALIASES = {
+    GOOGL: ['Google', 'Alphabet'], META: ['Meta', 'Facebook', 'Instagram'], NVDA: ['Nvidia', 'NVIDIA'], AMZN: ['Amazon'],
+    'BRK-B': ['Berkshire', 'Buffett'], TSM: ['TSMC'], JPM: ['JPMorgan'], GE: ['GE Aerospace'], MCD: ["McDonald's", 'McDonald’s'],
+    PG: ['Procter'], CMCSA: ['Comcast'], T: ['AT&T'], TSLA: ['Tesla', 'Musk'], TGT: ['Target Corp'],
+    'BTC-USD': ['Bitcoin', 'bitcoin'], 'ETH-USD': ['Ethereum', 'Ether'], 'SOL-USD': ['Solana'], 'XRP-USD': ['XRP', 'Ripple'], 'DOGE-USD': ['Dogecoin'],
+    'HSBA.L': ['HSBC'], 'BATS.L': ['British American Tobacco', 'BAT'], 'RR.L': ['Rolls-Royce'], 'BT-A.L': ['BT Group', 'BT'],
+    'LLOY.L': ['Lloyds'], 'AZN.L': ['AstraZeneca'], 'SHEL.L': ['Shell'], 'BARC.L': ['Barclays'], 'NXT.L': ['Next plc'],
+    'ULVR.L': ['Unilever'], 'TSCO.L': ['Tesco'], 'DGE.L': ['Diageo'], 'RIO.L': ['Rio Tinto'], 'VOD.L': ['Vodafone'], 'GSK.L': ['GSK'], 'BP.L': ['BP'],
+  };
+  let mentionMatchers = [];
+  function buildMatchers() {
+    const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    mentionMatchers = state.assets
+      .filter((a) => a.cls === 'stock' || a.cls === 'crypto')
+      .map((a) => {
+        const names = ALIASES[a.symbol] || [a.name];
+        if (!names.length) return null;
+        return { sym: a.symbol, re: new RegExp(`(^|[^A-Za-z0-9])(${names.map(reEsc).join('|')})(?![A-Za-z0-9])`) };
+      })
+      .filter(Boolean);
   }
-  function toUSD(a, p) {
-    switch (a.currency) {
-      case 'GBp': case 'GBX': return (p / 100) * fxRate('GBPUSD=X', 1.27);
-      case 'GBP': return p * fxRate('GBPUSD=X', 1.27);
-      case 'EUR': return p * fxRate('EURUSD=X', 1.08);
-      case 'JPY': return p / fxRate('USDJPY=X', 150);
-      default: return p;
-    }
+  function tagHeadline(n) {
+    const topics = TOPICS.filter(([, , re]) => re.test(n.title)).map(([k]) => k);
+    const mentions = mentionMatchers.filter((m) => m.re.test(n.title)).map((m) => m.sym);
+    return Object.assign({}, n, { topics, mentions });
   }
-  function priceOf(sym) {
-    const a = state.bySym[sym];
-    return a && a.metrics ? a.metrics.price : null;
+  function newsFor(sym) {
+    const own = ((state.data.news || {}).symbols || {})[sym] || [];
+    const mentioned = state.news.filter((n) => n.mentions.includes(sym));
+    const seen = new Set();
+    return own.concat(mentioned)
+      .filter((n) => safeUrl(n.link) && !seen.has(n.title) && seen.add(n.title))
+      .sort((x, y) => (y.time || 0) - (x.time || 0))
+      .slice(0, 8);
   }
 
   // ---------------------------------------------------------------- data
@@ -132,8 +134,9 @@
       state.bySym = Object.fromEntries(data.assets.map((a) => [a.symbol, a]));
       state.loadError = null;
       if (!state.selected || !state.bySym[state.selected]) state.selected = null;
+      buildMatchers();
+      state.news = ((data.news || {}).market || []).filter((n) => safeUrl(n.link)).map(tagHeadline);
       rescore();
-      checkOrders();
       if (initial) { render(); pollCrypto(); } else softRender();
     } catch (e) {
       if (initial) {
@@ -164,7 +167,7 @@
         if (q && isNum(q.usd) && q.usd > 0) { applyLivePrice(a, q.usd); n++; }
       });
       state.live = { status: n ? 'live' : 'error', at: Date.now() };
-      if (n) { rescore(); checkOrders(); softRender(); } else renderStatus();
+      if (n) { rescore(); softRender(); } else renderStatus();
     } catch (e) {
       state.live = { status: 'error', at: state.live.at };
       renderStatus();
@@ -180,70 +183,6 @@
       a.c[i] = p; a.h[i] = Math.max(a.h[i], p); a.l[i] = Math.min(a.l[i], p);
     }
     a.live = true;
-  }
-
-  // ---------------------------------------------------------------- portfolio
-  function portfolioValue() {
-    let value = 0, cost = 0;
-    Object.entries(state.pf.positions).forEach(([sym, pos]) => {
-      const a = state.bySym[sym];
-      const p = a ? toUSD(a, priceOf(sym)) : pos.avg;
-      value += pos.qty * (isNum(p) ? p : pos.avg);
-      cost += pos.qty * pos.avg;
-    });
-    return { value, cost, equity: state.pf.cash + value, pl: value - cost };
-  }
-
-  function fill(a, side, qty, nativePrice, viaLimit) {
-    const px = toUSD(a, nativePrice);
-    const total = px * qty;
-    const pf = state.pf;
-    if (side === 'BUY') {
-      if (total > pf.cash + 1e-9) return { ok: false, msg: `Not enough cash: need ${usd(total)}, have ${usd(pf.cash)}` };
-      pf.cash -= total;
-      const pos = pf.positions[a.symbol] || { qty: 0, avg: 0 };
-      pos.avg = (pos.qty * pos.avg + total) / (pos.qty + qty);
-      pos.qty += qty;
-      pf.positions[a.symbol] = pos;
-    } else {
-      const pos = pf.positions[a.symbol];
-      if (!pos || pos.qty < qty - 1e-9) return { ok: false, msg: `You only hold ${pos ? fmtQty(pos.qty) : 0} ${a.symbol}` };
-      pf.cash += total;
-      pos.qty -= qty;
-      if (pos.qty <= 1e-9) delete pf.positions[a.symbol];
-    }
-    pf.history.unshift({ time: Date.now(), side, sym: a.symbol, qty, px, limit: !!viaLimit });
-    pf.history = pf.history.slice(0, 100);
-    savePortfolio();
-    return { ok: true, msg: `${side === 'BUY' ? 'Bought' : 'Sold'} ${fmtQty(qty)} ${a.symbol} at ${fmtPrice(a, nativePrice)} (${usd(total)})` };
-  }
-
-  function checkOrders() {
-    const pf = state.pf;
-    if (!pf.orders.length) return;
-    const msgs = [];
-    pf.orders = pf.orders.filter((o) => {
-      const a = state.bySym[o.sym];
-      const p = priceOf(o.sym);
-      if (!a || !isNum(p)) return true;
-      const hit = o.side === 'BUY' ? p <= o.limit : p >= o.limit;
-      if (!hit) return true;
-      const r = fill(a, o.side, o.qty, p, true);
-      msgs.push(r.ok ? 'Limit order filled: ' + r.msg : 'Limit order cancelled: ' + r.msg);
-      return false; // filled or unfillable: remove either way
-    });
-    savePortfolio();
-    if (msgs.length) toast(msgs.join(' · '));
-  }
-
-  // ---------------------------------------------------------------- toast
-  let toastTimer = null;
-  function toast(msg) {
-    const el = $('#toast');
-    el.textContent = msg;
-    el.classList.remove('hidden');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.add('hidden'), 4500);
   }
 
   // ---------------------------------------------------------------- svg helpers
@@ -269,26 +208,40 @@
   }
   const badge = (sig) => (sig ? `<span class="badge ${sig}">${sig}</span>` : '');
 
+  // ---------------------------------------------------------------- news rendering
+  function headline(n, opts = {}) {
+    const url = safeUrl(n.link);
+    if (!url) return '';
+    const topics = (n.topics || []).map((k) => TOPICS.find((t) => t[0] === k)).filter(Boolean)
+      .map((t) => `<span class="ntag">${t[1]}</span>`).join('');
+    const mentions = opts.hideMentions ? '' : (n.mentions || []).map((s) => {
+      const a = state.bySym[s];
+      return a ? `<button class="nasset" data-open="${esc(s)}" title="${esc(a.name)}">${esc(s)}${a.signal ? ` <span class="badge ${a.signal}">${a.signal}</span>` : ''}</button>` : '';
+    }).join('');
+    return `<li class="news-item">
+      <a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(n.title)}</a>
+      <div class="news-meta"><span>${esc(n.source)}${n.time ? ' · ' + ago(n.time * 1000) : ''}</span>${topics}${mentions}</div>
+    </li>`;
+  }
+
   // ---------------------------------------------------------------- header
   function renderStatus() {
-    const el = $('#status');
     const chips = [];
     if (state.data) {
       const gen = Date.parse(state.data.generated_at);
       const old = Date.now() - gen > 1000 * 60 * 60 * 26;
-      chips.push(`<span class="chip ${old ? 'warn' : 'ok'}" title="Stocks, ETFs, indices and economic data">
+      chips.push(`<span class="chip ${old ? 'warn' : 'ok'}" title="Stocks, ETFs, indices, news and economic data">
         <span class="dot"></span>REAL DATA · updated ${ago(gen)}</span>`);
     } else if (state.loadError) {
       chips.push('<span class="chip err"><span class="dot"></span>NO DATA</span>');
     }
-    if (state.live.status === 'live') chips.push(`<span class="chip ok" title="Crypto prices stream from CoinGecko every minute"><span class="dot"></span>CRYPTO LIVE</span>`);
+    if (state.live.status === 'live') chips.push('<span class="chip ok" title="Crypto prices stream from CoinGecko every minute"><span class="dot"></span>CRYPTO LIVE</span>');
     else if (state.live.status === 'error') chips.push('<span class="chip warn" title="Could not reach CoinGecko; using last data refresh"><span class="dot"></span>CRYPTO DELAYED</span>');
-    el.innerHTML = chips.join('');
+    $('#status').innerHTML = chips.join('');
 
-    const v = portfolioValue();
-    const ret = v.equity / START_CASH - 1;
-    $('#pf-mini').innerHTML = `<span class="muted">PAPER EQUITY <b>${usd(v.equity)}</b> ${pct(ret)}</span>
-      <span class="muted">CASH <b>${usd(state.pf.cash)}</b></span>`;
+    const r = state.regime, top = state.ranked[0];
+    $('#hdr-summary').innerHTML = r && top ? `<span class="muted">MARKET <b class="regime-label ${r.label}" style="font-size:12px">${r.label.toUpperCase()}</b></span>
+      <span class="muted">TOP PICK <a href="#" data-open="${esc(top.symbol)}"><b>${esc(top.symbol)}</b></a> ${top.score}</span>` : '';
   }
 
   // ---------------------------------------------------------------- views
@@ -301,9 +254,10 @@
       return;
     }
     if (state.tab === 'best') view.innerHTML = viewBest();
+    else if (state.tab === 'news') view.innerHTML = viewNews();
     else if (state.tab === 'markets') view.innerHTML = viewMarkets();
     else if (state.tab === 'economy') view.innerHTML = viewEconomy();
-    else if (state.tab === 'trade') { view.innerHTML = viewTrade(); drawChart(); updateEstimate(); }
+    else if (state.tab === 'asset') { view.innerHTML = viewAsset(); drawChart(); }
   }
 
   // Re-render after a live price tick without clobbering what the user is typing.
@@ -317,7 +271,7 @@
     const local = location.protocol === 'file:';
     return `<div class="card" style="max-width:720px;margin:40px auto">
       <h2 style="margin-bottom:8px">No market data yet</h2>
-      <p class="muted">The app reads real prices from <code>data/market.json</code>, which a GitHub Action
+      <p class="muted">The app reads real prices and news from <code>data/market.json</code>, which a GitHub Action
       (<b>Update market data</b>) refreshes every 30 minutes on market days.</p>
       <ol class="muted">
         <li>On GitHub open <b>Actions → Update market data → Run workflow</b> to create the file.</li>
@@ -353,6 +307,17 @@
     });
   }
 
+  // Plain-English verdict for one asset.
+  function verdict(a) {
+    if (a.score == null) return { title: 'Not scored', text: `${typeLabel(a)}s are shown for market context only.` };
+    const m = a.metrics;
+    const hot = isNum(m.rsi14) && m.rsi14 > 70;
+    if (a.signal === 'BUY' && hot) return { title: 'Strong, but stretched', text: `It ranks #${a.rankPos} of ${state.ranked.length}, but it has risen fast (RSI ${m.rsi14.toFixed(0)}). Buyers often wait for a pullback towards the 50-day average (${fmtPrice(a, m.sma50)}).` };
+    if (a.signal === 'BUY') return { title: 'Data supports buying', text: `It ranks #${a.rankPos} of ${state.ranked.length} on trend, momentum and risk, and the entry timing looks reasonable. Check the news below for anything that could change the picture.` };
+    if (a.signal === 'HOLD') return { title: 'No clear edge', text: `Mixed signals (rank #${a.rankPos} of ${state.ranked.length}). If you already own it there is no strong reason to sell; if not, higher-ranked assets look better right now.` };
+    return { title: 'Data says avoid for now', text: `Weak trend or momentum (rank #${a.rankPos} of ${state.ranked.length}). The price data does not support buying at the moment.` };
+  }
+
   function viewBest() {
     const top = state.ranked[0];
     if (!top) return '<div class="card empty">Not enough price history to rank assets yet.</div>';
@@ -370,8 +335,9 @@
     const shown = list.slice(0, state.lbLimit);
     const counts = { BUY: 0, HOLD: 0, AVOID: 0 };
     list.forEach((a) => counts[a.signal]++);
+    const topNews = newsFor(top.symbol).slice(0, 3);
+    const bigNews = state.news.filter((n) => n.topics.some((t) => ['fed', 'inflation', 'economy', 'trade'].includes(t))).slice(0, 5);
 
-    const closes90 = top.c.slice(-90);
     return `
       <h1 class="section-title">Today's best buy, according to the data</h1>
       <p class="section-sub">${state.ranked.length} real stocks, funds and cryptocurrencies scored on momentum, trend, risk and the economic backdrop.</p>
@@ -392,18 +358,19 @@
               </div>
             </div>
           </div>
-          <div style="margin-top:10px">${sparkline(closes90, 400, 60)}</div>
+          <div style="margin-top:10px">${sparkline(top.c.slice(-90), 400, 60)}</div>
           <div class="row wrap tiny muted mono">
             <span>1M ${pct(m.r1m, 1)}</span><span>3M ${pct(m.r3m, 1)}</span><span>1Y ${pct(m.r1y, 1)}</span>
             <span>RSI ${isNum(m.rsi14) ? m.rsi14.toFixed(0) : '—'}</span><span>Vol ${isNum(m.vol) ? (m.vol * 100).toFixed(0) + '%' : '—'}</span>
           </div>
+          ${topNews.length ? `<div class="card-title" style="margin-top:14px">Latest ${esc(top.symbol)} news</div><ul class="news-list compact">${topNews.map((n) => headline(n, { hideMentions: true })).join('')}</ul>` : ''}
         </div>
         <div>
           <div class="card-title">Why it ranks #1</div>
           <ul class="reasons pros">${top.reasons.pros.map((r) => `<li>${esc(r)}</li>`).join('') || '<li>Solid across all factors</li>'}</ul>
           ${top.reasons.cons.length ? `<div class="card-title" style="margin-top:12px">Watch out for</div><ul class="reasons cons">${top.reasons.cons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
           <div class="row wrap" style="margin-top:14px">
-            <button class="btn buy" data-open="${esc(top.symbol)}">Chart &amp; paper trade ${esc(top.symbol)}</button>
+            <button class="btn buy" data-open="${esc(top.symbol)}">Full analysis of ${esc(top.symbol)}</button>
           </div>
           ${runners.length ? `<div class="small muted" style="margin-top:12px">Runners-up: ${runners.map((a) => `<a href="#" data-open="${esc(a.symbol)}">${esc(a.symbol)}</a> (${a.score})`).join(', ')}</div>` : ''}
         </div>
@@ -421,10 +388,14 @@
           </div>`).join('')}
       </div>
 
+      ${bigNews.length ? `<h2 class="section-title">Big-picture news to know</h2>
+      <div class="card"><ul class="news-list">${bigNews.map((n) => headline(n)).join('')}</ul>
+        <div style="margin-top:8px"><a href="#" data-tab="news">All market news →</a></div></div>` : ''}
+
       <h2 class="section-title">Full ranking</h2>
       <div class="card">
         <div class="row wrap between" style="margin-bottom:10px">
-          <div class="chips" data-group="lb">
+          <div class="chips">
             ${[['all', 'All'], ['us', 'US stocks'], ['uk', 'UK stocks'], ['etf', 'ETFs'], ['crypto', 'Crypto']].map(([k, l]) => `<button class="fchip ${state.lbFilter === k ? 'active' : ''}" data-lb="${k}">${l}</button>`).join('')}
           </div>
           <select class="input" id="lb-sector" aria-label="Sector">
@@ -465,9 +436,34 @@
       <p>Entry-timing adjustments: −8 to −12 if overbought (RSI above 75), −5 if oversold while still falling, +4 for a calm pause inside an uptrend.
       Signals: <b class="up">BUY</b> 70+, <b style="color:var(--hold)">HOLD</b> 45–69, <b class="down">AVOID</b> under 45.</p>
       <p>The backdrop combines the S&amp;P 500 trend, the VIX fear gauge, how many stocks are in uptrends, consumer sentiment, retail sales, inflation, unemployment and the yield curve. When it is <i>Cautious</i>, steadier assets are favoured.</p>
-      <p><b>Limits:</b> this uses price history and economic data only — no company earnings, valuations or news. Momentum and trend effects are well documented, but they fail regularly, especially at turning points. The model has not been back-tested here. Treat the ranking as a shortlist for your own research and practise with the paper account before risking real money. This is not financial advice.</p>
-      <p class="faint">Data generated ${fmtDate(Date.parse(state.data.generated_at) / 1000, true)}${errs ? ` · ${errs} source error(s) in the last refresh (previous prices kept)` : ''}.</p>
+      <p>News headlines are shown next to each asset so you can spot events the numbers can't see yet (earnings, lawsuits, rate decisions). They do <b>not</b> change the score.</p>
+      <p><b>Limits:</b> the score uses price history and economic data only — no company earnings or valuations. Momentum and trend effects are well documented, but they fail regularly, especially at turning points. The model has not been back-tested here. Treat the ranking as a shortlist for your own research. This is not financial advice.</p>
+      <p class="faint">Data generated ${fmtDate(Date.parse(state.data.generated_at) / 1000, true)}${errs ? ` · ${errs} source error(s) in the last refresh (previous data kept)` : ''}.</p>
     </details></div>`;
+  }
+
+  function viewNews() {
+    const all = state.news;
+    if (!all.length) {
+      return `<h1 class="section-title">Market news</h1><div class="card empty">No headlines in this data refresh yet. News arrives with the next update.</div>`;
+    }
+    const list = state.newsTopic === 'all' ? all : state.newsTopic === 'mine'
+      ? all.filter((n) => n.mentions.length) : all.filter((n) => n.topics.includes(state.newsTopic));
+    const counts = {};
+    all.forEach((n) => n.mentions.forEach((s) => { counts[s] = (counts[s] || 0) + 1; }));
+    const inNews = Object.entries(counts).sort((x, y) => y[1] - x[1]).slice(0, 10).map(([s, c]) => [state.bySym[s], c]).filter(([a]) => a);
+    const sources = [...new Set(all.map((n) => n.source))];
+    return `
+      <h1 class="section-title">Market news</h1>
+      <p class="section-sub">Headlines that can move markets, from ${esc(sources.join(', '))}. Refreshed with each data update. Tap a ticker to see how the data rates it.</p>
+      ${inNews.length ? `<div class="card" style="margin-bottom:12px">
+        <div class="card-title">Tracked assets in the news</div>
+        <div class="chips">${inNews.map(([a, c]) => `<button class="nasset big" data-open="${esc(a.symbol)}">${esc(a.symbol)} <span class="faint">×${c}</span> ${a.signal ? `<span class="badge ${a.signal}">${a.signal} ${a.score}</span>` : ''}</button>`).join('')}</div>
+      </div>` : ''}
+      <div class="chips" style="margin-bottom:12px">
+        ${[['all', 'All'], ['mine', 'Mentions tracked assets']].concat(TOPICS.map(([k, l]) => [k, l])).map(([k, l]) => `<button class="fchip ${state.newsTopic === k ? 'active' : ''}" data-ntopic="${k}">${l}</button>`).join('')}
+      </div>
+      <div class="card">${list.length ? `<ul class="news-list">${list.map((n) => headline(n)).join('')}</ul>` : '<div class="empty">No headlines on this topic right now.</div>'}</div>`;
   }
 
   const MARKET_GROUPS = [
@@ -483,7 +479,7 @@
   function viewMarkets() {
     const q = state.search.trim().toLowerCase();
     const match = (a) => !q || a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || (a.sector || '').toLowerCase().includes(q);
-    const groups = MARKET_GROUPS.filter(([k]) => state.mktFilter === 'all' || state.mktFilter === k).map(([k, label, fn]) => {
+    const groups = MARKET_GROUPS.filter(([k]) => state.mktFilter === 'all' || state.mktFilter === k).map(([, label, fn]) => {
       const items = state.assets.filter((a) => a.metrics && fn(a) && match(a));
       if (!items.length) return '';
       return `<h2 class="section-title">${label} <span class="faint small">(${items.length})</span></h2>
@@ -491,7 +487,7 @@
     }).join('');
     return `
       <h1 class="section-title">All markets</h1>
-      <p class="section-sub">Real prices across stocks, funds, crypto, commodities and currencies. Tap any card for the full chart.</p>
+      <p class="section-sub">Real prices across stocks, funds, crypto, commodities and currencies. Tap any card for the full analysis.</p>
       <div class="row wrap" style="margin-bottom:8px">
         <input class="input" id="mkt-search" placeholder="Search symbol, name or sector…" value="${esc(state.search)}" style="flex:1;min-width:200px">
       </div>
@@ -514,15 +510,13 @@
   const MACRO_NOTES = {
     UMCSENT: 'How confident US consumers feel about their finances. Long-run average is about 85; low readings often mean weaker spending ahead.',
     RSAFS: 'How much more shoppers are spending than a year ago (not adjusted for inflation). Compare with inflation to see real growth.',
-    PCE: 'Growth in total consumer spending — about two-thirds of the US economy.',
     CPIAUCSL: 'How fast prices are rising. The Federal Reserve targets 2%; high inflation squeezes consumers and keeps rates high.',
     UNRATE: 'Share of the workforce without a job. A quick rise has preceded most recessions.',
-    PSAVERT: 'Share of income people save. Low savings mean less cushion if times get tough.',
     FEDFUNDS: 'The Federal Reserve’s key interest rate. Higher rates make loans, mortgages and credit cards pricier.',
     DGS10: 'The 10-year government bond yield, which drives mortgage rates and how investors value stocks.',
     T10Y2Y: '10-year minus 2-year yield. Below zero (inverted) has come before most US recessions.',
   };
-  const GOOD_WHEN_UP = { UMCSENT: true, RSAFS: true, PCE: true, PSAVERT: true, T10Y2Y: true, CPIAUCSL: false, UNRATE: false };
+  const GOOD_WHEN_UP = { UMCSENT: true, RSAFS: true, T10Y2Y: true, CPIAUCSL: false, UNRATE: false };
 
   function viewEconomy() {
     const macro = state.data.macro || [];
@@ -534,7 +528,7 @@
       const d = v - s.values[n - 1 - back];
       const good = GOOD_WHEN_UP[s.id];
       const cls = good === undefined || Math.abs(d) < 1e-9 ? 'muted' : (d > 0) === good ? 'up' : 'down';
-      const unit = s.unit === 'index' ? '' : s.unit === '% y/y' ? '%' : s.unit === 'pp' ? 'pp' : '%';
+      const unit = s.unit === 'index' ? '' : s.unit === 'pp' ? 'pp' : '%';
       const dt = new Date(s.dates[n - 1] + 'T00:00:00Z').toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
       return `<div class="card macro">
         <div class="card-title">${esc(s.name)}</div>
@@ -545,34 +539,36 @@
         <p class="faint tiny" style="margin-top:6px">${s.unit === '% y/y' ? 'Year-on-year change · ' : ''}Latest: ${dt} · ${esc(s.source || 'FRED')}</p>
       </div>`;
     }).join('');
-    const consumerSectors = ['XLY', 'XLP', 'AMZN', 'WMT', 'COST', 'TSCO.L', 'ULVR.L', 'MCD', 'NKE', 'HD'].map((s) => state.bySym[s]).filter((a) => a && a.metrics);
+    const consumerStocks = ['XLY', 'XLP', 'AMZN', 'WMT', 'COST', 'TSCO.L', 'ULVR.L', 'MCD', 'NKE', 'HD'].map((s) => state.bySym[s]).filter((a) => a && a.metrics);
+    const econNews = state.news.filter((n) => n.topics.some((t) => ['fed', 'inflation', 'economy', 'consumer'].includes(t))).slice(0, 8);
     return `
       <h1 class="section-title">Consumer &amp; economy</h1>
       <p class="section-sub">What consumers are feeling and spending, and the economic conditions behind the market. These feed into the market backdrop used by the score.</p>
       ${regimeCard(true)}
       <div class="grid cols-3" style="margin-top:12px">${cards || '<div class="card empty">Economic data not available in this refresh.</div>'}</div>
-      ${consumerSectors.length ? `<h2 class="section-title">Consumer stocks at a glance</h2><div class="mgrid">${consumerSectors.map(marketCard).join('')}</div>` : ''}`;
+      ${econNews.length ? `<h2 class="section-title">Economy &amp; consumer news</h2><div class="card"><ul class="news-list">${econNews.map((n) => headline(n)).join('')}</ul></div>` : ''}
+      ${consumerStocks.length ? `<h2 class="section-title">Consumer stocks at a glance</h2><div class="mgrid">${consumerStocks.map(marketCard).join('')}</div>` : ''}`;
   }
 
-  // ---------------------------------------------------------------- trade view
-  function viewTrade() {
+  // ---------------------------------------------------------------- asset analysis view
+  function viewAsset() {
     const a = state.bySym[state.selected] || state.ranked[0] || state.assets[0];
     if (!a) return '';
     state.selected = a.symbol;
     const m = a.metrics;
-    const tradable = TRADABLE.has(a.cls);
-    const pos = state.pf.positions[a.symbol];
     const options = MARKET_GROUPS.map(([, label, fn]) => {
       const items = state.assets.filter(fn);
       return items.length ? `<optgroup label="${label}">${items.map((x) => `<option value="${esc(x.symbol)}" ${x.symbol === a.symbol ? 'selected' : ''}>${esc(x.symbol)} — ${esc(x.name)}</option>`).join('')}</optgroup>` : '';
     }).join('');
-
     const factorRows = a.factors ? Object.keys(Scoring.FACTOR_LABELS).map((k) => {
       const v = a.factors[k];
       return `<div class="fbar"><span>${Scoring.FACTOR_LABELS[k]}</span>
         <div class="track"><div class="fill" style="width:${isNum(v) ? Math.round(v * 100) : 0}%"></div></div>
         <span class="w">${Math.round(a.weights[k] * 100)}%</span></div>`;
     }).join('') : '';
+    const v = verdict(a);
+    const news = newsFor(a.symbol);
+    const peers = a.score != null ? state.ranked.filter((x) => x.sector === a.sector && x.symbol !== a.symbol).slice(0, 4) : [];
 
     return `
       <div class="row wrap" style="margin-bottom:12px">
@@ -590,12 +586,12 @@
             <div class="row wrap between" style="margin:14px 0 8px">
               <div class="legend"><span><i style="background:var(--sma50)"></i>50-day avg</span><span><i style="background:var(--sma200)"></i>200-day avg</span></div>
               <div class="row">
-                <div class="seg" data-group="tf">${['1M', '3M', '6M', '1Y'].map((t) => `<button class="${state.tf === t ? 'active' : ''}" data-tf="${t}">${t}</button>`).join('')}</div>
+                <div class="seg">${['1M', '3M', '6M', '1Y'].map((t) => `<button class="${state.tf === t ? 'active' : ''}" data-tf="${t}">${t}</button>`).join('')}</div>
                 <div class="seg">${[['candle', 'Candle'], ['line', 'Line']].map(([k, l]) => `<button class="${state.chartMode === k ? 'active' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>
               </div>
             </div>
             <div class="chart-box"><canvas id="chart"></canvas><div class="tooltip hidden" id="tt"></div></div>
-            <div class="faint tiny" style="margin-top:6px">Last price ${a.live ? 'live from CoinGecko' : 'as of ' + fmtDate(m.lastTime, true)}${a.stale ? ' · <span style="color:var(--hold)">not refreshed in latest update</span>' : ''}</div>
+            <div class="faint tiny" style="margin-top:6px">Last price ${a.live ? 'live from CoinGecko' : 'as of ' + fmtDate(a.market_time || m.lastTime, true)}${a.stale ? ' · <span style="color:var(--hold)">not refreshed in latest update</span>' : ''}</div>
           </div>
           <div class="card">
             <div class="stats">
@@ -612,110 +608,27 @@
               <div><div class="card-title">Strengths</div><ul class="reasons pros">${a.reasons.pros.map((r) => `<li>${esc(r)}</li>`).join('') || '<li class="faint">None stand out</li>'}</ul></div>
               <div><div class="card-title">Risks</div><ul class="reasons cons">${a.reasons.cons.map((r) => `<li>${esc(r)}</li>`).join('') || '<li class="faint">None flagged</li>'}</ul></div>
             </div>
-          </div>` : `<div class="card muted small">${esc(typeLabel(a))}s are shown for context and are not scored.</div>`}
+          </div>` : ''}
         </div>
 
         <div class="stack">
-          ${tradable ? ticket(a, pos) : `<div class="card"><div class="card-title">Paper trade</div><p class="muted small" style="margin:0">${esc(typeLabel(a))}s can't be traded directly. Try a related ETF such as ${a.cls === 'commodity' ? '<a href="#" data-open="GLD">GLD</a> (gold)' : '<a href="#" data-open="SPY">SPY</a> (S&amp;P 500)'}.</p></div>`}
-          ${portfolioCard()}
+          <div class="card verdict ${a.signal || ''}">
+            <div class="card-title">Verdict</div>
+            <div class="row" style="gap:12px">${a.score != null ? scoreRing(a.score) : ''}<div><div class="vtitle">${esc(v.title)}</div>${badge(a.signal)}</div></div>
+            <p class="small" style="margin:10px 0 0">${esc(v.text)}</p>
+          </div>
+          <div class="card">
+            <div class="card-title">Latest ${esc(a.symbol)} news</div>
+            ${news.length ? `<ul class="news-list compact">${news.map((n) => headline(n, { hideMentions: true })).join('')}</ul>` : '<div class="empty small">No recent headlines for this asset.</div>'}
+          </div>
+          ${peers.length ? `<div class="card"><div class="card-title">Compare: ${esc(a.sector)}</div>
+            ${peers.map((p) => `<div class="kv click" data-open="${esc(p.symbol)}" style="cursor:pointer"><span><b class="mono">${esc(p.symbol)}</b> <span class="muted small">${esc(p.name)}</span></span><span>${p.score} ${badge(p.signal)}</span></div>`).join('')}
+          </div>` : ''}
         </div>
       </div>`;
   }
 
   function stat(k, v) { return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
-
-  function ticket(a, pos) {
-    const m = a.metrics;
-    const usdPx = toUSD(a, m.price);
-    const ccyNote = a.currency !== 'USD' ? `<div class="faint tiny">${fmtPrice(a, m.price)} ≈ ${usd(usdPx)} at today's exchange rate</div>` : '';
-    return `<div class="card">
-      <div class="card-title">Paper trade ${esc(a.symbol)}</div>
-      <div class="seg" style="width:100%;margin-bottom:10px">
-        <button style="flex:1" class="${state.side === 'BUY' ? 'active' : ''}" data-side="BUY">Buy</button>
-        <button style="flex:1" class="${state.side === 'SELL' ? 'active' : ''}" data-side="SELL">Sell</button>
-      </div>
-      <div class="seg" style="width:100%;margin-bottom:10px">
-        <button style="flex:1" class="${state.orderType === 'MARKET' ? 'active' : ''}" data-otype="MARKET">Market</button>
-        <button style="flex:1" class="${state.orderType === 'LIMIT' ? 'active' : ''}" data-otype="LIMIT">Limit</button>
-      </div>
-      <div class="grid cols-2">
-        <label class="field">Quantity<input class="input mono" id="qty" type="number" min="0" step="any" value="${a.cls === 'crypto' ? (usdPx > 1000 ? '0.01' : '10') : '1'}"></label>
-        <label class="field ${state.orderType === 'LIMIT' ? '' : 'hidden'}">Limit price (${esc(a.currency || 'USD')})<input class="input mono" id="limit" type="number" min="0" step="any" value="${m.price.toFixed(priceDp(m.price))}"></label>
-      </div>
-      <div class="kv" style="margin-top:8px"><span class="muted">Estimated total</span><span id="est">—</span></div>
-      <div class="kv"><span class="muted">Cash available</span><span>${usd(state.pf.cash)}</span></div>
-      ${pos ? `<div class="kv"><span class="muted">You hold</span><span>${fmtQty(pos.qty)} @ ${usd(pos.avg)}</span></div>` : ''}
-      ${ccyNote}
-      <button class="btn block ${state.side === 'BUY' ? 'buy' : 'sell'}" id="place" style="margin-top:10px">${state.orderType === 'LIMIT' ? 'Place limit ' : ''}${state.side === 'BUY' ? 'Buy' : 'Sell'} ${esc(a.symbol)}</button>
-      <div class="faint tiny" style="margin-top:6px">Pretend money only. Fills at the latest price in the app${a.cls === 'crypto' ? ' (live)' : ' (refreshed ~every 30 min)'}.</div>
-    </div>`;
-  }
-
-  function portfolioCard() {
-    const pf = state.pf;
-    const v = portfolioValue();
-    const rows = Object.entries(pf.positions).map(([sym, pos]) => {
-      const a = state.bySym[sym];
-      const pxUsd = a ? toUSD(a, priceOf(sym)) : pos.avg;
-      const pl = (pxUsd - pos.avg) * pos.qty;
-      return `<tr class="click" data-open="${esc(sym)}"><td class="mono"><b>${esc(sym)}</b></td><td class="num">${fmtQty(pos.qty)}</td>
-        <td class="num">${usd(pos.avg)}</td><td class="num">${usd(pxUsd)}</td><td class="num">${signedUsd(pl)}</td>
-        <td class="num"><button class="btn sm" data-close="${esc(sym)}">Close</button></td></tr>`;
-    }).join('');
-    const orders = pf.orders.map((o) => {
-      const a = state.bySym[o.sym];
-      return `<tr><td class="mono ${o.side === 'BUY' ? 'up' : 'down'}">${o.side}</td><td class="mono">${esc(o.sym)}</td><td class="num">${fmtQty(o.qty)}</td>
-        <td class="num">${a ? fmtPrice(a, o.limit) : o.limit}</td><td class="num"><button class="btn sm" data-cancel="${o.id}">✕</button></td></tr>`;
-    }).join('');
-    const hist = pf.history.slice(0, 8).map((h) => `<tr><td class="mono ${h.side === 'BUY' ? 'up' : 'down'}">${h.side}</td><td class="mono">${esc(h.sym)}</td>
-      <td class="num">${fmtQty(h.qty)}</td><td class="num">${usd(h.px)}</td><td class="num faint">${new Date(h.time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</td></tr>`).join('');
-    return `<div class="card">
-      <div class="card-title">Paper portfolio</div>
-      <div class="grid cols-3" style="text-align:center;margin-bottom:10px">
-        <div class="stat"><div class="k">Equity</div><div class="v">${usd(v.equity)}</div></div>
-        <div class="stat"><div class="k">Unrealised</div><div class="v">${signedUsd(v.pl)}</div></div>
-        <div class="stat"><div class="k">Total return</div><div class="v">${pct(v.equity / START_CASH - 1)}</div></div>
-      </div>
-      <div class="table-wrap"><table><thead><tr><th>Symbol</th><th class="num">Qty</th><th class="num">Avg</th><th class="num">Now</th><th class="num">P/L</th><th></th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" class="empty">No positions yet — try the #1 pick.</td></tr>'}</tbody></table></div>
-      ${orders ? `<div class="card-title" style="margin-top:12px">Pending limit orders</div><div class="table-wrap"><table><tbody>${orders}</tbody></table></div>` : ''}
-      ${hist ? `<div class="card-title" style="margin-top:12px">Recent trades</div><div class="table-wrap"><table><tbody>${hist}</tbody></table></div>` : ''}
-      <div style="margin-top:10px;text-align:right"><button class="btn sm" id="reset-pf">Reset to $10,000</button></div>
-    </div>`;
-  }
-
-  function updateEstimate() {
-    const a = state.bySym[state.selected];
-    const est = $('#est');
-    if (!a || !est) return;
-    const qty = parseFloat(($('#qty') || {}).value);
-    const lim = parseFloat(($('#limit') || {}).value);
-    const px = state.orderType === 'LIMIT' && lim > 0 ? lim : a.metrics.price;
-    est.textContent = qty > 0 ? usd(toUSD(a, px) * qty) : '—';
-  }
-
-  function placeOrder() {
-    const a = state.bySym[state.selected];
-    if (!a) return;
-    const qty = parseFloat($('#qty').value);
-    if (!(qty > 0)) { toast('Enter a quantity above zero'); return; }
-    if (state.orderType === 'LIMIT') {
-      const limit = parseFloat($('#limit').value);
-      if (!(limit > 0)) { toast('Enter a limit price'); return; }
-      const now = a.metrics.price;
-      if ((state.side === 'BUY' && now <= limit) || (state.side === 'SELL' && now >= limit)) {
-        const r = fill(a, state.side, qty, now);
-        toast(r.msg);
-      } else {
-        state.pf.orders.push({ id: Date.now(), side: state.side, sym: a.symbol, qty, limit });
-        savePortfolio();
-        toast(`Limit ${state.side.toLowerCase()} for ${fmtQty(qty)} ${a.symbol} at ${fmtPrice(a, limit)} placed. It fills when the price gets there.`);
-      }
-    } else {
-      toast(fill(a, state.side, qty, a.metrics.price).msg);
-    }
-    render();
-  }
 
   // ---------------------------------------------------------------- chart
   const TF_DAYS = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366 };
@@ -759,9 +672,9 @@
     const X = (k) => k * step + step / 2;
     const Y = (p) => padT + (h - volH) - ((p - lo) / (hi - lo)) * (h - volH);
     chartGeom = { idx, step, a };
+    const mono = getComputedStyle(document.body).getPropertyValue('--mono');
 
-    // grid + price axis
-    ctx.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+    ctx.font = '10px ' + mono;
     ctx.textBaseline = 'middle';
     for (let g = 0; g <= 4; g++) {
       const p = lo + ((hi - lo) * g) / 4;
@@ -769,21 +682,18 @@
       ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
       ctx.fillStyle = '#64748b';
-      ctx.fillText(fmtPrice(a, p).replace(/<[^>]+>/g, ''), w + 6, y);
+      ctx.fillText(fmtPrice(a, p), w + 6, y);
     }
-    // date axis
     ctx.textBaseline = 'alphabetic';
     const labels = Math.min(6, Math.floor(w / 90));
     for (let g = 0; g < labels; g++) {
       const k = Math.round((g / Math.max(1, labels - 1)) * (idx.length - 1));
-      const d = new Date(a.t[idx[k]] * 1000);
-      const txt = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      const txt = new Date(a.t[idx[k]] * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
       ctx.fillStyle = '#64748b';
       const tw = ctx.measureText(txt).width;
       ctx.fillText(txt, Math.min(Math.max(0, X(k) - tw / 2), w - tw), H - 6);
     }
 
-    // volume
     const maxV = Math.max(1, ...idx.map((i) => a.v[i] || 0));
     idx.forEach((i, k) => {
       const vh = ((a.v[i] || 0) / maxV) * volH;
@@ -791,7 +701,6 @@
       ctx.fillRect(X(k) - step * 0.35, padT + h - vh, Math.max(1, step * 0.7), vh);
     });
 
-    // price
     if (state.chartMode === 'line') {
       const up = a.c[n - 1] >= a.c[idx[0]];
       const col = up ? '#10b981' : '#f43f5e';
@@ -805,8 +714,7 @@
     } else {
       const bw = Math.max(1, step * 0.62);
       idx.forEach((i, k) => {
-        const upC = a.c[i] >= a.o[i];
-        const col = upC ? '#10b981' : '#f43f5e';
+        const col = a.c[i] >= a.o[i] ? '#10b981' : '#f43f5e';
         ctx.strokeStyle = col; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(X(k), Y(a.h[i])); ctx.lineTo(X(k), Y(a.l[i])); ctx.stroke();
         const y1 = Y(Math.max(a.o[i], a.c[i])), y2 = Y(Math.min(a.o[i], a.c[i]));
@@ -814,7 +722,6 @@
       });
     }
 
-    // moving averages
     [[sma50, '#f59e0b'], [sma200, '#a78bfa']].forEach(([s, col]) => {
       ctx.beginPath(); let started = false;
       idx.forEach((i, k) => {
@@ -824,14 +731,12 @@
       ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.stroke();
     });
 
-    // last price tag
     const lp = a.c[n - 1], ly = Y(lp);
     ctx.fillStyle = lp >= (a.c[n - 2] ?? lp) ? '#10b981' : '#f43f5e';
     ctx.fillRect(w + 1, ly - 8, padR - 1, 16);
-    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.font = 'bold 10px ' + getComputedStyle(document.body).getPropertyValue('--mono');
-    ctx.fillText(fmtPrice(a, lp).replace(/<[^>]+>/g, ''), w + 5, ly);
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.font = 'bold 10px ' + mono;
+    ctx.fillText(fmtPrice(a, lp), w + 5, ly);
 
-    // crosshair
     if (hoverIdx != null && hoverIdx >= 0 && hoverIdx < idx.length) {
       ctx.strokeStyle = 'rgba(148,163,184,.5)'; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(X(hoverIdx), padT); ctx.lineTo(X(hoverIdx), padT + h); ctx.stroke();
@@ -860,7 +765,7 @@
   function openAsset(sym) {
     if (!state.bySym[sym]) return;
     state.selected = sym;
-    state.tab = 'trade';
+    state.tab = 'asset';
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -869,29 +774,15 @@
     const t = e.target.closest('button, a, [data-open], tr.click');
     if (!t) return;
     const d = t.dataset;
-    if (d.tab) { state.tab = d.tab; render(); window.scrollTo({ top: 0 }); return; }
-    if (d.close) {
-      e.stopPropagation();
-      const a = state.bySym[d.close], pos = state.pf.positions[d.close];
-      if (a && pos) toast(fill(a, 'SELL', pos.qty, a.metrics.price).msg);
-      render(); return;
-    }
-    if (d.cancel) { state.pf.orders = state.pf.orders.filter((o) => String(o.id) !== d.cancel); savePortfolio(); render(); return; }
+    if (t.tagName === 'A' && t.target === '_blank') return; // external news link
+    if (d.tab) { e.preventDefault(); state.tab = d.tab; render(); window.scrollTo({ top: 0 }); return; }
     if (d.open) { e.preventDefault(); openAsset(d.open); return; }
     if (d.lb) { state.lbFilter = d.lb; state.lbLimit = 25; render(); return; }
     if (d.mkt) { state.mktFilter = d.mkt; render(); return; }
+    if (d.ntopic) { state.newsTopic = d.ntopic; render(); return; }
     if (d.tf) { state.tf = d.tf; render(); return; }
     if (d.mode) { state.chartMode = d.mode; render(); return; }
-    if (d.side) { state.side = d.side; render(); return; }
-    if (d.otype) { state.orderType = d.otype; render(); return; }
-    if (t.id === 'lb-more') { state.lbLimit = 1000; render(); return; }
-    if (t.id === 'place') { placeOrder(); return; }
-    if (t.id === 'reset-pf') {
-      if (confirm('Reset your paper portfolio to $10,000 and clear all positions?')) {
-        state.pf = { cash: START_CASH, positions: {}, orders: [], history: [] };
-        savePortfolio(); render();
-      }
-    }
+    if (t.id === 'lb-more') { state.lbLimit = 1000; render(); }
   });
 
   document.addEventListener('change', (e) => {
@@ -907,7 +798,6 @@
       const inp = $('#mkt-search');
       if (inp) { inp.focus(); inp.setSelectionRange(pos, pos); }
     }
-    if (e.target.id === 'qty' || e.target.id === 'limit') updateEstimate();
   });
 
   document.addEventListener('mousemove', (e) => { if (e.target.id === 'chart') chartHover(e); });
@@ -917,6 +807,9 @@
 
   let resizeTimer = null;
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => drawChart(), 120); });
+
+  // Clean up the old paper-trading account from earlier versions.
+  try { localStorage.removeItem('mushtaqtrader.portfolio.v2'); } catch (e) { /* ignore */ }
 
   // ---------------------------------------------------------------- boot
   loadData(true);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MushtaqTrader – Real Market Data &amp; Best Buys</title>
-  <meta name="description" content="Market analysis on real data: stocks, ETFs, crypto and consumer-economy indicators, ranked by a transparent scoring model to show the best buys.">
+  <meta name="description" content="Helps you decide what to buy: real stock, ETF, crypto and consumer-economy data ranked by a transparent scoring model, plus the market news that could move prices.">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -12,13 +12,14 @@
     <div class="topbar-inner">
       <div class="brand"><div class="logo"></div>Mushtaq<span class="hl">Trader</span></div>
       <div class="status" id="status"></div>
-      <div class="pf-mini" id="pf-mini"></div>
+      <div class="hdr-summary" id="hdr-summary"></div>
     </div>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="best">Best Buys</button>
+      <button class="tab" data-tab="news">Market News</button>
       <button class="tab" data-tab="markets">Markets</button>
       <button class="tab" data-tab="economy">Consumer &amp; Economy</button>
-      <button class="tab" data-tab="trade">Chart &amp; Paper Trade</button>
+      <button class="tab" data-tab="asset">Chart &amp; Analysis</button>
     </nav>
   </header>
 
@@ -27,10 +28,10 @@
   </main>
 
   <footer class="foot">
-    Data: Yahoo Finance (prices, refreshed about every 30 minutes on market days), CoinGecko (live crypto),
+    Data: Yahoo Finance (prices and news, refreshed about every 30 minutes on market days), CoinGecko (live crypto),
+    CNBC, MarketWatch, BBC, Federal Reserve and CoinDesk (news),
     University of Michigan, US Bureau of Labor Statistics, US Census Bureau, New York Fed and US Treasury (consumer &amp; economic data, with FRED where available).
-    Scores are a mechanical ranking of past data for education and practice — not financial advice.
-    Paper trading uses pretend money only.
+    Scores are a mechanical ranking of past data to support your own research — not financial advice.
   </footer>
 
   <div class="toast hidden" id="toast"></div>

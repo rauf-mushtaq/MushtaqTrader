@@ -8,6 +8,9 @@ Sources (all free, no API key):
   * Yahoo Finance chart API  - 1 year of daily OHLCV for stocks, ETFs, indices,
                                crypto, commodities and FX.
   * Stooq CSV                - fallback for US stocks/ETFs if Yahoo fails.
+  * News RSS feeds           - market-moving headlines (Yahoo Finance, CNBC,
+                               MarketWatch, BBC, Federal Reserve, CoinDesk) and
+                               per-symbol headlines from Yahoo Finance.
   * Consumer & economic data - FRED first; it often times out from GitHub
                                runners, so each series falls back to its official
                                source: U. Michigan, BLS, Census, NY Fed, US Treasury.
@@ -19,6 +22,7 @@ data/market.json is kept so one bad run never blanks the app.
 from __future__ import annotations
 
 import csv
+import html
 import http.cookiejar
 import io
 import json
@@ -30,8 +34,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_PATH = os.path.join(ROOT, "data", "market.json")
@@ -617,6 +623,117 @@ def fetch_macro(spec: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
+# News (RSS). Headlines are shown alongside the scores; they do not change them.
+# --------------------------------------------------------------------------
+MARKET_FEEDS = [
+    ("Yahoo Finance", "https://finance.yahoo.com/news/rssindex"),
+    ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114"),
+    ("CNBC Finance", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
+    ("CNBC Economy", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258"),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+    ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
+    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+]
+NEWS_BUDGET_S = 3 * 60
+YAHOO_RSS = Breaker("Yahoo news", threshold=8)
+ATOM = "{http://www.w3.org/2005/Atom}"
+
+
+def parse_feed(raw: bytes, source: str) -> list[dict]:
+    if b"<!ENTITY" in raw[:4000]:  # refuse entity tricks in untrusted XML
+        raise RuntimeError("feed declares entities")
+    root = ET.fromstring(raw)
+    items = root.findall(".//item") or root.findall(f".//{ATOM}entry")
+    out = []
+    for it in items:
+        title = (it.findtext("title") or it.findtext(f"{ATOM}title") or "").strip()
+        link = (it.findtext("link") or "").strip()
+        if not link:
+            el = it.find(f"{ATOM}link")
+            link = (el.get("href") if el is not None else "") or ""
+        date = it.findtext("pubDate") or it.findtext(f"{ATOM}published") or it.findtext(f"{ATOM}updated") or ""
+        if not title or not link.lower().startswith(("http://", "https://")):
+            continue
+        try:
+            dt = parsedate_to_datetime(date) if "," in date or " " in date.strip() else datetime.fromisoformat(date.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            ts = int(dt.timestamp())
+        except Exception:  # noqa: BLE001
+            ts = None
+        out.append(dict(title=html.unescape(" ".join(title.split()))[:300], link=link[:600], source=source, time=ts))
+    return out
+
+
+def fetch_market_feed(feed) -> tuple[str, list[dict] | None, str | None]:
+    name, url = feed
+    try:
+        items = parse_feed(http_get(url, timeout=15), name)
+        log(f"  ok   news {name} ({len(items)})")
+        return name, items, None
+    except Exception as e:  # noqa: BLE001
+        log(f"  FAIL news {name}: {str(e)[:160]}")
+        return name, None, str(e)
+
+
+def fetch_symbol_news(spec: dict) -> tuple[str, list[dict] | None]:
+    sym = spec["symbol"]
+    if time.monotonic() > _DEADLINE[0] or YAHOO_RSS.is_open():
+        return sym, None
+    region = "GB" if spec["region"] == UK else "US"
+    try:
+        raw = http_get(
+            f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={urllib.parse.quote(sym)}&region={region}&lang=en-{region}",
+            timeout=10, retries=1,
+        )
+        items = parse_feed(raw, "Yahoo Finance")
+        YAHOO_RSS.record(True)
+        return sym, items
+    except Exception:  # noqa: BLE001
+        YAHOO_RSS.record(False)
+        return sym, None
+
+
+def newest(items: list[dict], limit: int, max_age_days: int) -> list[dict]:
+    cutoff = time.time() - max_age_days * 86400
+    seen, out = set(), []
+    for it in sorted(items, key=lambda x: x.get("time") or 0, reverse=True):
+        key = "".join(ch for ch in it["title"].lower() if ch.isalnum())[:80]
+        if key in seen or (it.get("time") and it["time"] < cutoff):
+            continue
+        seen.add(key)
+        out.append(it)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def fetch_news(prev_news: dict) -> tuple[dict, list[str]]:
+    _DEADLINE[0] = time.monotonic() + NEWS_BUDGET_S
+    errors = []
+    market = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for name, items, err in pool.map(fetch_market_feed, MARKET_FEEDS):
+            if items:
+                market += items
+            else:
+                errors.append(f"news {name}: {err}")
+    symbols = {}
+    targets = [s for s in UNIVERSE if s["cls"] in ("stock", "etf", "crypto")]
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for sym, items in pool.map(fetch_symbol_news, targets):
+            if items:
+                symbols[sym] = newest(items, 6, 14)
+    log(f"  news: {len(market)} market headlines, {len(symbols)}/{len(targets)} symbols with headlines")
+    prev_symbols = (prev_news or {}).get("symbols", {})
+    for sym, items in prev_symbols.items():  # keep older headlines if a symbol failed this time
+        symbols.setdefault(sym, items)
+    market = newest(market, 80, 4) or (prev_news or {}).get("market", [])
+    return dict(market=market, symbols=symbols), errors
+
+
+# --------------------------------------------------------------------------
 def load_previous() -> dict:
     try:
         with open(OUT_PATH, encoding="utf-8") as f:
@@ -657,6 +774,14 @@ def main() -> int:
             if spec["id"] in prev_macro:
                 macro.append(prev_macro[spec["id"]])
 
+    log("Fetching news...")
+    try:
+        news, news_errors = fetch_news(prev.get("news") or {})
+        errors += news_errors
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"news: {e}")
+        news = prev.get("news") or {"market": [], "symbols": {}}
+
     fresh = sum(1 for a in assets if not a.get("stale"))
     log(f"assets: {fresh} fresh, {len(assets) - fresh} stale, {len(UNIVERSE) - len(assets)} missing")
     log(f"macro series: {len(macro)}/{len(MACRO)}")
@@ -674,6 +799,7 @@ def main() -> int:
         sources=sorted({a.get("source", "") for a in assets} | {m.get("source", "") for m in macro}),
         assets=assets,
         macro=macro,
+        news=news,
         errors=errors[:50],
     )
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)

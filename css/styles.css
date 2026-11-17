@@ -71,8 +71,8 @@ a { color: var(--accent); }
 .chip.err { color: var(--down); border-color: rgba(244,63,94,.35); background: var(--down-bg); }
 .chip.err .dot { background: var(--down); }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.6); } 70% { box-shadow: 0 0 0 6px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
-.pf-mini { margin-left: auto; display: flex; gap: 16px; font-family: var(--mono); font-size: 12px; }
-.pf-mini b { color: #fff; }
+.hdr-summary { margin-left: auto; display: flex; gap: 16px; font-family: var(--mono); font-size: 12px; }
+.hdr-summary b { color: #fff; }
 
 .tabs {
   max-width: 1400px; margin: 0 auto; padding: 0 16px;
@@ -260,7 +260,7 @@ footer.foot { max-width: 1400px; margin: 0 auto; padding: 16px; color: var(--fai
   .cols-2, .cols-3 { grid-template-columns: 1fr; }
   .regime { grid-template-columns: 1fr; gap: 8px; }
   .factor-list { grid-template-columns: 1fr; }
-  .pf-mini { margin-left: 0; width: 100%; gap: 12px; font-size: 11px; }
+  .hdr-summary { margin-left: 0; width: 100%; gap: 12px; font-size: 11px; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chart-box { height: 280px; }
   .hide-sm { display: none; }
@@ -270,3 +270,29 @@ footer.foot { max-width: 1400px; margin: 0 auto; padding: 16px; color: var(--fai
 @media (max-width: 420px) {
   .cols-4 { grid-template-columns: 1fr; }
 }
+
+/* ---------- news ---------- */
+.news-list { list-style: none; margin: 0; padding: 0; }
+.news-item { padding: 10px 0; border-bottom: 1px solid rgba(31,41,55,.7); }
+.news-item:last-child { border-bottom: 0; }
+.news-item > a { color: var(--text); text-decoration: none; font-weight: 600; line-height: 1.35; }
+.news-item > a:hover { color: #fff; text-decoration: underline; }
+.news-list.compact .news-item { padding: 7px 0; }
+.news-list.compact .news-item > a { font-size: 13px; font-weight: 500; }
+.news-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; font-size: 11px; color: var(--faint); }
+.ntag { background: var(--surface-2); border: 1px solid var(--border-2); color: var(--muted); border-radius: 4px; padding: 0 6px; }
+.nasset {
+  background: rgba(129,140,248,.12); border: 1px solid rgba(129,140,248,.35); color: #c7d2fe;
+  border-radius: 4px; padding: 0 6px; font-family: var(--mono); font-size: 11px; font-weight: 700;
+  display: inline-flex; gap: 4px; align-items: center;
+}
+.nasset .badge { font-size: 9px; padding: 0 4px; }
+.nasset.big { font-size: 13px; padding: 4px 10px; border-radius: 999px; }
+.nasset.big .badge { font-size: 10px; padding: 1px 6px; }
+
+/* ---------- verdict ---------- */
+.verdict.BUY { border-color: rgba(16,185,129,.4); }
+.verdict.HOLD { border-color: rgba(245,158,11,.4); }
+.verdict.AVOID { border-color: rgba(244,63,94,.4); }
+.vtitle { font-weight: 800; font-size: 17px; color: #fff; margin-bottom: 4px; }
+.kv.click:hover { background: var(--surface-2); }
