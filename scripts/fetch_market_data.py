@@ -8,12 +8,11 @@ Sources (all free, no API key):
   * Yahoo Finance chart API  - 1 year of daily OHLCV for stocks, ETFs, indices,
                                crypto, commodities and FX.
   * Stooq CSV                - fallback for US stocks/ETFs if Yahoo fails.
-  * News RSS feeds           - market-moving headlines (Yahoo Finance, CNBC,
-                               MarketWatch, BBC, Federal Reserve, CoinDesk) and
+  * News RSS feeds           - market-moving headlines (CNBC, MarketWatch, BBC, Federal Reserve, CoinDesk) and
                                per-symbol headlines from Yahoo Finance.
   * Consumer & economic data - FRED first; it often times out from GitHub
                                runners, so each series falls back to its official
-                               source: U. Michigan, BLS, Census, NY Fed, US Treasury.
+                               source: U. Michigan, BLS, NY Fed, US Treasury.
 
 If a symbol fails to download, the previous good copy from the existing
 data/market.json is kept so one bad run never blanks the app.
@@ -164,7 +163,6 @@ for s, n in [("GBPUSD=X", "GBP / USD"), ("EURUSD=X", "EUR / USD"), ("USDJPY=X", 
 # Consumer & economy series from FRED. transform: level | yoy (year-on-year % change)
 MACRO = [
     dict(id="UMCSENT", name="Consumer Sentiment (U. Michigan)", unit="index", transform="level"),
-    dict(id="RSAFS", name="Retail Sales", unit="% y/y", transform="yoy"),
     dict(id="CPIAUCSL", name="Inflation (CPI)", unit="% y/y", transform="yoy"),
     dict(id="UNRATE", name="Unemployment Rate", unit="%", transform="level"),
     dict(id="FEDFUNDS", name="Fed Funds Rate", unit="%", transform="level"),
@@ -556,28 +554,7 @@ def nyfed_effr_points():
     return to_monthly(pts, how="mean")
 
 
-def census_retail_points():
-    raw = http_get(
-        "https://api.census.gov/data/timeseries/eits/marts?get=cell_value,time_slot_id"
-        f"&for=us:*&time=from+{start_year() - 1}&category_code=44X72&data_type_code=SM&seasonally_adj=yes"
-    )
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        raise RuntimeError(f"Census replied with non-JSON: {raw[:150]!r}") from None
-    head, rows = data[0], data[1:]
-    iv, it = head.index("cell_value"), head.index("time")
-    pts = []
-    for r in rows:
-        try:
-            pts.append((r[it][:7] + "-01", float(str(r[iv]).replace(",", ""))))
-        except (ValueError, IndexError):
-            continue
-    return sorted(pts)
-
-
 MACRO_FALLBACKS = {
-    "RSAFS": [("US Census Bureau", census_retail_points)],
     "UMCSENT": [("University of Michigan", umich_points)],
     "CPIAUCSL": [("US Bureau of Labor Statistics", lambda: bls_points("CUSR0000SA0"))],
     "UNRATE": [("US Bureau of Labor Statistics", lambda: bls_points("LNS14000000"))],
@@ -630,11 +607,10 @@ def fetch_macro(spec: dict) -> dict:
 # News (RSS). Headlines are shown alongside the scores; they do not change them.
 # --------------------------------------------------------------------------
 MARKET_FEEDS = [
-    ("Yahoo Finance", "https://finance.yahoo.com/news/rssindex"),
     ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114"),
     ("CNBC Finance", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
     ("CNBC Economy", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258"),
-    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"),
     ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
     ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
     ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),

@@ -435,7 +435,7 @@
       <ul>${Object.entries(w).map(([k, v]) => `<li><b>${Scoring.FACTOR_LABELS[k]}</b> — ${Math.round(v * 100)}%</li>`).join('')}</ul>
       <p>Entry-timing adjustments: −8 to −12 if overbought (RSI above 75), −5 if oversold while still falling, +4 for a calm pause inside an uptrend.
       Signals: <b class="up">BUY</b> 70+, <b style="color:var(--hold)">HOLD</b> 45–69, <b class="down">AVOID</b> under 45.</p>
-      <p>The backdrop combines the S&amp;P 500 trend, the VIX fear gauge, how many stocks are in uptrends, consumer sentiment, retail sales, inflation, unemployment and the yield curve. When it is <i>Cautious</i>, steadier assets are favoured.</p>
+      <p>The backdrop combines the S&amp;P 500 trend, the VIX fear gauge, how many stocks are in uptrends, consumer sentiment, inflation, unemployment and the yield curve (plus retail sales when available). When it is <i>Cautious</i>, steadier assets are favoured.</p>
       <p>News headlines are shown next to each asset so you can spot events the numbers can't see yet (earnings, lawsuits, rate decisions). They do <b>not</b> change the score.</p>
       <p><b>Limits:</b> the score uses price history and economic data only — no company earnings or valuations. Momentum and trend effects are well documented, but they fail regularly, especially at turning points. The model has not been back-tested here. Treat the ranking as a shortlist for your own research. This is not financial advice.</p>
       <p class="faint">Data generated ${fmtDate(Date.parse(state.data.generated_at) / 1000, true)}${errs ? ` · ${errs} source error(s) in the last refresh (previous data kept)` : ''}.</p>
