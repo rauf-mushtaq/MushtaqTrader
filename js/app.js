@@ -4,7 +4,8 @@
 
   const DATA_URL = 'data/market.json';
   const LIVE_CRYPTO_MS = 60 * 1000;
-  const DATA_RELOAD_MS = 10 * 60 * 1000;
+  const DATA_RELOAD_MS = 10 * 60 * 1000;    // full reload fallback
+  const UPDATE_CHECK_MS = 60 * 1000;        // tiny "anything new?" check
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -197,7 +198,8 @@
       computeHistory();
       state.intradayAt = 0; // newer intraday prices come with each data update
       if (!initial && state.tab === 'asset' && INTRADAY_TF.has(state.tf)) loadIntraday(true);
-      if (initial) { render(); pollCrypto(); if (INTRADAY_TF.has(state.tf)) loadIntraday(); } else softRender();
+      if (initial) { render(); pollCrypto(); if (INTRADAY_TF.has(state.tf)) loadIntraday(); }
+      else { softRender(); toast('New prices loaded — updated ' + ago(Date.parse(data.generated_at))); }
     } catch (e) {
       if (initial) {
         state.loadError = e.message || String(e);
@@ -1419,12 +1421,72 @@
   // Clean up the old paper-trading account from earlier versions.
   try { localStorage.removeItem('mushtaqtrader.portfolio.v2'); } catch (e) { /* ignore */ }
 
+  // ---------------------------------------------------------------- small pop-up messages
+  let toastTimer = null;
+  function toast(msg) {
+    const el = $('#toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
+  }
+
+  // ---------------------------------------------------------------- auto-update (no refresh needed)
+  // Every minute, and whenever the app comes back on screen, check two tiny files:
+  // data/version.json (new prices?) and data/claude_view.json (new written note?).
+  // Also notice when a new version of the app itself has been published.
+  let appSig = null, appUpdateReady = false, checking = false;
+  async function appSignature() {
+    try {
+      const rs = await Promise.all(['js/app.js', 'js/scoring.js', 'js/companies.js', 'css/styles.css', 'index.html']
+        .map((u) => fetch(u + '?check=' + Date.now(), { method: 'HEAD', cache: 'no-store' })));
+      if (rs.some((r) => !r.ok)) return null;
+      return rs.map((r) => r.headers.get('etag') || r.headers.get('last-modified') || r.headers.get('content-length') || '').join('|');
+    } catch (e) { return null; }
+  }
+  async function applyAppUpdate() {
+    // Refresh the browser's cached copies first, then reload into the new version.
+    try { await Promise.all(['js/app.js', 'js/scoring.js', 'js/companies.js', 'css/styles.css', 'index.html'].map((u) => fetch(u, { cache: 'reload' }))); } catch (e) { /* ignore */ }
+    location.reload();
+  }
+  function offerAppUpdate() {
+    if (appUpdateReady) return;
+    appUpdateReady = true;
+    if (document.hidden) { applyAppUpdate(); return; }
+    const bar = document.createElement('div');
+    bar.className = 'update-bar';
+    bar.innerHTML = '<span>A new version of MushtaqTrader is ready.</span><button class="btn sm buy" id="do-update">Update now</button>';
+    document.body.appendChild(bar);
+    bar.querySelector('#do-update').addEventListener('click', applyAppUpdate);
+  }
+  async function checkForUpdates() {
+    if (checking || !state.data) return;
+    checking = true;
+    try {
+      const [v, note] = await Promise.all([loadJson('data/version.json'), loadJson('data/claude_view.json')]);
+      if (v && v.generated_at && v.generated_at !== state.data.generated_at) await loadData(false);
+      else if (note && note.updated && (!state.note || note.updated !== state.note.updated)) {
+        state.note = note; softRender(); toast("Claude's market note has been updated");
+      }
+      const sig = await appSignature();
+      if (sig) { if (appSig === null) appSig = sig; else if (sig !== appSig) offerAppUpdate(); }
+    } finally { checking = false; }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (appUpdateReady) { applyAppUpdate(); return; }
+    renderStatus(); checkForUpdates(); pollCrypto();
+  });
+  window.addEventListener('focus', () => { checkForUpdates(); });
+
   // ---------------------------------------------------------------- boot
   readRoute();
-  loadData(true);
+  loadData(true).then(() => appSignature().then((s) => { if (s) appSig = s; }));
   setInterval(pollCrypto, LIVE_CRYPTO_MS);
   pollCryptoMarket();
   setInterval(pollCryptoMarket, 5 * LIVE_CRYPTO_MS);
+  setInterval(checkForUpdates, UPDATE_CHECK_MS);
   setInterval(() => loadData(false), DATA_RELOAD_MS);
   setInterval(renderStatus, 60 * 1000);
 })();

@@ -1008,6 +1008,9 @@ def main() -> int:
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"))
     print(f"wrote {OUT_PATH} ({os.path.getsize(OUT_PATH) / 1024:.0f} KB)")
+    # Tiny file the page polls every minute to know when to fetch new data.
+    with open(os.path.join(ROOT, "data", "version.json"), "w", encoding="utf-8") as f:
+        json.dump(dict(generated_at=payload["generated_at"]), f)
     return 0
 
 

@@ -565,3 +565,11 @@ footer.foot p { margin: 0 0 6px; }
 .ci-date { color: var(--muted); font-weight: 600; }
 .ci-price { color: #fff; font-size: 17px; }
 .ci-row .up, .ci-row .down { font-weight: 700; }
+
+/* ---------- "new version ready" bar ---------- */
+.update-bar {
+  position: fixed; left: 50%; transform: translateX(-50%); top: calc(70px + env(safe-area-inset-top, 0px)); z-index: 70;
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 12px;
+  background: var(--surface-3); border: 1px solid var(--up-line); box-shadow: 0 12px 32px rgba(0,0,0,.5);
+  font-size: 14px; max-width: calc(100vw - 24px);
+}
