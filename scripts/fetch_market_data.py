@@ -140,7 +140,7 @@ for s, n, sec in [
     ("NEM", "Newmont", "Materials"), ("SHW", "Sherwin-Williams", "Materials"),
     ("SO", "Southern Company", "Utilities"), ("O", "Realty Income", "Real Estate"), ("EQIX", "Equinix", "Real Estate"),
     ("TMUS", "T-Mobile US", "Communication"), ("SPOT", "Spotify", "Communication"), ("SNAP", "Snap", "Communication"),
-    ("PINS", "Pinterest", "Communication"), ("RBLX", "Roblox", "Communication"), ("EA", "Electronic Arts", "Communication"),
+    ("PINS", "Pinterest", "Communication"), ("RBLX", "Roblox", "Communication"),
 ]:
     add(s, n, "stock", sec)
 

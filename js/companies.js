@@ -150,7 +150,6 @@
     SNAP: 'Snap makes Snapchat and earns money from adverts on it.',
     PINS: 'Pinterest runs the picture-based inspiration app and earns from adverts.',
     RBLX: 'Roblox runs an online platform where millions of young people play games made by other users.',
-    EA: 'Electronic Arts makes video games like EA Sports FC, Madden and The Sims.',
     // ---------- UK ----------
     'AZN.L': 'AstraZeneca makes medicines for cancer, heart disease and respiratory illness. One of the UK’s largest companies.',
     'GSK.L': 'GSK makes vaccines and medicines for HIV, respiratory illness and infectious diseases.',
