@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-18T07:25:00Z",
+  "updated": "2026-11-18T08:58:00Z",
   "author": "Claude",
-  "based_on_data": "2026-11-18T03:07:51Z",
-  "headline": "Quality over hype: money is moving out of tech and into steadier companies",
-  "summary": "Markets are nervous. The VIX fear gauge is 25.5, US consumer confidence is very weak at 48, and the S&P 500 is sitting right on its 200-day average. Investors are moving out of tech and into consumer staples and healthcare. Talk of more interest-rate rises is weighing on expensive growth stocks: a Fed official floated four more, and the Bank of England has just raised rates for the first time since 2023. I'm favouring quality companies at sensible entry points over anything that has already run hot.",
+  "based_on_data": "2026-11-18T08:08:12Z",
+  "headline": "A software sell-off and a jump in UK inflation keep the focus on steadier companies",
+  "summary": "US shares fell on Tuesday: the S&P 500 dropped 1.0% to sit just below its 200-day average, and the VIX fear gauge jumped 11% to 25.5. Software companies were hit hardest, with Salesforce down 9.5%, Intuit 7.2% and ServiceNow 6.5%, and the FTSE 100 lost 1.8%. This morning US stock futures are rising after Nvidia beat earnings expectations. But UK inflation has climbed to a one-year high of 3.6% on record diesel prices, which could keep interest rates higher for longer. The picks still favour steady consumer staples, healthcare and payments companies.",
   "points": [
-    "Nvidia beat expectations and raised its outlook, but its CEO's exit and an SEC investigation keep tech risky. I'd wait.",
-    "Consumer staples and healthcare are the strongest sectors. Energy is holding up, and Chevron has pulled back to a better entry point.",
-    "Coca-Cola is the model's #1, but after a 39% run it trades right at its analyst target. A better entry would be nearer its 50-day average.",
-    "Target and Walmart report this week. Their results will show how stretched US shoppers really are.",
-    "Every major cryptocurrency is still in a downtrend."
+    "Nvidia beat expectations and lifted US futures, but it is also warning chip buyers about legal risks tied to China AI access. Tech remains the weakest sector.",
+    "UK inflation rose to 3.6%, its highest in a year, driven by record diesel prices. That's a squeeze on UK shoppers and a reason the Bank of England may keep rates high.",
+    "Gulf tensions are in the headlines after Iran said it targeted US sites in Kuwait. Oil and gold were both down about 2% in early trading.",
+    "Target reports results today and Walmart tomorrow: a key read on how US shoppers are coping.",
+    "Bitcoin is stuck near $65,000 after a 12% slide, and every major cryptocurrency is still in a downtrend."
   ]
 }
