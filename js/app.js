@@ -32,6 +32,8 @@
     chartMode: 'candle',
     live: { status: 'off', at: null },
     fund: null,        // analyst / financial-health / earnings snapshot (data/fundamentals.json)
+    note: null,        // Claude's written market note (data/claude_view.json)
+    view: null,        // Claude's view picks, recalculated on every data change
     cg: null,          // live crypto market overview from CoinGecko
     watch: loadWatch(),
     prevBy: {},        // symbol -> {score, signal} as of the previous close
@@ -143,6 +145,13 @@
   }
 
   // ---------------------------------------------------------------- data
+  async function loadJson(path) {
+    try {
+      const res = await fetch(path + '?v=' + Date.now(), { cache: 'no-store' });
+      return res.ok ? await res.json() : null;
+    } catch (e) { return null; }
+  }
+
   async function loadFundamentals() {
     try {
       const res = await fetch('data/fundamentals.json?v=' + Date.now(), { cache: 'no-store' });
@@ -160,6 +169,7 @@
       if (!data || !Array.isArray(data.assets) || !data.assets.length) throw new Error('empty data file');
       if (!initial && state.data && data.generated_at === state.data.generated_at) return;
       state.fund = await loadFundamentals();
+      state.note = await loadJson('data/claude_view.json');
       // Add economy series that only the fundamentals snapshot has (e.g. retail sales).
       const have = new Set((data.macro || []).map((m) => m.id));
       data.macro = (data.macro || []).concat(((state.fund || {}).macro || []).filter((m) => !have.has(m.id)));
@@ -234,6 +244,9 @@
     const res = Scoring.scoreAll(state.assets, state.data.macro || [], state.fund);
     state.regime = res.regime;
     state.ranked = res.ranked;
+    const mentions = {};
+    state.news.forEach((n) => n.mentions.forEach((sym) => { (mentions[sym] = mentions[sym] || []).push(n); }));
+    state.view = Scoring.claudeView(res.ranked, res.regime, { symbolNews: (state.data.news || {}).symbols || {}, mentions });
     if (!state.selected && res.ranked.length) state.selected = res.ranked[0].symbol;
   }
 
@@ -472,8 +485,10 @@
     const bigNews = state.news.filter((n) => n.topics.some((t) => ['fed', 'inflation', 'economy', 'trade'].includes(t))).slice(0, 5);
 
     return `
-      <h1 class="section-title">Today's best buy, according to the data</h1>
-      <p class="section-sub">${state.ranked.length} real stocks, funds and cryptocurrencies scored on momentum, trend, risk and the economic backdrop.</p>
+      <h1 class="section-title">Today's best buys</h1>
+      <p class="section-sub">${state.ranked.length} real stocks, funds and cryptocurrencies scored on momentum, trend, risk, analysts, news and the economic backdrop.</p>
+      ${claudeCard()}
+      <h2 class="section-title">The model's #1</h2>
       <div class="card hero">
         <div>
           <div class="kicker">#1 overall · ${esc(typeLabel(top))} · ${esc(top.sector)}</div>
@@ -568,6 +583,51 @@
       </div>
       ${trackCard()}
       ${methodology()}`;
+  }
+
+  const TIMING = { now: ['BUY NOW', 'BUY'], dip: ['BUY ON A DIP', 'HOLD'], results: ['WAIT FOR RESULTS', 'HOLD'], watch: ['WATCH', 'HOLD'] };
+  function claudeCard() {
+    const v = state.view;
+    if (!v || !v.picks.length) return '';
+    const note = state.note;
+    const noteAge = note && note.updated ? (Date.now() - Date.parse(note.updated)) / 86400000 : null;
+    const dataAt = Date.parse(state.data.generated_at);
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+    const row = (r, i) => {
+      const a = r.a, m = a.metrics, f = a.fund || {};
+      const uk = a.cls === 'stock' && a.region === 'UK';
+      return `<li class="cv-pick" data-open="${esc(a.symbol)}">
+        <div class="cv-rank">${i + 1}</div>
+        <div class="cv-main">
+          <div class="row wrap" style="gap:6px 8px"><b class="cv-sym">${esc(a.symbol)}</b><span class="muted small">${esc(a.name)}</span>
+            <span class="badge BUY">${TIMING[r.timing][0]}</span>${uk ? '<span class="badge type" title="UK share: no currency risk, ISA-friendly">UK · ISA-friendly</span>' : ''}</div>
+          <div class="small cv-why">${esc(cap(r.why.slice(0, 3).join('; ')))}.</div>
+          <div class="tiny cv-risk">${r.risks.length ? 'Watch: ' + esc(r.risks.slice(0, 2).join('; ')) : 'No major warning signs in the data.'}${f.earnings ? ' · Results ' + esc(earnLabel(f.earnings)) : ''}</div>
+        </div>
+        <div class="cv-right"><div class="px">${fmtPrice(a, m.price)}</div><div class="small">${pct(m.change1d)}</div>
+          ${isNum(f.upside) ? `<div class="tiny muted">Target ${pct(f.upside, 0)}</div>` : ''}</div>
+      </li>`;
+    };
+    const chip = (r, label) => `<button class="nasset big" data-open="${esc(r.a.symbol)}">${esc(r.a.symbol)} <span class="faint">${label}</span></button>`;
+    return `<div class="card claude">
+      <div class="row between wrap" style="gap:6px;margin-bottom:6px">
+        <div class="cv-title"><span class="cv-logo">✦</span> Claude's view</div>
+        <span class="tiny faint">Picks recalculated ${ago(dataAt)} from the latest prices, news and analyst data</span>
+      </div>
+      ${note && note.headline ? `<h2 class="cv-head">${esc(note.headline)}</h2>` : ''}
+      <p class="cv-summary">${esc(note && note.summary ? note.summary : state.regime.summary)}</p>
+      ${note && Array.isArray(note.points) && note.points.length ? `<ul class="cv-points">${note.points.slice(0, 5).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+      ${note && note.updated ? `<div class="tiny faint" style="margin:-4px 0 12px">Market note written ${fmtDate(Date.parse(note.updated) / 1000, true)}${noteAge > 4 ? ' · <span style="color:var(--hold)">older note — picks below are still current</span>' : ''}</div>` : ''}
+      <div class="card-title" style="margin-top:6px">My picks right now</div>
+      <ol class="cv-picks">${v.picks.map(row).join('')}</ol>
+      ${v.uk ? `<div class="card-title" style="margin-top:14px">Best UK option</div><ol class="cv-picks">${row(v.uk, v.picks.length)}</ol>` : ''}
+      <div class="grid cols-3 cv-more">
+        ${v.dips.length ? `<div><div class="small muted" style="margin-bottom:8px">Good companies — wait for a dip</div><div class="chips">${v.dips.map((r) => chip(r, r.dipLevel ? 'below ' + fmtPrice(r.a, r.dipLevel) : 'stretched')).join('')}</div></div>` : ''}
+        ${v.results.length ? `<div><div class="small muted" style="margin-bottom:8px">Results due — wait and see</div><div class="chips">${v.results.map((r) => chip(r, r.a.fund && r.a.fund.earnings ? earnLabel(r.a.fund.earnings).replace(/\s*\(.*\)/, '') : '')).join('')}</div></div>` : ''}
+        ${v.avoid.length ? `<div><div class="small muted" style="margin-bottom:8px">Avoid for now</div><ul class="cv-avoid">${v.avoid.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      </div>
+      <p class="tiny faint" style="margin:14px 0 0">How this works: the picks re-rank automatically every time prices, news or analyst data change, using the reasoning Claude applies — analyst upside, entry timing, financial health, earnings dates, headline tone, which sectors suit the current market, and no doubling up on near-identical holdings. The written note is refreshed after each US market close. It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
+    </div>`;
   }
 
   function rankList(items) {
@@ -843,6 +903,7 @@
             <div class="card-title">Verdict</div>
             <div class="row" style="gap:12px">${a.score != null ? scoreRing(a.score) : ''}<div><div class="vtitle">${esc(v.title)}</div>${badge(a.signal)}</div></div>
             <p class="small" style="margin:10px 0 0">${esc(v.text)}</p>
+            ${claudeTake(a)}
           </div>
           ${analystCard(a)}
           <div class="card o-news">
@@ -921,6 +982,15 @@
       ${c.trending.length ? `<div class="small muted" style="margin:10px 0 6px">Trending searches right now</div><div class="chips">${c.trending.map((t) => `<span class="ntag" style="padding:2px 8px">${esc(t.name)} <span class="mono">${esc(t.symbol)}</span>${isNum(t.change) ? ' ' + pct(t.change / 100, 1) : ''}</span>`).join('')}</div>
         <div class="faint tiny" style="margin-top:6px">Trending means lots of people are searching for it, not that it's a good buy.</div>` : ''}
     </div>`;
+  }
+
+  function claudeTake(a) {
+    const r = state.view && state.view.bySymbol[a.symbol];
+    if (!r) return '';
+    const inPicks = state.view.picks.includes(r) || state.view.uk === r;
+    const label = inPicks ? 'One of my picks right now' : r.timing === 'dip' ? `Good company — I'd wait for a dip${r.dipLevel ? ' below ' + fmtPrice(a, r.dipLevel) : ''}` : r.timing === 'results' ? 'I\'d wait for its results first' : 'Not in my top picks right now';
+    return `<div class="cv-take"><div class="tiny" style="font-weight:800;color:var(--accent)">✦ CLAUDE'S TAKE</div>
+      <div class="small"><b>${esc(label)}.</b> ${r.why.length ? esc((r.why.slice(0, 2).join('; ')).replace(/^./, (c) => c.toUpperCase())) + '.' : ''}${r.risks.length ? ' Watch: ' + esc(r.risks.slice(0, 2).join('; ')) + '.' : ''}</div></div>`;
   }
 
   function stat(k, v) { return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`; }

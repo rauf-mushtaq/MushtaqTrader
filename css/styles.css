@@ -485,3 +485,34 @@ footer.foot p { margin: 0 0 6px; }
   .legend { gap: 10px; }
 }
 @media (max-width: 1360px) { .hdr-summary { display: none; } }
+
+/* ---------- Claude's view ---------- */
+.claude {
+  border-color: rgba(124, 147, 255, 0.45);
+  background: radial-gradient(900px 320px at 100% 0%, rgba(124, 147, 255, 0.12), transparent 60%), var(--surface);
+}
+.cv-title { font-weight: 800; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+.cv-logo { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-bg); color: var(--accent); font-size: 14px; }
+.cv-head { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: #fff; margin: 4px 0 8px !important; line-height: 1.25; }
+.cv-summary { margin: 0 0 10px; color: var(--text-2); max-width: 900px; }
+.cv-points { margin: 0 0 12px; padding-left: 18px; color: var(--text-2); font-size: 14px; }
+.cv-points li { margin: 3px 0; }
+.cv-picks { list-style: none; margin: 0; padding: 0; }
+.cv-pick { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 8px; margin: 0 -8px; border-radius: 10px; cursor: pointer; border-bottom: 1px solid rgba(31,44,67,.6); }
+.cv-pick:last-child { border-bottom: 0; }
+.cv-pick:hover { background: var(--surface-2); }
+.cv-rank { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--accent-bg); color: var(--accent); margin-top: 1px; }
+.cv-sym { color: #fff; font-size: 17px; }
+.cv-why { color: var(--text-2); margin-top: 4px; }
+.cv-risk { color: var(--faint); margin-top: 3px; }
+.cv-right { text-align: right; white-space: nowrap; }
+.cv-right .px { font-weight: 800; }
+.cv-more { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.cv-avoid { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }
+.cv-take { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--accent-bg); border: 1px solid rgba(124,147,255,.3); }
+@media (max-width: 720px) {
+  .cv-head { font-size: 19px; }
+  .cv-pick { grid-template-columns: 28px minmax(0, 1fr); }
+  .cv-right { grid-column: 2; text-align: left; display: flex; gap: 10px; align-items: baseline; }
+  .cv-rank { width: 24px; height: 24px; font-size: 13px; }
+}

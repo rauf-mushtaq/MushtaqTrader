@@ -387,8 +387,114 @@
     return { regime, ranked, weights: w };
   }
 
+  // ---------- Claude's view ----------
+  // Turns the scores into a short, diversified buy list using the same reasoning
+  // Claude applies by hand: analyst upside, entry timing, financial health,
+  // earnings dates, the tone of recent headlines, sector fit for the current
+  // market mood, and not doubling up on near-identical holdings.
+  const POS_WORDS = /\b(beats?|beat|tops|raises?|raised|upgrades?|upgraded|record|surges?|jumps?|soars?|best idea|outperform|strong|growth|wins?|approval|approved|deal)\b/i;
+  const NEG_WORDS = /\b(miss(es|ed)?|probe|investigation|lawsuit|sues?|breach|downgrades?|downgraded|cuts?|recall|fraud|struggles?|plunges?|slumps?|falls?|warns?|scandal|layoffs?|delay(s|ed)?|fine[sd]?)\b/i;
+  const DEFENSIVE = new Set(['Consumer Staples', 'Healthcare', 'Utilities']);
+  const CYCLICAL = new Set(['Technology', 'Consumer Discretionary', 'Communication', 'Crypto']);
+  const SAME_BET = [['V', 'MA'], ['SPY', 'DIA'], ['GOOGL', 'META']];
+
+  function newsTone(items) {
+    let pos = 0, neg = 0;
+    (items || []).slice(0, 8).forEach((n) => {
+      const t = n.title || '';
+      if (POS_WORDS.test(t)) pos++;
+      if (NEG_WORDS.test(t)) neg++;
+    });
+    return { pos, neg, net: pos - neg };
+  }
+
+  function claudeView(ranked, regime, opts) {
+    opts = opts || {};
+    const symNews = opts.symbolNews || {};
+    const mentions = opts.mentions || {};       // symbol -> market headlines mentioning it
+    const cautious = regime && regime.label === 'Cautious';
+    const riskOn = regime && regime.label === 'Risk-on';
+
+    // sector strength among stocks
+    const secAvg = {};
+    ranked.filter((a) => a.cls === 'stock').forEach((a) => { (secAvg[a.sector] = secAvg[a.sector] || []).push(a.score); });
+    const strongSectors = Object.entries(secAvg).map(([k, v]) => [k, v.reduce((s, x) => s + x, 0) / v.length])
+      .sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k]) => k);
+
+    const rows = ranked.filter((a) => a.score >= 60).map((a) => {
+      const m = a.metrics, f = a.fund || {};
+      let c = a.score;
+      const why = [], risks = [];
+      let timing = 'now';
+      // analysts
+      if (isNum(f.upside)) {
+        if (f.upside >= 0.10) { c += 6; why.push(`analysts see ${fmtPct(f.upside, 0)} upside`); }
+        else if (f.upside >= 0.05) { c += 3; why.push(`analyst target ${fmtPct(f.upside, 0)} above the price`); }
+        else if (f.upside < -0.01) { c -= 8; risks.push(`already ${fmtPct(-f.upside, 0)} above analysts' target`); timing = 'dip'; }
+        else if (f.upside < 0.01) { c -= 4; risks.push('trading right at the analysts\' target'); timing = 'dip'; }
+        else risks.push(`limited analyst upside (${fmtPct(f.upside, 0)})`);
+      }
+      const g = f.data && f.data.grades;
+      if (g && /hold|sell/i.test(g.consensus)) { c -= 4; risks.push(`most analysts say ${g.consensus}`); }
+      // entry timing
+      if (isNum(m.rsi14)) {
+        if (m.rsi14 > 68) { c -= 6; risks.push(`running hot (RSI ${m.rsi14.toFixed(0)})`); timing = 'dip'; }
+        else if (m.rsi14 <= 60 && m.trendPoints === m.trendMax && m.trendMax) { c += 4; why.push(`calm entry point in an uptrend (RSI ${m.rsi14.toFixed(0)})`); }
+      }
+      if (isNum(m.fromHigh) && m.fromHigh <= -0.05 && m.fromHigh >= -0.12 && m.aboveSma200) {
+        c += 4; why.push(`pulled back ${fmtPct(-m.fromHigh, 0)} from its high while the trend holds`);
+      }
+      // financial health
+      const h = f.data && f.data.health;
+      if (h && h.rating) {
+        if (h.rating[0] === 'A') { c += 3; why.push(`strong finances (${h.rating})`); }
+        else if (/^[CDF]/.test(h.rating)) { c -= 5; risks.push(`weaker finances (${h.rating})`); }
+      }
+      // earnings soon
+      if (f.earnings && f.earnings.days <= 7) { c -= 5; risks.push(`results due ${f.earnings.days <= 1 ? 'within a day' : 'in ' + f.earnings.days + ' days'}`); timing = 'results'; }
+      // news tone
+      const tone = newsTone((symNews[a.symbol] || []).concat(mentions[a.symbol] || []));
+      if (tone.net >= 2) { c += 3; why.push('recent headlines are positive'); }
+      else if (tone.net <= -2) { c -= 4; risks.push('recent headlines are negative'); }
+      // market mood and sector fit
+      if (cautious) {
+        if (DEFENSIVE.has(a.sector)) { c += 4; why.push(`${a.sector.toLowerCase()} tends to hold up in nervous markets`); }
+        if (CYCLICAL.has(a.sector) || a.cls === 'crypto') { c -= 4; risks.push('the kind of asset investors are selling right now'); }
+        if (isNum(m.vol) && m.vol > 0.35) { c -= 4; risks.push(`big swings (${fmtPct(m.vol, 0)} a year)`); }
+      } else if (riskOn && CYCLICAL.has(a.sector)) { c += 3; why.push('growth assets tend to lead when markets are confident'); }
+      if (strongSectors.includes(a.sector)) { c += 2; if (!why.some((w) => /sector|nervous/.test(w))) why.push(`${a.sector} is one of the strongest sectors`); }
+      if (!why.length) why.push(...(a.reasons.pros.slice(0, 1).map((p) => p.charAt(0).toLowerCase() + p.slice(1))));
+      if (a.signal !== 'BUY' && timing === 'now') timing = 'watch';
+      // A dip level only makes sense below today's price.
+      const dipLevel = isNum(m.sma50) && m.sma50 < m.price * 0.99 ? m.sma50 : null;
+      if (timing === 'dip' && !dipLevel) timing = 'watch';
+      return { a, conviction: Math.round(clamp(c, 0, 110)), why, risks, timing, dipLevel };
+    }).sort((x, y) => y.conviction - x.conviction);
+
+    // Diversified buy-now list: at most 2 per sector, no near-identical pairs.
+    const picks = [], perSector = {};
+    const clash = (sym) => SAME_BET.some((pair) => pair.includes(sym) && picks.some((p) => pair.includes(p.a.symbol) && p.a.symbol !== sym));
+    for (const r of rows) {
+      if (picks.length >= (opts.max || 5)) break;
+      if (r.timing !== 'now' || r.a.signal !== 'BUY') continue;
+      if ((perSector[r.a.sector] || 0) >= 2 || clash(r.a.symbol)) continue;
+      perSector[r.a.sector] = (perSector[r.a.sector] || 0) + 1;
+      picks.push(r);
+    }
+    const uk = rows.find((r) => r.a.cls === 'stock' && r.a.region === 'UK' && r.a.signal === 'BUY' && r.timing !== 'results');
+    const dips = rows.filter((r) => r.timing === 'dip' && r.a.signal === 'BUY').slice(0, 4);
+    const results = rows.filter((r) => r.timing === 'results').slice(0, 3);
+    const avoid = [];
+    const cryptos = ranked.filter((a) => a.cls === 'crypto');
+    if (cryptos.length && cryptos.every((a) => a.signal === 'AVOID')) avoid.push('All crypto — every coin is in a downtrend');
+    const weakest = Object.entries(secAvg).map(([k, v]) => [k, v.reduce((s, x) => s + x, 0) / v.length]).sort((x, y) => x[1] - y[1])[0];
+    if (weakest && weakest[1] < 45) avoid.push(`${weakest[0]} stocks — the weakest sector right now (average score ${Math.round(weakest[1])})`);
+    const bySymbol = Object.fromEntries(rows.map((r) => [r.a.symbol, r]));
+    return { picks, uk: uk && !picks.includes(uk) ? uk : null, dips, results, avoid, strongSectors, bySymbol };
+  }
+
   const api = {
-    scoreAll, computeMetrics, marketRegime, percentiles, rsi, smaSeries, smaLast,
+    scoreAll, claudeView, newsTone, computeMetrics, marketRegime, percentiles, rsi, smaSeries, smaLast,
     returnOver, annualisedVol, indexDaysAgo, signalFor, WEIGHTS, FACTOR_LABELS,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

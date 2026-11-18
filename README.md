@@ -4,6 +4,7 @@ An app that helps you decide what to buy. It tracks real prices for stocks, ETFs
 
 ## What it does
 
+- **Claude's view**: a shortlist at the top of Top Picks with a buy-now list (at most two per sector, with no near-identical pairs like Visa and Mastercard), the best UK option, good companies to buy on a dip (with a price level), stocks to wait on until their results are out, and what to avoid. The list re-ranks automatically whenever prices, news or analyst data change, using analyst upside, entry timing (RSI and pull-backs), financial health, earnings dates, the tone of recent headlines and which sectors suit the current market. A written market note from Claude (`data/claude_view.json`) is refreshed after each US market close. Each asset's page also shows "Claude's take".
 - **Best Buys**: about 115 real US and UK stocks, ETFs and cryptocurrencies get a 0–100 score from the last year of prices. The score covers momentum, trend, return per unit of risk, volatility and distance from the 52-week high. The #1 pick, the best in each market and a full ranking are shown, each with plain-English reasons and risks.
 - **Analysts & financial health** (US stocks on FMP's free plan, about 40 of them): analyst consensus and buy/hold/sell counts, average price target and upside, an A–F financial-health rating (profitability, debt, valuation) and the next earnings date. These feed a small "second opinion" adjustment to the score, capped at ±8 points. The app also warns when earnings are due within 7 days.
 - **Crypto market**: total crypto market value, Bitcoin's share of it and trending coins, loaded live from CoinGecko in the browser.
@@ -61,3 +62,4 @@ It then opens full-screen with its own icon.
 | `scripts/fetch_market_data.py` | Data fetcher (Python standard library only) |
 | `data/market.json` | Generated price, news and economy data. Don't edit it by hand. |
 | `data/fundamentals.json` | Analyst, financial-health, earnings and retail-sales data |
+| `data/claude_view.json` | Claude's written market note (headline, summary, key points) |
