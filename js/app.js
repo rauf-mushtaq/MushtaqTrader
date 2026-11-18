@@ -68,6 +68,16 @@
     const sym = { USD: '$', GBP: '£', EUR: '€', JPY: '¥' }[cur];
     return sym ? sym + n : n + ' ' + esc(cur || '');
   }
+  // Money change: whole-cent precision for normal prices, more only for tiny prices (e.g. small coins).
+  function fmtDiff(a, x) {
+    const p = a.metrics ? a.metrics.price : x;
+    if (a.cls === 'crypto' && p < 1) return fmtPrice(a, x);
+    const n = fmtNum(x, 2);
+    if (a.currency === 'GBp' || a.currency === 'GBX') return n + 'p';
+    const sym = { USD: '$', GBP: '£', EUR: '€', JPY: '¥' }[a.currency];
+    return sym ? sym + n : n;
+  }
+
   function pct(x, dp = 2) {
     if (!isNum(x)) return '<span class="faint">—</span>';
     const cls = x > 0 ? 'up' : x < 0 ? 'down' : 'muted';
@@ -1118,7 +1128,7 @@
       const label = state.tf === '1W' ? 'Past week' : (a.cls === 'crypto' || a.cls === 'fx') ? 'Last 24 hours' : s.sessionDay === todayDay ? 'Today' : `Last trading day · ${dayName}`;
       tfEl.className = 'tf-change ' + (ch >= 0 ? 'pos' : 'neg');
       tfEl.innerHTML = `<span class="tf-l">${label}</span><b>${ch >= 0 ? '▲' : '▼'} ${ch >= 0 ? '+' : '−'}${fmtNum(Math.abs(ch * 100), 2)}%</b>
-        <span class="tf-d">${diff >= 0 ? '+' : '−'}${fmtPrice(a, Math.abs(diff))} since ${esc(s.baseLabel)}</span>`;
+        <span class="tf-d">${diff >= 0 ? '+' : '−'}${fmtDiff(a, Math.abs(diff))} since ${esc(s.baseLabel)}</span>`;
     }
 
     // Grid + price axis
@@ -1219,7 +1229,7 @@
       const LABEL = { '1M': 'Past month', '3M': 'Past 3 months', '6M': 'Past 6 months', '1Y': 'Past year' };
       tfEl.className = 'tf-change ' + (ch >= 0 ? 'pos' : 'neg');
       tfEl.innerHTML = `<span class="tf-l">${LABEL[state.tf]}</span><b>${ch >= 0 ? '▲' : '▼'} ${ch >= 0 ? '+' : '−'}${fmtNum(Math.abs(ch * 100), 1)}%</b>
-        <span class="tf-d">${diff >= 0 ? '+' : '−'}${fmtPrice(a, Math.abs(diff))} since ${fmtDate(a.t[idx[0]])}</span>`;
+        <span class="tf-d">${diff >= 0 ? '+' : '−'}${fmtDiff(a, Math.abs(diff))} since ${fmtDate(a.t[idx[0]])}</span>`;
     }
     const mono = getComputedStyle(document.body).fontFamily;
 
