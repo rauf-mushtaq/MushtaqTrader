@@ -111,6 +111,39 @@ for s, n in [("PLD", "Prologis"), ("AMT", "American Tower")]:
 for s, n in [("LIN", "Linde"), ("FCX", "Freeport-McMoRan")]:
     add(s, n, "stock", "Materials")
 
+# More US-listed stocks (added for wider coverage)
+for s, n, sec in [
+    ("NOW", "ServiceNow", "Technology"), ("INTU", "Intuit", "Technology"), ("IBM", "IBM", "Technology"),
+    ("TXN", "Texas Instruments", "Technology"), ("AMAT", "Applied Materials", "Technology"),
+    ("LRCX", "Lam Research", "Technology"), ("ASML", "ASML Holding", "Technology"), ("ARM", "Arm Holdings", "Technology"),
+    ("PANW", "Palo Alto Networks", "Technology"), ("CRWD", "CrowdStrike", "Technology"), ("SNOW", "Snowflake", "Technology"),
+    ("SHOP", "Shopify", "Technology"), ("DELL", "Dell Technologies", "Technology"),
+    ("UBER", "Uber", "Industrials"), ("ABNB", "Airbnb", "Consumer Discretionary"),
+    ("C", "Citigroup", "Financials"), ("SCHW", "Charles Schwab", "Financials"), ("BLK", "BlackRock", "Financials"),
+    ("SPGI", "S&P Global", "Financials"), ("PGR", "Progressive", "Financials"), ("COIN", "Coinbase", "Financials"),
+    ("HOOD", "Robinhood", "Financials"), ("SOFI", "SoFi Technologies", "Financials"),
+    ("NVO", "Novo Nordisk", "Healthcare"), ("AMGN", "Amgen", "Healthcare"), ("GILD", "Gilead Sciences", "Healthcare"),
+    ("BMY", "Bristol Myers Squibb", "Healthcare"), ("VRTX", "Vertex Pharmaceuticals", "Healthcare"),
+    ("CVS", "CVS Health", "Healthcare"), ("MDT", "Medtronic", "Healthcare"), ("ABT", "Abbott Laboratories", "Healthcare"),
+    ("MRNA", "Moderna", "Healthcare"),
+    ("F", "Ford", "Consumer Discretionary"), ("GM", "General Motors", "Consumer Discretionary"),
+    ("RIVN", "Rivian", "Consumer Discretionary"), ("LULU", "Lululemon", "Consumer Discretionary"),
+    ("ROST", "Ross Stores", "Consumer Discretionary"), ("YUM", "Yum! Brands", "Consumer Discretionary"),
+    ("MAR", "Marriott", "Consumer Discretionary"), ("RCL", "Royal Caribbean", "Consumer Discretionary"),
+    ("CCL", "Carnival", "Consumer Discretionary"),
+    ("MO", "Altria", "Consumer Staples"), ("KHC", "Kraft Heinz", "Consumer Staples"), ("GIS", "General Mills", "Consumer Staples"),
+    ("KMB", "Kimberly-Clark", "Consumer Staples"), ("DG", "Dollar General", "Consumer Staples"),
+    ("RTX", "RTX", "Industrials"), ("NOC", "Northrop Grumman", "Industrials"), ("UPS", "UPS", "Industrials"),
+    ("FDX", "FedEx", "Industrials"), ("DAL", "Delta Air Lines", "Industrials"), ("UAL", "United Airlines", "Industrials"),
+    ("WM", "Waste Management", "Industrials"), ("ETN", "Eaton", "Industrials"),
+    ("OXY", "Occidental Petroleum", "Energy"), ("EOG", "EOG Resources", "Energy"),
+    ("NEM", "Newmont", "Materials"), ("SHW", "Sherwin-Williams", "Materials"),
+    ("SO", "Southern Company", "Utilities"), ("O", "Realty Income", "Real Estate"), ("EQIX", "Equinix", "Real Estate"),
+    ("TMUS", "T-Mobile US", "Communication"), ("SPOT", "Spotify", "Communication"), ("SNAP", "Snap", "Communication"),
+    ("PINS", "Pinterest", "Communication"), ("RBLX", "Roblox", "Communication"), ("EA", "Electronic Arts", "Communication"),
+]:
+    add(s, n, "stock", sec)
+
 # UK (FTSE 100) stocks - Yahoo quotes these in pence (GBp)
 for s, n, sec in [
     ("AZN.L", "AstraZeneca", "Healthcare"), ("GSK.L", "GSK", "Healthcare"),
@@ -122,6 +155,16 @@ for s, n, sec in [
     ("RIO.L", "Rio Tinto", "Materials"), ("RR.L", "Rolls-Royce", "Industrials"),
     ("VOD.L", "Vodafone", "Communication"), ("BT-A.L", "BT Group", "Communication"),
     ("NXT.L", "Next", "Consumer Discretionary"),
+    ("LSEG.L", "London Stock Exchange Group", "Financials"), ("PRU.L", "Prudential", "Financials"),
+    ("LGEN.L", "Legal & General", "Financials"), ("AV.L", "Aviva", "Financials"), ("NWG.L", "NatWest", "Financials"),
+    ("REL.L", "RELX", "Industrials"), ("EXPN.L", "Experian", "Industrials"), ("BA.L", "BAE Systems", "Industrials"),
+    ("IAG.L", "International Airlines Group", "Industrials"), ("EZJ.L", "easyJet", "Industrials"),
+    ("NG.L", "National Grid", "Utilities"), ("SSE.L", "SSE", "Utilities"),
+    ("SBRY.L", "Sainsbury's", "Consumer Staples"), ("MKS.L", "Marks & Spencer", "Consumer Staples"),
+    ("IMB.L", "Imperial Brands", "Consumer Staples"), ("RKT.L", "Reckitt", "Consumer Staples"), ("HLN.L", "Haleon", "Consumer Staples"),
+    ("JD.L", "JD Sports", "Consumer Discretionary"), ("CPG.L", "Compass Group", "Consumer Discretionary"),
+    ("AAL.L", "Anglo American", "Materials"), ("GLEN.L", "Glencore", "Materials"),
+    ("AUTO.L", "Auto Trader", "Communication"),
 ]:
     add(s, n, "stock", sec, region=UK)
 
@@ -139,6 +182,10 @@ for s, n, sec in [
     ("GLD", "Gold ETF", "Commodities"), ("TLT", "20+ Year Treasury ETF", "Bonds"),
 ]:
     add(s, n, "etf", sec)
+for s, n, sec in [
+    ("VUSA.L", "Vanguard S&P 500 (UK-listed)", "Broad Market"), ("ISF.L", "iShares FTSE 100 (UK-listed)", "Broad Market"),
+]:
+    add(s, n, "etf", sec, region=UK)
 
 # Crypto (cg = CoinGecko id, used by the browser for live prices)
 for s, n, cg in [

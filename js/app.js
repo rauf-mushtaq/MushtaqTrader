@@ -27,6 +27,7 @@
     mktFilter: 'all',
     newsTopic: 'all',
     mktOpen: new Set(),
+    mktVerdict: 'all',
     search: '',
     tf: '6M',
     chartMode: 'candle',
@@ -439,6 +440,18 @@
     </div>`;
   }
 
+  const describe = (sym) => (window.Companies ? window.Companies.describe(sym) : '');
+  function verdictBadge(r) {
+    if (!r || !r.verdict) return '';
+    return `<span class="vb ${r.verdict.key}">${esc(r.verdict.label)}</span>`;
+  }
+  function verdictText(r, a) {
+    if (!r || !r.verdict) return '';
+    let reason = r.verdict.reason || '';
+    if (r.verdict.key === 'dip' && r.dipLevel) reason = `wait for it to dip below ${fmtPrice(a, r.dipLevel)}${reason ? ' (' + reason + ')' : ''}`;
+    return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + '.' : '';
+  }
+
   const isWide = () => !window.matchMedia || window.matchMedia('(min-width: 721px)').matches;
 
   function filterRanked(filter, sector) {
@@ -601,6 +614,7 @@
         <div class="cv-main">
           <div class="row wrap" style="gap:6px 8px"><b class="cv-sym">${esc(a.symbol)}</b><span class="muted small">${esc(a.name)}</span>
             <span class="badge BUY">${TIMING[r.timing][0]}</span>${uk ? '<span class="badge type" title="UK share: no currency risk, ISA-friendly">UK · ISA-friendly</span>' : ''}</div>
+          ${describe(a.symbol) ? `<div class="tiny cv-desc">${esc(describe(a.symbol))}</div>` : ''}
           <div class="small cv-why">${esc(cap(r.why.slice(0, 3).join('; ')))}.</div>
           <div class="tiny cv-risk">${r.risks.length ? 'Watch: ' + esc(r.risks.slice(0, 2).join('; ')) : 'No major warning signs in the data.'}${f.earnings ? ' · Results ' + esc(earnLabel(f.earnings)) : ''}</div>
         </div>
@@ -626,7 +640,7 @@
         ${v.results.length ? `<div><div class="small muted" style="margin-bottom:8px">Results due — wait and see</div><div class="chips">${v.results.map((r) => chip(r, r.a.fund && r.a.fund.earnings ? earnLabel(r.a.fund.earnings).replace(/\s*\(.*\)/, '') : '')).join('')}</div></div>` : ''}
         ${v.avoid.length ? `<div><div class="small muted" style="margin-bottom:8px">Avoid for now</div><ul class="cv-avoid">${v.avoid.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       </div>
-      <p class="tiny faint" style="margin:14px 0 0">How this works: the picks re-rank automatically every time prices, news or analyst data change, using the reasoning Claude applies — analyst upside, entry timing, financial health, earnings dates, headline tone, which sectors suit the current market, and no doubling up on near-identical holdings. The written note is refreshed after each US market close. It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
+      <p class="tiny faint" style="margin:14px 0 0">How this works: the picks re-rank automatically every time prices, news or analyst data change, using the reasoning Claude applies — analyst upside, entry timing, financial health, earnings dates, headline tone, which sectors suit the current market, and no doubling up on near-identical holdings. The written note is refreshed three times each weekday (UK morning, before the US open and after the US close). It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
     </div>`;
   }
 
@@ -749,39 +763,58 @@
   }
 
   const MARKET_GROUPS = [
-    ['index', 'Indices', (a) => a.cls === 'index'],
     ['us', 'US stocks', (a) => a.cls === 'stock' && a.region === 'US'],
     ['uk', 'UK stocks (FTSE)', (a) => a.cls === 'stock' && a.region === 'UK'],
-    ['etf', 'ETFs & sector funds', (a) => a.cls === 'etf'],
+    ['etf', 'ETFs & funds', (a) => a.cls === 'etf'],
     ['crypto', 'Crypto', (a) => a.cls === 'crypto'],
+    ['index', 'Stock-market indices', (a) => a.cls === 'index'],
     ['commodity', 'Commodities', (a) => a.cls === 'commodity'],
     ['fx', 'Currencies', (a) => a.cls === 'fx'],
   ];
 
   function viewMarkets() {
     const q = state.search.trim().toLowerCase();
-    const match = (a) => !q || a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || (a.sector || '').toLowerCase().includes(q);
+    const vf = state.mktVerdict;
+    const vOf = (a) => state.view && state.view.bySymbol[a.symbol];
+    const match = (a) => (!q || a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || (a.sector || '').toLowerCase().includes(q) || describe(a.symbol).toLowerCase().includes(q))
+      && (vf === 'all' || (vOf(a) && (vf === 'buy' ? ['top', 'good'].includes(vOf(a).verdict.key) : vOf(a).verdict.key === vf)));
     const limit = isWide() ? 12 : 6;
-    const groups = MARKET_GROUPS.filter(([k]) => state.mktFilter === 'all' || state.mktFilter === k).map(([key, label, fn]) => {
+    const groups = MARKET_GROUPS.filter(([k]) => (state.mktFilter === 'all' || state.mktFilter === k) && (vf === 'all' || !['index', 'commodity', 'fx'].includes(k))).map(([key, label, fn]) => {
       const items = state.assets.filter((a) => a.metrics && fn(a) && match(a));
       if (!items.length) return '';
       const all = q || state.mktFilter === key || state.mktOpen.has(key);
       const shown = all ? items : items.slice(0, limit);
       return `<h2 class="section-title">${label} <span class="faint small">(${items.length})</span></h2>
-        <div class="mgrid">${shown.map(marketCard).join('')}</div>
+        <div class="${['index', 'commodity', 'fx'].includes(key) ? 'mgrid' : 'guide'}">${shown.map((a) => (['index', 'commodity', 'fx'].includes(key) ? marketCard(a) : guideRow(a))).join('')}</div>
         ${shown.length < items.length ? `<div class="more-row"><button class="btn sm" data-mopen="${key}">Show all ${items.length}</button></div>` : ''}`;
     }).join('');
     return `
-      <h1 class="section-title">All markets</h1>
-      <p class="section-sub">Real prices across stocks, funds, crypto, commodities and currencies. Tap any card for the full analysis.</p>
+      <h1 class="section-title">All companies &amp; markets</h1>
+      <p class="section-sub">What every company does, in plain English, with my verdict on whether it's a good buy right now. Verdicts update automatically whenever prices, news or analyst data change. Tap any company for the full analysis.</p>
       <div class="row wrap" style="margin-bottom:8px">
-        <input class="input" id="mkt-search" placeholder="Search symbol, name or sector…" value="${esc(state.search)}" style="flex:1;min-width:200px">
+        <input class="input" id="mkt-search" placeholder="Search a company, symbol, sector or what it does…" value="${esc(state.search)}" style="flex:1;min-width:200px">
+      </div>
+      <div class="chips scroll-x" style="margin-bottom:8px">
+        ${[['all', 'Every verdict'], ['buy', 'Top picks & good buys'], ['dip', 'Buy on a dip'], ['results', 'Wait for results'], ['hold', 'Not yet'], ['avoid', 'Avoid']].map(([k, l]) => `<button class="fchip ${state.mktVerdict === k ? 'active' : ''}" data-mverdict="${k}">${l}</button>`).join('')}
       </div>
       <div class="chips scroll-x">
         ${[['all', 'All']].concat(MARKET_GROUPS.map(([k, l]) => [k, l])).map(([k, l]) => `<button class="fchip ${state.mktFilter === k ? 'active' : ''}" data-mkt="${k}">${l}</button>`).join('')}
       </div>
       ${state.mktFilter === 'all' || state.mktFilter === 'crypto' ? cryptoMarketCard() : ''}
       ${groups || '<div class="card empty" style="margin-top:12px">No matches.</div>'}`;
+  }
+
+  function guideRow(a) {
+    const m = a.metrics, r = state.view && state.view.bySymbol[a.symbol];
+    return `<div class="card grow" data-open="${esc(a.symbol)}">
+      <div class="g-top">
+        <div style="min-width:0"><div class="row" style="gap:8px"><b class="g-sym">${esc(a.symbol)}</b><span class="g-name">${esc(a.name)}</span></div>
+          <div class="tiny faint">${esc(typeLabel(a))} · ${esc(a.sector)}</div></div>
+        <div class="g-px"><div class="px">${fmtPrice(a, m.price)}</div><div class="small">${pct(m.change1d)}</div></div>
+      </div>
+      <p class="g-desc">${esc(describe(a.symbol) || a.name)}</p>
+      ${r ? `<div class="g-verdict">${verdictBadge(r)}<span class="small">${esc(verdictText(r, a))}</span></div>` : ''}
+    </div>`;
   }
 
   function marketCard(a) {
@@ -870,6 +903,7 @@
               <div class="spacer"></div>
               ${a.score != null ? `<div class="row">${badge(a.signal)}<span class="mono small muted">Score <b style="color:${scoreColor(a.score)}">${a.score}</b>${scoreDelta(a)} · Rank #${a.rankPos} of ${state.ranked.length}</span></div>` : ''}
             </div>
+            ${describe(a.symbol) ? `<p class="asset-desc">${esc(describe(a.symbol))}</p>` : ''}
             <div class="row wrap between" style="margin:14px 0 8px;gap:8px">
               <div class="legend"><span><i style="background:var(--sma50)"></i>50-day avg</span><span><i style="background:var(--sma200)"></i>200-day avg</span></div>
               <div class="row chart-controls">
@@ -1147,6 +1181,7 @@
     if (d.lb) { state.lbFilter = d.lb; state.lbLimit = 25; render(); return; }
     if (d.mkt) { state.mktFilter = d.mkt; render(); return; }
     if (d.mopen) { state.mktOpen.add(d.mopen); render(); return; }
+    if (d.mverdict) { state.mktVerdict = d.mverdict; render(); return; }
     if (d.ntopic) { state.newsTopic = d.ntopic; render(); return; }
     if (d.tf) { state.tf = d.tf; render(); return; }
     if (d.mode) { state.chartMode = d.mode; render(); return; }

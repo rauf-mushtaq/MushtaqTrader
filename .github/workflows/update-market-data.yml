@@ -4,8 +4,8 @@ on:
   schedule:
     # Every 30 min while the UK and US markets are open (UTC, Mon-Fri)
     - cron: "7,37 7-21 * * 1-5"
-    # Crypto trades all weekend: every 4 hours on Sat/Sun
-    - cron: "17 */4 * * 0,6"
+    # Crypto trades all weekend: every 2 hours on Sat/Sun
+    - cron: "17 */2 * * 0,6"
   workflow_dispatch:
   push:
     branches: [main]

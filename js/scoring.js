@@ -421,7 +421,7 @@
     const strongSectors = Object.entries(secAvg).map(([k, v]) => [k, v.reduce((s, x) => s + x, 0) / v.length])
       .sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k]) => k);
 
-    const rows = ranked.filter((a) => a.score >= 60).map((a) => {
+    const rows = ranked.map((a) => {
       const m = a.metrics, f = a.fund || {};
       let c = a.score;
       const why = [], risks = [];
@@ -489,6 +489,18 @@
     if (cryptos.length && cryptos.every((a) => a.signal === 'AVOID')) avoid.push('All crypto — every coin is in a downtrend');
     const weakest = Object.entries(secAvg).map(([k, v]) => [k, v.reduce((s, x) => s + x, 0) / v.length]).sort((x, y) => x[1] - y[1])[0];
     if (weakest && weakest[1] < 45) avoid.push(`${weakest[0]} stocks — the weakest sector right now (average score ${Math.round(weakest[1])})`);
+    // A plain verdict for every asset.
+    const lower = (t) => (t ? t.charAt(0).toLowerCase() + t.slice(1) : '');
+    rows.forEach((r) => {
+      const a = r.a;
+      const firstCon = r.risks[0] || lower(a.reasons.cons[0]) || '';
+      if (picks.includes(r) || uk === r) r.verdict = { key: 'top', label: 'Top pick', reason: r.why[0] || '' };
+      else if (r.timing === 'results') r.verdict = { key: 'results', label: 'Wait for results', reason: r.risks.find((x) => /results/.test(x)) || '' };
+      else if (a.signal === 'BUY' && r.timing === 'now') r.verdict = { key: 'good', label: 'Good buy', reason: r.why[0] || '' };
+      else if (a.signal === 'BUY' && r.timing === 'dip') r.verdict = { key: 'dip', label: 'Buy on a dip', reason: firstCon };
+      else if (a.signal === 'AVOID') r.verdict = { key: 'avoid', label: 'Avoid for now', reason: firstCon || 'weak trend and momentum' };
+      else r.verdict = { key: 'hold', label: 'Not yet', reason: firstCon || `mixed signals (score ${a.score}/100), not strong enough to buy yet` };
+    });
     const bySymbol = Object.fromEntries(rows.map((r) => [r.a.symbol, r]));
     return { picks, uk: uk && !picks.includes(uk) ? uk : null, dips, results, avoid, strongSectors, bySymbol };
   }
