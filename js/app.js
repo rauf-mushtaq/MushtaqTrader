@@ -26,6 +26,7 @@
     lbLimit: 25,
     mktFilter: 'all',
     newsTopic: 'all',
+    mktOpen: new Set(),
     search: '',
     tf: '6M',
     chartMode: 'candle',
@@ -343,7 +344,7 @@
       const gen = Date.parse(state.data.generated_at);
       const old = Date.now() - gen > 1000 * 60 * 60 * 26;
       chips.push(`<span class="chip ${old ? 'warn' : 'ok'}" title="Stocks, ETFs, indices, news and economic data">
-        <span class="dot"></span>REAL DATA · updated ${ago(gen)}</span>`);
+        <span class="dot"></span><span class="long">Real data · updated</span><span class="short">Updated</span> ${ago(gen)}</span>`);
     } else if (state.loadError) {
       chips.push('<span class="chip err"><span class="dot"></span>NO DATA</span>');
     }
@@ -376,7 +377,7 @@
   function render() {
     renderStatus();
     if (state.data) writeRoute();
-    document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
+    document.querySelectorAll('.tab, .bnav-item').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
     const view = $('#view');
     if (!state.data) {
       view.innerHTML = state.loadError ? emptyState() : '<div class="loading">Loading real market data…</div>';
@@ -409,21 +410,23 @@
       <p class="faint small">Error: ${esc(state.loadError)}</p></div>`;
   }
 
-  function regimeCard(compact) {
+  function regimeCard() {
     const r = state.regime;
     if (!r) return '';
     const items = r.factors.map((f) => `<li><span class="sig ${f.signal > 0 ? 'p' : f.signal < 0 ? 'n' : 'z'}">${f.signal > 0 ? '+' : f.signal < 0 ? '−' : '·'}</span><span>${esc(f.text)}</span></li>`).join('');
     return `<div class="card">
-      <div class="card-title">Market backdrop — built from index trends, fear gauge, breadth and consumer data</div>
+      <div class="card-title">Market backdrop</div>
       <div class="regime">
         <div><div class="regime-label ${r.label}">${r.label.toUpperCase()}</div>
-          <div class="small muted">Signal total ${r.total > 0 ? '+' : ''}${r.total}</div></div>
+          <div class="small muted">Signal total ${r.total > 0 ? '+' : ''}${r.total} from ${r.factors.length} indicators</div></div>
         <div><p style="margin:0 0 10px">${esc(r.summary)}</p>
-          ${compact ? '' : `<ul class="factor-list">${items}</ul>`}</div>
+          <details class="regime-more" ${isWide() ? 'open' : ''}><summary>Show the ${r.factors.length} indicators behind this ›</summary>
+            <ul class="factor-list">${items}</ul></details></div>
       </div>
-      ${compact ? `<ul class="factor-list" style="margin-top:12px">${items}</ul>` : ''}
     </div>`;
   }
+
+  const isWide = () => !window.matchMedia || window.matchMedia('(min-width: 721px)').matches;
 
   function filterRanked(filter, sector) {
     return state.ranked.filter((a) => {
@@ -471,8 +474,6 @@
     return `
       <h1 class="section-title">Today's best buy, according to the data</h1>
       <p class="section-sub">${state.ranked.length} real stocks, funds and cryptocurrencies scored on momentum, trend, risk and the economic backdrop.</p>
-      ${regimeCard(false)}
-      <div style="height:12px"></div>
       <div class="card hero">
         <div>
           <div class="kicker">#1 overall · ${esc(typeLabel(top))} · ${esc(top.sector)}</div>
@@ -489,7 +490,7 @@
               </div>
             </div>
           </div>
-          <div style="margin-top:10px">${sparkline(top.c.slice(-90), 400, 60)}</div>
+          <div class="spark" style="margin-top:12px">${sparkline(top.c.slice(-90), 400, 60)}</div>
           <div class="row wrap tiny muted mono">
             <span>1M ${pct(m.r1m, 1)}</span><span>3M ${pct(m.r3m, 1)}</span><span>1Y ${pct(m.r1y, 1)}</span>
             <span>RSI ${isNum(m.rsi14) ? m.rsi14.toFixed(0) : '—'}</span><span>Vol ${isNum(m.vol) ? (m.vol * 100).toFixed(0) + '%' : '—'}</span>
@@ -507,7 +508,9 @@
         </div>
       </div>
 
-      <div class="grid cols-3" style="margin-top:12px">${changesCard()}${earningsCard() || ''}${watchCard()}</div>
+      <div style="height:16px"></div>
+      ${regimeCard()}
+      <div class="grid cols-3" style="margin-top:16px">${changesCard()}${earningsCard() || ''}${watchCard()}</div>
 
       <h2 class="section-title">Best in each market</h2>
       <div class="grid cols-4">
@@ -530,8 +533,8 @@
 
       <h2 class="section-title">Full ranking</h2>
       <div class="card">
-        <div class="row wrap between" style="margin-bottom:10px">
-          <div class="chips">
+        <div class="row wrap between" style="margin-bottom:12px;gap:10px">
+          <div class="chips scroll-x" style="flex:1;min-width:0">
             ${[['all', 'All'], ['watch', '★ Watchlist'], ['us', 'US stocks'], ['uk', 'UK stocks'], ['etf', 'ETFs'], ['crypto', 'Crypto']].map(([k, l]) => `<button class="fchip ${state.lbFilter === k ? 'active' : ''}" data-lb="${k}">${l}</button>`).join('')}
           </div>
           <select class="input" id="lb-sector" aria-label="Sector">
@@ -540,7 +543,8 @@
           </select>
         </div>
         <div class="small muted" style="margin-bottom:6px">${list.length} assets · <span class="up">${counts.BUY} BUY</span> · <span style="color:var(--hold)">${counts.HOLD} HOLD</span> · <span class="down">${counts.AVOID} AVOID</span></div>
-        <div class="table-wrap"><table>
+        ${rankList(shown)}
+        <div class="table-wrap rank-table"><table>
           <thead><tr><th></th><th>#</th><th>Asset</th><th class="hide-sm">Type</th><th class="num">Price</th><th class="num">1D</th>
             <th class="num hide-sm">1M</th><th class="num">3M</th><th class="num hide-sm">1Y</th><th class="num hide-sm">RSI</th><th class="num hide-sm" title="Analysts' average price target vs today's price">Target</th><th>Score</th><th>Signal</th></tr></thead>
           <tbody>${shown.map((a) => {
@@ -564,6 +568,18 @@
       </div>
       ${trackCard()}
       ${methodology()}`;
+  }
+
+  function rankList(items) {
+    return `<ul class="rlist">${items.map((a) => {
+      const mm = a.metrics;
+      return `<li data-open="${esc(a.symbol)}">
+        <span class="rk">${a.rankPos}</span>${starBtn(a.symbol)}
+        <div class="nm" style="min-width:0"><b>${esc(a.symbol)}</b>${a.live ? ' <span class="badge live">LIVE</span>' : ''}<div>${esc(a.name)}</div></div>
+        <div class="rt"><div class="px">${fmtPrice(a, mm.price)} <span class="small">${pct(mm.change1d)}</span></div>
+          <div class="sc">${scoreDelta(a)}<span class="pill-score" style="background:${scoreColor(a.score)}">${a.score}</span>${badge(a.signal)}</div></div>
+      </li>`;
+    }).join('')}</ul>`;
   }
 
   function changesCard() {
@@ -607,12 +623,12 @@
     if (!rows.length) return '';
     return `<h2 class="section-title">Sector strength</h2>
       <p class="section-sub">Average score of the stocks tracked in each sector. Strong sectors tend to stay strong for a while; weak ones can take time to turn.</p>
-      <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Sector</th><th>Avg score</th><th class="num">BUYs</th><th class="num hide-sm">1M avg</th><th>Best in sector</th></tr></thead>
+      <div class="card"><div class="table-wrap"><table class="fit">
+        <thead><tr><th>Sector</th><th>Avg score</th><th class="num">BUYs</th><th class="num hide-sm">1M avg</th><th class="hide-sm">Best in sector</th></tr></thead>
         <tbody>${rows.map((r) => `<tr class="click" data-sector="${esc(r.sec)}">
           <td><b>${esc(r.sec)}</b> <span class="faint small">(${r.n})</span></td><td>${scoreBar(r.score)}</td>
           <td class="num">${r.buys}/${r.n}</td><td class="num hide-sm">${pct(r.r1m, 1)}</td>
-          <td><a href="#" data-open="${esc(r.best.symbol)}" class="mono">${esc(r.best.symbol)}</a> ${badge(r.best.signal)}</td></tr>`).join('')}</tbody>
+          <td class="hide-sm"><a href="#" data-open="${esc(r.best.symbol)}" class="mono">${esc(r.best.symbol)}</a> ${badge(r.best.signal)}</td></tr>`).join('')}</tbody>
       </table></div><div class="faint tiny" style="margin-top:6px">Tap a sector to filter the full ranking.</div></div>`;
   }
 
@@ -621,11 +637,11 @@
     const beat = state.track.filter((r) => isNum(r.avg) && isNum(r.spy) && r.avg > r.spy).length;
     return `<h2 class="section-title">Track record</h2>
       <p class="section-sub">If you had bought the model's top 5 on these dates, here's how they'd have done since — compared with the S&amp;P 500 and with every asset the model ranks.</p>
-      <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Picked on</th><th>Top 5 then</th><th class="num">Top 5 avg</th><th class="num">S&amp;P 500</th><th class="num hide-sm">All assets</th></tr></thead>
+      <div class="card"><div class="table-wrap"><table class="fit">
+        <thead><tr><th>Picked on</th><th class="hide-sm">Top 5 then</th><th class="num">Top 5 avg</th><th class="num">S&amp;P 500</th><th class="num hide-sm">All assets</th></tr></thead>
         <tbody>${state.track.map((r) => `<tr>
-          <td class="nowrap">${fmtDate(r.cut)}<div class="faint tiny">${r.days} days ago · ${esc(r.regime)}</div></td>
-          <td>${r.picks.map((p) => `<a href="#" data-open="${esc(p.sym)}" class="mono">${esc(p.sym)}</a> <span class="tiny">${pct(p.ret, 0)}</span>`).join(' · ')}</td>
+          <td class="nowrap">${fmtDate(r.cut)}<div class="faint tiny">${r.days} days ago · ${esc(r.regime)}</div><div class="show-sm tiny">${r.picks.map((p) => esc(p.sym)).join(', ')}</div></td>
+          <td class="wrap-cell hide-sm">${r.picks.map((p) => `<a href="#" data-open="${esc(p.sym)}" class="mono">${esc(p.sym)}</a> <span class="tiny">${pct(p.ret, 0)}</span>`).join(' · ')}</td>
           <td class="num"><b>${pct(r.avg, 1)}</b></td><td class="num">${pct(r.spy, 1)}</td><td class="num hide-sm">${pct(r.all, 1)}</td></tr>`).join('')}</tbody>
       </table></div>
       <p class="small muted" style="margin:10px 0 0">The top 5 beat the S&amp;P 500 in <b>${beat} of ${state.track.length}</b> of these periods. This is a quick check, not proof: three short windows, using today's list of tracked assets. Past picks working doesn't guarantee future ones will.</p></div>`;
@@ -664,9 +680,9 @@
       <p class="section-sub">Headlines that can move markets, from ${esc(sources.join(', '))}. Refreshed with each data update. Tap a ticker to see how the data rates it.</p>
       ${inNews.length ? `<div class="card" style="margin-bottom:12px">
         <div class="card-title">Tracked assets in the news</div>
-        <div class="chips">${inNews.map(([a, c]) => `<button class="nasset big" data-open="${esc(a.symbol)}">${esc(a.symbol)} <span class="faint">×${c}</span> ${a.signal ? `<span class="badge ${a.signal}">${a.signal} ${a.score}</span>` : ''}</button>`).join('')}</div>
+        <div class="chips scroll-x">${inNews.map(([a, c]) => `<button class="nasset big" data-open="${esc(a.symbol)}">${esc(a.symbol)} <span class="faint">×${c}</span> ${a.signal ? `<span class="badge ${a.signal}">${a.signal} ${a.score}</span>` : ''}</button>`).join('')}</div>
       </div>` : ''}
-      <div class="chips" style="margin-bottom:12px">
+      <div class="chips scroll-x" style="margin-bottom:12px">
         ${[['all', 'All'], ['mine', 'Mentions tracked assets']].concat(TOPICS.map(([k, l]) => [k, l])).map(([k, l]) => `<button class="fchip ${state.newsTopic === k ? 'active' : ''}" data-ntopic="${k}">${l}</button>`).join('')}
       </div>
       <div class="card">${list.length ? `<ul class="news-list">${list.map((n) => headline(n)).join('')}</ul>` : '<div class="empty">No headlines on this topic right now.</div>'}</div>`;
@@ -685,11 +701,15 @@
   function viewMarkets() {
     const q = state.search.trim().toLowerCase();
     const match = (a) => !q || a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) || (a.sector || '').toLowerCase().includes(q);
-    const groups = MARKET_GROUPS.filter(([k]) => state.mktFilter === 'all' || state.mktFilter === k).map(([, label, fn]) => {
+    const limit = isWide() ? 12 : 6;
+    const groups = MARKET_GROUPS.filter(([k]) => state.mktFilter === 'all' || state.mktFilter === k).map(([key, label, fn]) => {
       const items = state.assets.filter((a) => a.metrics && fn(a) && match(a));
       if (!items.length) return '';
+      const all = q || state.mktFilter === key || state.mktOpen.has(key);
+      const shown = all ? items : items.slice(0, limit);
       return `<h2 class="section-title">${label} <span class="faint small">(${items.length})</span></h2>
-        <div class="mgrid">${items.map(marketCard).join('')}</div>`;
+        <div class="mgrid">${shown.map(marketCard).join('')}</div>
+        ${shown.length < items.length ? `<div class="more-row"><button class="btn sm" data-mopen="${key}">Show all ${items.length}</button></div>` : ''}`;
     }).join('');
     return `
       <h1 class="section-title">All markets</h1>
@@ -697,7 +717,7 @@
       <div class="row wrap" style="margin-bottom:8px">
         <input class="input" id="mkt-search" placeholder="Search symbol, name or sector…" value="${esc(state.search)}" style="flex:1;min-width:200px">
       </div>
-      <div class="chips">
+      <div class="chips scroll-x">
         ${[['all', 'All']].concat(MARKET_GROUPS.map(([k, l]) => [k, l])).map(([k, l]) => `<button class="fchip ${state.mktFilter === k ? 'active' : ''}" data-mkt="${k}">${l}</button>`).join('')}
       </div>
       ${state.mktFilter === 'all' || state.mktFilter === 'crypto' ? cryptoMarketCard() : ''}
@@ -708,7 +728,7 @@
     const m = a.metrics;
     return `<div class="card mcard" data-open="${esc(a.symbol)}">
       <div class="top"><div style="min-width:0"><div class="sym">${esc(a.symbol.replace('=X', '').replace('=F', ''))} ${a.live ? '<span class="badge live">LIVE</span>' : ''}</div><div class="nm">${esc(a.name)}</div></div>
-        <div><div class="px">${fmtPrice(a, m.price)}</div><div class="mono small right">${pct(m.change1d)}</div></div></div>
+        <div><div class="px">${fmtPrice(a, m.price)}</div><div class="chg">${pct(m.change1d)}</div></div></div>
       ${sparkline(a.c.slice(-63))}
       <div class="row between tiny mono muted" style="margin-top:4px"><span>3M ${pct(m.r3m, 1)}</span><span>1Y ${pct(m.r1y, 1)}</span>${a.signal ? badge(a.signal) : `<span class="faint">${esc(typeLabel(a))}</span>`}</div>
     </div>`;
@@ -751,7 +771,7 @@
     return `
       <h1 class="section-title">Consumer &amp; economy</h1>
       <p class="section-sub">What consumers are feeling and spending, and the economic conditions behind the market. These feed into the market backdrop used by the score.</p>
-      ${regimeCard(true)}
+      ${regimeCard()}
       <div class="grid cols-3" style="margin-top:12px">${cards || '<div class="card empty">Economic data not available in this refresh.</div>'}</div>
       ${econNews.length ? `<h2 class="section-title">Economy &amp; consumer news</h2><div class="card"><ul class="news-list">${econNews.map((n) => headline(n)).join('')}</ul></div>` : ''}
       ${consumerStocks.length ? `<h2 class="section-title">Consumer stocks at a glance</h2><div class="mgrid">${consumerStocks.map(marketCard).join('')}</div>` : ''}`;
@@ -779,20 +799,20 @@
 
     return `
       <div class="row wrap" style="margin-bottom:12px">
-        <select class="input" id="asset-select" style="flex:1;min-width:220px;max-width:480px" aria-label="Choose asset">${options}</select>
+        <select class="input" id="asset-select" style="flex:1;min-width:0;max-width:480px" aria-label="Choose asset">${options}</select>
       </div>
       <div class="trade-layout">
         <div class="stack">
-          <div class="card">
+          <div class="card o-chart">
             <div class="asset-head">
               <div><div class="row" style="gap:8px"><div class="sym">${esc(a.symbol)}</div>${starBtn(a.symbol)}</div><div class="muted small" style="margin-top:4px">${esc(a.name)} · ${esc(typeLabel(a))} · ${esc(a.sector)}${a.exchange ? ' · ' + esc(a.exchange) : ''}</div></div>
               <div><div class="px">${fmtPrice(a, m.price)}</div><div class="mono small" style="margin-top:4px">${pct(m.change1d)} today</div></div>
               <div class="spacer"></div>
               ${a.score != null ? `<div class="row">${badge(a.signal)}<span class="mono small muted">Score <b style="color:${scoreColor(a.score)}">${a.score}</b>${scoreDelta(a)} · Rank #${a.rankPos} of ${state.ranked.length}</span></div>` : ''}
             </div>
-            <div class="row wrap between" style="margin:14px 0 8px">
+            <div class="row wrap between" style="margin:14px 0 8px;gap:8px">
               <div class="legend"><span><i style="background:var(--sma50)"></i>50-day avg</span><span><i style="background:var(--sma200)"></i>200-day avg</span></div>
-              <div class="row">
+              <div class="row chart-controls">
                 <div class="seg">${['1M', '3M', '6M', '1Y'].map((t) => `<button class="${state.tf === t ? 'active' : ''}" data-tf="${t}">${t}</button>`).join('')}</div>
                 <div class="seg">${[['candle', 'Candle'], ['line', 'Line']].map(([k, l]) => `<button class="${state.chartMode === k ? 'active' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>
               </div>
@@ -800,14 +820,14 @@
             <div class="chart-box"><canvas id="chart"></canvas><div class="tooltip hidden" id="tt"></div></div>
             <div class="faint tiny" style="margin-top:6px">Last price ${a.live ? 'live from CoinGecko' : 'as of ' + fmtDate(a.market_time || m.lastTime, true)}${a.stale ? ' · <span style="color:var(--hold)">not refreshed in latest update</span>' : ''}</div>
           </div>
-          <div class="card">
+          <div class="card o-stats">
             <div class="stats">
               ${stat('1 week', pct(m.r1w, 1))}${stat('1 month', pct(m.r1m, 1))}${stat('3 months', pct(m.r3m, 1))}${stat('1 year', pct(m.r1y, 1))}
               ${stat('RSI (14)', isNum(m.rsi14) ? m.rsi14.toFixed(0) : '—')}${stat('Volatility', isNum(m.vol) ? (m.vol * 100).toFixed(0) + '% /yr' : '—')}
               ${stat('52-wk range', fmtPrice(a, m.yearLow) + ' – ' + fmtPrice(a, m.yearHigh))}${stat('From 52-wk high', pct(m.fromHigh, 1))}
             </div>
           </div>
-          ${a.factors ? `<div class="card">
+          ${a.factors ? `<div class="card o-breakdown">
             <div class="card-title">Score breakdown</div>
             ${factorRows}
             <div class="faint tiny" style="margin-top:4px">Bars show how this asset ranks against all others on each factor; % is the factor's weight.${a.adjustment ? ` Adjustments (entry timing${a.fund && a.fund.adj ? ', analysts &amp; health' : ''}): ${a.adjustment > 0 ? '+' : ''}${a.adjustment}.` : ''}</div>
@@ -819,17 +839,17 @@
         </div>
 
         <div class="stack">
-          <div class="card verdict ${a.signal || ''}">
+          <div class="card o-verdict verdict ${a.signal || ''}">
             <div class="card-title">Verdict</div>
             <div class="row" style="gap:12px">${a.score != null ? scoreRing(a.score) : ''}<div><div class="vtitle">${esc(v.title)}</div>${badge(a.signal)}</div></div>
             <p class="small" style="margin:10px 0 0">${esc(v.text)}</p>
           </div>
           ${analystCard(a)}
-          <div class="card">
+          <div class="card o-news">
             <div class="card-title">Latest ${esc(a.symbol)} news</div>
             ${news.length ? `<ul class="news-list compact">${news.map((n) => headline(n, { hideMentions: true })).join('')}</ul>` : '<div class="empty small">No recent headlines for this asset.</div>'}
           </div>
-          ${peers.length ? `<div class="card"><div class="card-title">Compare: ${esc(a.sector)}</div>
+          ${peers.length ? `<div class="card o-peers"><div class="card-title">Compare: ${esc(a.sector)}</div>
             ${peers.map((p) => `<div class="kv click" data-open="${esc(p.symbol)}" style="cursor:pointer"><span><b class="mono">${esc(p.symbol)}</b> <span class="muted small">${esc(p.name)}</span></span><span>${p.score} ${badge(p.signal)}</span></div>`).join('')}
           </div>` : ''}
         </div>
@@ -852,14 +872,14 @@
     const f = a.fund, fd = f && f.data;
     const earn = f && f.earnings;
     if (!fd && !earn) {
-      return a.cls === 'stock' ? `<div class="card"><div class="card-title">Analysts &amp; financial health</div>
+      return a.cls === 'stock' ? `<div class="card o-analyst"><div class="card-title">Analysts &amp; financial health</div>
         <p class="small muted" style="margin:0">Not covered by the free data plan for this ${a.region === 'UK' ? 'UK ' : ''}stock. The score uses price data only.</p></div>` : '';
     }
     const g = fd && fd.grades, t = fd && fd.target, h = fd && fd.health;
     const total = g ? g.strongBuy + g.buy + g.hold + g.sell + g.strongSell : 0;
     const seg = (n, cls) => (total && n ? `<div class="${cls}" style="width:${(n / total) * 100}%"></div>` : '');
     const asOf = state.fund && state.fund.generated_at ? fmtDate(Date.parse(state.fund.generated_at) / 1000) : '';
-    return `<div class="card">
+    return `<div class="card o-analyst">
       <div class="card-title">Analysts &amp; financial health</div>
       ${g && total ? `<div class="row between"><span>Analyst consensus</span><b>${esc(g.consensus)}</b></div>
         <div class="gradebar">${seg(g.strongBuy + g.buy, 'b')}${seg(g.hold, 'h')}${seg(g.sell + g.strongSell, 's')}</div>
@@ -947,7 +967,7 @@
     const X = (k) => k * step + step / 2;
     const Y = (p) => padT + (h - volH) - ((p - lo) / (hi - lo)) * (h - volH);
     chartGeom = { idx, step, a };
-    const mono = getComputedStyle(document.body).getPropertyValue('--mono');
+    const mono = getComputedStyle(document.body).fontFamily;
 
     ctx.font = '10px ' + mono;
     ctx.textBaseline = 'middle';
@@ -1056,6 +1076,7 @@
     if (d.open) { e.preventDefault(); openAsset(d.open); return; }
     if (d.lb) { state.lbFilter = d.lb; state.lbLimit = 25; render(); return; }
     if (d.mkt) { state.mktFilter = d.mkt; render(); return; }
+    if (d.mopen) { state.mktOpen.add(d.mopen); render(); return; }
     if (d.ntopic) { state.newsTopic = d.ntopic; render(); return; }
     if (d.tf) { state.tf = d.tf; render(); return; }
     if (d.mode) { state.chartMode = d.mode; render(); return; }
@@ -1078,12 +1099,28 @@
   });
 
   document.addEventListener('mousemove', (e) => { if (e.target.id === 'chart') chartHover(e); });
+  let touchTimer = null;
+  const onTouch = (e) => {
+    if (e.target.id !== 'chart' || !e.touches || !e.touches[0]) return;
+    clearTimeout(touchTimer);
+    chartHover({ clientX: e.touches[0].clientX });
+  };
+  document.addEventListener('touchstart', onTouch, { passive: true });
+  document.addEventListener('touchmove', onTouch, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (e.target.id !== 'chart') return;
+    touchTimer = setTimeout(() => { const tt = $('#tt'); if (tt) tt.classList.add('hidden'); drawChart(); }, 2500);
+  });
   document.addEventListener('mouseout', (e) => {
     if (e.target.id === 'chart') { const tt = $('#tt'); if (tt) tt.classList.add('hidden'); drawChart(); }
   });
 
   let resizeTimer = null;
-  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => drawChart(), 120); });
+  let wasWide = isWide();
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (isWide() !== wasWide) { wasWide = isWide(); render(); } else drawChart(); }, 120);
+  });
 
   // Clean up the old paper-trading account from earlier versions.
   try { localStorage.removeItem('mushtaqtrader.portfolio.v2'); } catch (e) { /* ignore */ }

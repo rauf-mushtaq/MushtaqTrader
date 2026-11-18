@@ -37,6 +37,14 @@ Without the secrets, the site keeps using the last snapshot. Free plans cover a 
 
 Scheduled runs only happen on the repository's **default branch**, so merge this work into `main`. To refresh the data immediately, go to **Actions → Update market data → Run workflow**.
 
+## On your phone
+
+The site is built for phones as well as desktops. On a phone it has a bottom navigation bar, a tappable ranking list and touch-friendly charts. You can install it like an app:
+- **iPhone (Safari):** Share → **Add to Home Screen**
+- **Android (Chrome):** menu ⋮ → **Install app** (or **Add to Home screen**)
+
+It then opens full-screen with its own icon.
+
 ## Running it
 
 - **GitHub Pages**: Settings → Pages → deploy from branch `main`, folder `/`.
@@ -47,6 +55,7 @@ Scheduled runs only happen on the repository's **default branch**, so merge this
 | Path | Purpose |
 | --- | --- |
 | `index.html`, `css/styles.css` | Page and styling (no external dependencies) |
+| `manifest.webmanifest`, `img/` | App icon and install settings for phones |
 | `js/scoring.js` | Scoring model and market backdrop (also runs in Node for testing) |
 | `js/app.js` | UI, charts, news and live crypto prices |
 | `scripts/fetch_market_data.py` | Data fetcher (Python standard library only) |
