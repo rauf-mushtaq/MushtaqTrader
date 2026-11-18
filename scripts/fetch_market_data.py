@@ -41,6 +41,8 @@ from email.utils import parsedate_to_datetime
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_PATH = os.path.join(ROOT, "data", "market.json")
 FUND_PATH = os.path.join(ROOT, "data", "fundamentals.json")
+INTRADAY_PATH = os.path.join(ROOT, "data", "intraday.json")
+INTRADAY_BUDGET_S = 4 * 60
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -867,6 +869,62 @@ def refresh_fundamentals() -> None:
 
 
 # --------------------------------------------------------------------------
+# Intraday prices (15-minute bars, last 5 trading days) -> data/intraday.json
+# Powers the 1D (today) and 1W (last week) charts. Kept in its own file so the
+# main page stays light; the browser only loads it when 1D/1W is chosen.
+# --------------------------------------------------------------------------
+def fetch_intraday(symbol: str):
+    if time.monotonic() > _DEADLINE[0] or YAHOO.is_open():
+        return symbol, None
+    q = urllib.parse.quote(symbol)
+    params = "range=5d&interval=15m&includePrePost=false"
+    crumb = _YAHOO_CRUMB[0] if _YAHOO_CRUMB else ""
+    if crumb:
+        params += "&crumb=" + urllib.parse.quote(crumb)
+    for host in ("query1", "query2"):
+        try:
+            data = json.loads(http_get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{q}?{params}", retries=1))
+            res = ((data.get("chart") or {}).get("result") or [None])[0]
+            if not res:
+                continue
+            ts = res.get("timestamp") or []
+            closes = (((res.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+            pts = [(int(t), c) for t, c in zip(ts, closes) if c is not None]
+            if len(pts) < 5:
+                continue
+            gmt = (res.get("meta") or {}).get("gmtoffset") or 0
+            return symbol, dict(t=[t for t, _ in pts], c=[rnd(c) for _, c in pts], tz=gmt)
+        except Exception:  # noqa: BLE001
+            continue
+    return symbol, None
+
+
+def refresh_intraday(symbols: list[str]) -> int:
+    _DEADLINE[0] = time.monotonic() + INTRADAY_BUDGET_S
+    series = {}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for sym, s in pool.map(fetch_intraday, symbols):
+            if s:
+                series[sym] = s
+    if len(series) < len(symbols) * 0.3:
+        log(f"Intraday: only {len(series)}/{len(symbols)} - keeping the previous file")
+        return len(series)
+    try:
+        with open(INTRADAY_PATH, encoding="utf-8") as f:
+            prev = json.load(f).get("series", {})
+    except Exception:  # noqa: BLE001
+        prev = {}
+    for sym in symbols:  # keep yesterday's intraday for symbols that failed this time
+        if sym not in series and sym in prev:
+            series[sym] = prev[sym]
+    with open(INTRADAY_PATH, "w", encoding="utf-8") as f:
+        json.dump(dict(generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), interval="15m", series=series),
+                  f, separators=(",", ":"))
+    log(f"Intraday: {len(series)}/{len(symbols)} symbols ({os.path.getsize(INTRADAY_PATH) / 1024:.0f} KB)")
+    return len(series)
+
+
+# --------------------------------------------------------------------------
 def load_previous() -> dict:
     try:
         with open(OUT_PATH, encoding="utf-8") as f:
@@ -906,6 +964,12 @@ def main() -> int:
             errors.append(f"{spec['id']}: {e}")
             if spec["id"] in prev_macro:
                 macro.append(prev_macro[spec["id"]])
+
+    log("Fetching intraday prices...")
+    try:
+        refresh_intraday([a["symbol"] for a in assets if not a.get("stale")])
+    except Exception as e:  # noqa: BLE001 - never let this break the main update
+        errors.append(f"intraday: {e}")
 
     log("Fetching news...")
     try:

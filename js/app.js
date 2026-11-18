@@ -35,6 +35,8 @@
     fund: null,        // analyst / financial-health / earnings snapshot (data/fundamentals.json)
     note: null,        // Claude's written market note (data/claude_view.json)
     view: null,        // Claude's view picks, recalculated on every data change
+    intraday: null,    // 15-minute prices for 1D/1W charts (data/intraday.json), loaded on demand
+    intradayAt: 0,
     cg: null,          // live crypto market overview from CoinGecko
     watch: loadWatch(),
     prevBy: {},        // symbol -> {score, signal} as of the previous close
@@ -183,7 +185,9 @@
       state.news = ((data.news || {}).market || []).filter((n) => safeUrl(n.link)).map(tagHeadline);
       rescore();
       computeHistory();
-      if (initial) { render(); pollCrypto(); } else softRender();
+      state.intradayAt = 0; // newer intraday prices come with each data update
+      if (!initial && state.tab === 'asset' && INTRADAY_TF.has(state.tf)) loadIntraday(true);
+      if (initial) { render(); pollCrypto(); if (INTRADAY_TF.has(state.tf)) loadIntraday(); } else softRender();
     } catch (e) {
       if (initial) {
         state.loadError = e.message || String(e);
@@ -906,13 +910,13 @@
             </div>
             ${describe(a.symbol) ? `<p class="asset-desc">${esc(describe(a.symbol))}</p>` : ''}
             <div class="row wrap between" style="margin:14px 0 8px;gap:8px">
-              <div class="legend" title="Average price over the last 50 / 200 trading days. Price above these lines usually means an uptrend."><span><i style="background:var(--sma50)"></i>Average, last 50 days</span><span><i style="background:var(--sma200)"></i>Average, last 200 days</span></div>
+              <div class="legend${INTRADAY_TF.has(state.tf) ? ' hidden' : ''}" title="Average price over the last 50 / 200 trading days. Price above these lines usually means an uptrend."><span><i style="background:var(--sma50)"></i>Average, last 50 days</span><span><i style="background:var(--sma200)"></i>Average, last 200 days</span></div>
               <div class="row chart-controls">
-                <div class="seg">${['1M', '3M', '6M', '1Y'].map((t) => `<button class="${state.tf === t ? 'active' : ''}" data-tf="${t}">${t}</button>`).join('')}</div>
-                <div class="seg">${[['candle', 'Candle'], ['line', 'Line']].map(([k, l]) => `<button class="${state.chartMode === k ? 'active' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>
+                <div class="seg">${['1D', '1W', '1M', '3M', '6M', '1Y'].map((t) => `<button class="${state.tf === t ? 'active' : ''}" data-tf="${t}" title="${{ '1D': 'Today', '1W': 'Past week', '1M': 'Past month', '3M': 'Past 3 months', '6M': 'Past 6 months', '1Y': 'Past year' }[t]}">${t}</button>`).join('')}</div>
+                ${INTRADAY_TF.has(state.tf) ? '' : `<div class="seg">${[['candle', 'Candle'], ['line', 'Line']].map(([k, l]) => `<button class="${state.chartMode === k ? 'active' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>`}
               </div>
             </div>
-            <div class="chart-info" id="tt">Tap or drag on the chart to see the price on any day.</div>
+            <div class="chart-info" id="tt">${tipHint()}</div>
             <div class="chart-box"><canvas id="chart"></canvas></div>
             <div class="faint tiny" style="margin-top:6px">Last price ${a.live ? 'live from CoinGecko' : 'as of ' + fmtDate(a.market_time || m.lastTime, true)}${a.stale ? ' · <span style="color:var(--hold)">not refreshed in latest update</span>' : ''}</div>
           </div>
@@ -1033,12 +1037,147 @@
 
   // ---------------------------------------------------------------- chart
   const TF_DAYS = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366 };
+  const INTRADAY_TF = new Set(['1D', '1W']);
   let chartGeom = null;
+  let intradayLoading = null;
+
+  function loadIntraday(force) {
+    if (intradayLoading) return intradayLoading;
+    if (!force && state.intraday && Date.now() - state.intradayAt < 10 * 60 * 1000) return Promise.resolve(state.intraday);
+    intradayLoading = loadJson('data/intraday.json').then((d) => {
+      if (d && d.series) { state.intraday = d; state.intradayAt = Date.now(); }
+      intradayLoading = null;
+      if (state.tab === 'asset' && INTRADAY_TF.has(state.tf)) drawChart();
+      return state.intraday;
+    });
+    return intradayLoading;
+  }
+
+  function tzLabel(a, tz) {
+    if (a.region === 'UK') return 'UK time';
+    if (a.region === 'US' && a.cls !== 'crypto') return 'New York time';
+    return tz ? 'local exchange time' : 'UTC';
+  }
+
+  // Build the 1D / 1W series from 15-minute prices.
+  function intradaySeries(a) {
+    const s = state.intraday && state.intraday.series && state.intraday.series[a.symbol];
+    if (!s || !s.t || s.t.length < 2) return null;
+    const tz = s.tz || 0;
+    let t = s.t.slice(), c = s.c.slice();
+    // Live crypto: extend with the latest live price.
+    if (a.live && a.metrics && Date.now() / 1000 - t[t.length - 1] > 600) { t.push(Math.floor(Date.now() / 1000)); c.push(a.metrics.price); }
+    const dayOf = (x) => Math.floor((x + tz) / 86400);
+    const lastT = t[t.length - 1];
+    let start = 0, base = c[0], baseLabel = 'start of the week';
+    if (state.tf === '1D') {
+      if (a.cls === 'crypto' || a.cls === 'fx') {
+        start = Math.max(0, t.findIndex((x) => x >= lastT - 86400));
+        base = c[start]; baseLabel = '24 hours ago';
+      } else {
+        start = t.findIndex((x) => dayOf(x) === dayOf(lastT));
+        if (start < 0) start = 0;
+        if (start > 0) { base = c[start - 1]; baseLabel = 'previous close'; } else { base = c[0]; baseLabel = 'the open'; }
+      }
+    }
+    return { t: t.slice(start), c: c.slice(start), base, baseLabel, tz, sessionDay: dayOf(lastT) };
+  }
+
+  function drawIntraday(canvas, ctx, W, H, a, hoverIdx) {
+    const mono = getComputedStyle(document.body).fontFamily;
+    const s = intradaySeries(a);
+    const tfEl = $('#tf-change');
+    if (!s) {
+      ctx.fillStyle = '#94a3ba'; ctx.font = '13px ' + mono; ctx.textAlign = 'center';
+      ctx.fillText(state.intraday || !intradayLoading ? 'Intraday prices are not available for this asset yet.' : 'Loading today\'s prices…', W / 2, H / 2);
+      ctx.textAlign = 'start';
+      if (!state.intraday) loadIntraday();
+      // Still show the move from the daily data.
+      if (tfEl && a.metrics) {
+        const ch = state.tf === '1D' ? a.metrics.change1d : a.metrics.r1w;
+        if (isNum(ch)) { tfEl.className = 'tf-change ' + (ch >= 0 ? 'pos' : 'neg'); tfEl.innerHTML = `<span class="tf-l">${state.tf === '1D' ? 'Today' : 'Past week'}</span><b>${ch >= 0 ? '▲ +' : '▼ −'}${fmtNum(Math.abs(ch * 100), 2)}%</b>`; }
+      }
+      chartGeom = null;
+      return;
+    }
+    const n = s.c.length, lastPx = s.c[n - 1];
+    const padR = 64, padB = 22, padT = 8;
+    const w = W - padR, h = H - padB - padT;
+    let lo = Math.min(...s.c, s.base), hi = Math.max(...s.c, s.base);
+    const padP = (hi - lo) * 0.08 || hi * 0.005 || 1; lo -= padP; hi += padP;
+    const step = w / Math.max(1, n - 1);
+    const X = (k) => k * step;
+    const Y = (p) => padT + h - ((p - lo) / (hi - lo)) * h;
+    chartGeom = { intraday: true, s, step, a, n };
+
+    // Change box
+    if (tfEl) {
+      const ch = lastPx / s.base - 1, diff = lastPx - s.base;
+      const todayDay = Math.floor((Date.now() / 1000 + s.tz) / 86400);
+      const dayName = new Date(s.t[n - 1] * 1000 + s.tz * 1000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+      const label = state.tf === '1W' ? 'Past week' : (a.cls === 'crypto' || a.cls === 'fx') ? 'Last 24 hours' : s.sessionDay === todayDay ? 'Today' : `Last trading day · ${dayName}`;
+      tfEl.className = 'tf-change ' + (ch >= 0 ? 'pos' : 'neg');
+      tfEl.innerHTML = `<span class="tf-l">${label}</span><b>${ch >= 0 ? '▲' : '▼'} ${ch >= 0 ? '+' : '−'}${fmtNum(Math.abs(ch * 100), 2)}%</b>
+        <span class="tf-d">${diff >= 0 ? '+' : '−'}${fmtPrice(a, Math.abs(diff))} since ${esc(s.baseLabel)}</span>`;
+    }
+
+    // Grid + price axis
+    ctx.font = '10px ' + mono; ctx.textBaseline = 'middle';
+    for (let g = 0; g <= 4; g++) {
+      const p = lo + ((hi - lo) * g) / 4, y = Y(p);
+      ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      ctx.fillStyle = '#64748b';
+      if (Math.abs(y - Y(lastPx)) > 14) ctx.fillText(fmtPrice(a, p), w + 6, y);
+    }
+    // Time axis
+    ctx.textBaseline = 'alphabetic';
+    const labels = Math.max(3, Math.min(6, Math.floor(w / 90)));
+    for (let g = 0; g < labels; g++) {
+      const k = Math.round((g / Math.max(1, labels - 1)) * (n - 1));
+      const d = new Date((s.t[k] + s.tz) * 1000);
+      const txt = state.tf === '1D'
+        ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+        : d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
+      ctx.fillStyle = '#64748b';
+      const tw = ctx.measureText(txt).width;
+      ctx.fillText(txt, Math.min(Math.max(0, X(k) - tw / 2), w - tw), H - 6);
+    }
+    // Baseline (previous close / start of week)
+    const by = Y(s.base);
+    ctx.strokeStyle = 'rgba(148,163,184,.55)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(0, by); ctx.lineTo(w, by); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#94a3ba'; ctx.textBaseline = 'bottom'; ctx.fillText(s.baseLabel === 'previous close' ? 'Previous close' : 'Start', 4, by - 3);
+    // Price line
+    const up = lastPx >= s.base, col = up ? '#16c784' : '#f0465a';
+    ctx.beginPath();
+    s.c.forEach((p, k) => (k ? ctx.lineTo(X(k), Y(p)) : ctx.moveTo(X(k), Y(p))));
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+    ctx.lineTo(X(n - 1), padT + h); ctx.lineTo(X(0), padT + h); ctx.closePath();
+    const gr = ctx.createLinearGradient(0, padT, 0, padT + h);
+    gr.addColorStop(0, up ? 'rgba(22,199,132,.22)' : 'rgba(240,70,90,.22)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr; ctx.fill();
+    // Last price tag
+    const ly = Y(lastPx);
+    ctx.fillStyle = col; ctx.fillRect(w + 1, ly - 8, padR - 1, 16);
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.font = 'bold 10px ' + mono; ctx.fillText(fmtPrice(a, lastPx), w + 5, ly);
+    if (hoverIdx != null && hoverIdx >= 0 && hoverIdx < n) {
+      ctx.strokeStyle = 'rgba(148,163,184,.5)'; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(X(hoverIdx), padT); ctx.lineTo(X(hoverIdx), padT + h); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(hoverIdx), Y(s.c[hoverIdx]), 4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
 
   function drawChart(hoverIdx) {
     const canvas = $('#chart');
     const a = state.bySym[state.selected];
     if (!canvas || !a) return;
+    if (INTRADAY_TF.has(state.tf)) {
+      const dpr0 = window.devicePixelRatio || 1, W0 = canvas.clientWidth, H0 = canvas.clientHeight;
+      if (!W0 || !H0) return;
+      if (canvas.width !== Math.round(W0 * dpr0) || canvas.height !== Math.round(H0 * dpr0)) { canvas.width = Math.round(W0 * dpr0); canvas.height = Math.round(H0 * dpr0); }
+      const ctx0 = canvas.getContext('2d'); ctx0.setTransform(dpr0, 0, 0, dpr0, 0, 0); ctx0.clearRect(0, 0, W0, H0);
+      drawIntraday(canvas, ctx0, W0, H0, a, hoverIdx);
+      return;
+    }
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.clientWidth, H = canvas.clientHeight;
     if (!W || !H) return;
@@ -1156,9 +1295,13 @@
     }
   }
 
+  function tipHint() {
+    return INTRADAY_TF.has(state.tf) ? 'Tap or drag on the chart to see the price at any time (15-minute steps).' : 'Tap or drag on the chart to see the price on any day.';
+  }
+
   function resetTip() {
     const tt = $('#tt');
-    if (tt) { tt.classList.remove('active'); tt.innerHTML = 'Tap or drag on the chart to see the price on any day.'; }
+    if (tt) { tt.classList.remove('active'); tt.innerHTML = tipHint(); }
     drawChart();
   }
 
@@ -1166,8 +1309,20 @@
     const canvas = $('#chart');
     if (!canvas || !chartGeom) return;
     const rect = canvas.getBoundingClientRect();
-    const k = Math.floor((e.clientX - rect.left) / chartGeom.step);
     const tt = $('#tt');
+    if (chartGeom.intraday) {
+      const g = chartGeom, k = Math.round((e.clientX - rect.left) / g.step);
+      if (k < 0 || k >= g.n) { resetTip(); return; }
+      const a = g.a, s = g.s, since = s.c[k] / s.base - 1;
+      const d = new Date((s.t[k] + s.tz) * 1000);
+      const when = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) + ', ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      tt.innerHTML = `<div class="ci-row"><span class="ci-date">${when} <span class="faint">(${tzLabel(a, s.tz)})</span></span><b class="ci-price">${fmtPrice(a, s.c[k])}</b></div>
+        <div class="ci-row small"><span class="${since >= 0 ? 'up' : 'down'}">${since >= 0 ? '▲' : '▼'} ${pct(since, 2)} since ${esc(s.baseLabel)}</span></div>`;
+      tt.classList.add('active');
+      drawChart(k);
+      return;
+    }
+    const k = Math.floor((e.clientX - rect.left) / chartGeom.step);
     if (k < 0 || k >= chartGeom.idx.length) { resetTip(); return; }
     const a = chartGeom.a, i = chartGeom.idx[k], i0 = chartGeom.idx[0];
     const day = a.c[i] / a.c[i - 1] - 1;
@@ -1207,7 +1362,7 @@
     if (d.mopen) { state.mktOpen.add(d.mopen); render(); return; }
     if (d.mverdict) { state.mktVerdict = d.mverdict; render(); return; }
     if (d.ntopic) { state.newsTopic = d.ntopic; render(); return; }
-    if (d.tf) { state.tf = d.tf; render(); return; }
+    if (d.tf) { state.tf = d.tf; if (INTRADAY_TF.has(d.tf)) loadIntraday(); render(); return; }
     if (d.mode) { state.chartMode = d.mode; render(); return; }
     if (t.id === 'lb-more') { state.lbLimit = 1000; render(); }
   });
