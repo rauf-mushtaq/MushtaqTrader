@@ -900,6 +900,7 @@
             <div class="asset-head">
               <div><div class="row" style="gap:8px"><div class="sym">${esc(a.symbol)}</div>${starBtn(a.symbol)}</div><div class="muted small" style="margin-top:4px">${esc(a.name)} · ${esc(typeLabel(a))} · ${esc(a.sector)}${a.exchange ? ' · ' + esc(a.exchange) : ''}</div></div>
               <div><div class="px">${fmtPrice(a, m.price)}</div><div class="mono small" style="margin-top:4px">${pct(m.change1d)} today</div></div>
+              <div class="tf-change" id="tf-change" aria-live="polite"></div>
               <div class="spacer"></div>
               ${a.score != null ? `<div class="row">${badge(a.signal)}<span class="mono small muted">Score <b style="color:${scoreColor(a.score)}">${a.score}</b>${scoreDelta(a)} · Rank #${a.rankPos} of ${state.ranked.length}</span></div>` : ''}
             </div>
@@ -1071,6 +1072,15 @@
     const X = (k) => k * step + step / 2;
     const Y = (p) => padT + (h - volH) - ((p - lo) / (hi - lo)) * (h - volH);
     chartGeom = { idx, step, a };
+    const first = a.c[idx[0]], lastPx = a.c[n - 1];
+    const tfEl = $('#tf-change');
+    if (tfEl && first) {
+      const ch = lastPx / first - 1, diff = lastPx - first;
+      const LABEL = { '1M': 'Past month', '3M': 'Past 3 months', '6M': 'Past 6 months', '1Y': 'Past year' };
+      tfEl.className = 'tf-change ' + (ch >= 0 ? 'pos' : 'neg');
+      tfEl.innerHTML = `<span class="tf-l">${LABEL[state.tf]}</span><b>${ch >= 0 ? '▲' : '▼'} ${ch >= 0 ? '+' : '−'}${fmtNum(Math.abs(ch * 100), 1)}%</b>
+        <span class="tf-d">${diff >= 0 ? '+' : '−'}${fmtPrice(a, Math.abs(diff))} since ${fmtDate(a.t[idx[0]])}</span>`;
+    }
     const mono = getComputedStyle(document.body).fontFamily;
 
     ctx.font = '10px ' + mono;
@@ -1154,7 +1164,8 @@
     const s50 = Scoring.smaSeries(a.c.slice(Math.max(0, i - 49), i + 1), 50);
     tt.innerHTML = `<div class="muted">${fmtDate(a.t[i])}</div>
       O ${fmtPrice(a, a.o[i])} · H ${fmtPrice(a, a.h[i])} · L ${fmtPrice(a, a.l[i])} · <b>C ${fmtPrice(a, a.c[i])}</b>
-      ${i > 0 ? ' · ' + pct(a.c[i] / a.c[i - 1] - 1) : ''}${s50[s50.length - 1] != null ? `<div style="color:var(--sma50)">50-day avg ${fmtPrice(a, s50[s50.length - 1])}</div>` : ''}`;
+      ${i > 0 ? ' · ' + pct(a.c[i] / a.c[i - 1] - 1) + ' that day' : ''}
+      <div>Since start of ${state.tf}: ${pct(a.c[i] / a.c[chartGeom.idx[0]] - 1, 1)}</div>${s50[s50.length - 1] != null ? `<div style="color:var(--sma50)">50-day avg ${fmtPrice(a, s50[s50.length - 1])}</div>` : ''}`;
     tt.classList.remove('hidden');
     tt.style.left = (e.clientX - rect.left > rect.width / 2 ? 6 : rect.width - tt.offsetWidth - 70) + 'px';
     drawChart(k);
