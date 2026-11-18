@@ -906,13 +906,14 @@
             </div>
             ${describe(a.symbol) ? `<p class="asset-desc">${esc(describe(a.symbol))}</p>` : ''}
             <div class="row wrap between" style="margin:14px 0 8px;gap:8px">
-              <div class="legend"><span><i style="background:var(--sma50)"></i>50-day avg</span><span><i style="background:var(--sma200)"></i>200-day avg</span></div>
+              <div class="legend" title="Average price over the last 50 / 200 trading days. Price above these lines usually means an uptrend."><span><i style="background:var(--sma50)"></i>Average, last 50 days</span><span><i style="background:var(--sma200)"></i>Average, last 200 days</span></div>
               <div class="row chart-controls">
                 <div class="seg">${['1M', '3M', '6M', '1Y'].map((t) => `<button class="${state.tf === t ? 'active' : ''}" data-tf="${t}">${t}</button>`).join('')}</div>
                 <div class="seg">${[['candle', 'Candle'], ['line', 'Line']].map(([k, l]) => `<button class="${state.chartMode === k ? 'active' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>
               </div>
             </div>
-            <div class="chart-box"><canvas id="chart"></canvas><div class="tooltip hidden" id="tt"></div></div>
+            <div class="chart-info" id="tt">Tap or drag on the chart to see the price on any day.</div>
+            <div class="chart-box"><canvas id="chart"></canvas></div>
             <div class="faint tiny" style="margin-top:6px">Last price ${a.live ? 'live from CoinGecko' : 'as of ' + fmtDate(a.market_time || m.lastTime, true)}${a.stale ? ' · <span style="color:var(--hold)">not refreshed in latest update</span>' : ''}</div>
           </div>
           <div class="card o-stats">
@@ -1091,13 +1092,15 @@
       ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
       ctx.fillStyle = '#64748b';
-      ctx.fillText(fmtPrice(a, p), w + 6, y);
+      // Skip axis labels that would sit under the current-price tag.
+      if (Math.abs(y - Y(a.c[n - 1])) > 14) ctx.fillText(fmtPrice(a, p), w + 6, y);
     }
     ctx.textBaseline = 'alphabetic';
-    const labels = Math.min(6, Math.floor(w / 90));
+    const labels = Math.max(3, Math.min(6, Math.floor(w / 90)));
+    const longRange = state.tf === '6M' || state.tf === '1Y';
     for (let g = 0; g < labels; g++) {
       const k = Math.round((g / Math.max(1, labels - 1)) * (idx.length - 1));
-      const txt = new Date(a.t[idx[k]] * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+      const txt = new Date(a.t[idx[k]] * 1000).toLocaleDateString('en-GB', longRange ? { month: 'short', year: 'numeric', timeZone: 'UTC' } : { day: 'numeric', month: 'short', timeZone: 'UTC' });
       ctx.fillStyle = '#64748b';
       const tw = ctx.measureText(txt).width;
       ctx.fillText(txt, Math.min(Math.max(0, X(k) - tw / 2), w - tw), H - 6);
@@ -1153,21 +1156,31 @@
     }
   }
 
+  function resetTip() {
+    const tt = $('#tt');
+    if (tt) { tt.classList.remove('active'); tt.innerHTML = 'Tap or drag on the chart to see the price on any day.'; }
+    drawChart();
+  }
+
   function chartHover(e) {
     const canvas = $('#chart');
     if (!canvas || !chartGeom) return;
     const rect = canvas.getBoundingClientRect();
     const k = Math.floor((e.clientX - rect.left) / chartGeom.step);
     const tt = $('#tt');
-    if (k < 0 || k >= chartGeom.idx.length) { tt.classList.add('hidden'); drawChart(); return; }
-    const a = chartGeom.a, i = chartGeom.idx[k];
-    const s50 = Scoring.smaSeries(a.c.slice(Math.max(0, i - 49), i + 1), 50);
-    tt.innerHTML = `<div class="muted">${fmtDate(a.t[i])}</div>
-      O ${fmtPrice(a, a.o[i])} · H ${fmtPrice(a, a.h[i])} · L ${fmtPrice(a, a.l[i])} · <b>C ${fmtPrice(a, a.c[i])}</b>
-      ${i > 0 ? ' · ' + pct(a.c[i] / a.c[i - 1] - 1) + ' that day' : ''}
-      <div>Since start of ${state.tf}: ${pct(a.c[i] / a.c[chartGeom.idx[0]] - 1, 1)}</div>${s50[s50.length - 1] != null ? `<div style="color:var(--sma50)">50-day avg ${fmtPrice(a, s50[s50.length - 1])}</div>` : ''}`;
-    tt.classList.remove('hidden');
-    tt.style.left = (e.clientX - rect.left > rect.width / 2 ? 6 : rect.width - tt.offsetWidth - 70) + 'px';
+    if (k < 0 || k >= chartGeom.idx.length) { resetTip(); return; }
+    const a = chartGeom.a, i = chartGeom.idx[k], i0 = chartGeom.idx[0];
+    const day = a.c[i] / a.c[i - 1] - 1;
+    const since = a.c[i] / a.c[i0] - 1;
+    const arrow = (x) => (x >= 0 ? '▲' : '▼');
+    const when = new Date(a.t[i] * 1000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    tt.innerHTML = `<div class="ci-row"><span class="ci-date">${when}</span><b class="ci-price">${fmtPrice(a, a.c[i])}</b></div>
+      <div class="ci-row small">
+        ${i > 0 ? `<span class="${day >= 0 ? 'up' : 'down'}">${arrow(day)} ${pct(day)} that day</span>` : ''}
+        <span class="${since >= 0 ? 'up' : 'down'}">${arrow(since)} ${pct(since, 1)} since ${fmtDate(a.t[i0])}</span>
+      </div>
+      <div class="ci-row tiny faint">Day's range ${fmtPrice(a, a.l[i])} – ${fmtPrice(a, a.h[i])}</div>`;
+    tt.classList.add('active');
     drawChart(k);
   }
 
@@ -1225,10 +1238,10 @@
   document.addEventListener('touchmove', onTouch, { passive: true });
   document.addEventListener('touchend', (e) => {
     if (e.target.id !== 'chart') return;
-    touchTimer = setTimeout(() => { const tt = $('#tt'); if (tt) tt.classList.add('hidden'); drawChart(); }, 2500);
+    touchTimer = setTimeout(resetTip, 4000);
   });
   document.addEventListener('mouseout', (e) => {
-    if (e.target.id === 'chart') { const tt = $('#tt'); if (tt) tt.classList.add('hidden'); drawChart(); }
+    if (e.target.id === 'chart') resetTip();
   });
 
   let resizeTimer = null;
