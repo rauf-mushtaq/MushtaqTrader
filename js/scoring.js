@@ -465,6 +465,13 @@
       if (strongSectors.includes(a.sector)) { c += 2; if (!why.some((w) => /sector|nervous/.test(w))) why.push(`${a.sector} is one of the strongest sectors`); }
       if (!why.length) why.push(...(a.reasons.pros.slice(0, 1).map((p) => p.charAt(0).toLowerCase() + p.slice(1))));
       if (a.signal !== 'BUY' && timing === 'now') timing = 'watch';
+      // Falling over the past month: not a good buy right now, however strong the year has been.
+      const falling = (isNum(m.r1m) && m.r1m <= -0.05) || (isNum(m.r3m) && m.r3m < 0);
+      if (falling) {
+        c -= 6;
+        risks.unshift(isNum(m.r1m) && m.r1m <= -0.05 ? `it's fallen ${fmtPct(-m.r1m, 0)} in the past month` : `it's down ${fmtPct(-m.r3m, 1)} over the past 3 months`);
+        if (timing === 'now') timing = 'watch';
+      }
       // A dip level only makes sense below today's price.
       const dipLevel = isNum(m.sma50) && m.sma50 < m.price * 0.99 ? m.sma50 : null;
       if (timing === 'dip' && !dipLevel) timing = 'watch';

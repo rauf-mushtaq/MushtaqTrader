@@ -573,3 +573,10 @@ footer.foot p { margin: 0 0 6px; }
   background: var(--surface-3); border: 1px solid var(--up-line); box-shadow: 0 12px 32px rgba(0,0,0,.5);
   font-size: 14px; max-width: calc(100vw - 24px);
 }
+
+/* ---------- labelled performance + "what I think" ---------- */
+.perf { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; font-weight: 700; }
+.perf .pl { color: var(--faint); font-weight: 600; }
+.g-think { margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.5; }
+.g-think b, .cv-why b { color: #fff; }
+.cv-pick .perf { margin-top: 6px; }

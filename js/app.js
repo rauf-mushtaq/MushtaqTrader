@@ -461,6 +461,50 @@
     if (!r || !r.verdict) return '';
     return `<span class="vb ${r.verdict.key}">${esc(r.verdict.label)}</span>`;
   }
+  // Labelled performance: today vs the longer trend, so a down day isn't mistaken for a falling stock.
+  function perfRow(m) {
+    const item = (label, x, dp) => `<span><span class="pl">${label}</span> ${pct(x, dp)}</span>`;
+    return `<div class="perf">${item('Today', m.change1d, 1)}${item('1 month', m.r1m, 1)}${item('3 months', m.r3m, 1)}${item('1 year', m.r1y, 0)}</div>`;
+  }
+  function marketDownToday() {
+    const st = state.ranked.filter((x) => x.cls === 'stock' && isNum(x.metrics.change1d));
+    return st.length && st.filter((x) => x.metrics.change1d < 0).length / st.length > 0.6;
+  }
+  const p1 = (x, dp = 1) => (isNum(x) ? (x >= 0 ? '+' : '−') + fmtNum(Math.abs(x * 100), dp) + '%' : '');
+  // What Claude thinks, in plain words, for any asset.
+  function opinionText(r, a) {
+    if (!r || !r.verdict) return '';
+    const m = a.metrics, key = r.verdict.key;
+    const cap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
+    const why = r.why.slice(0, 2).join(', and ');
+    const risk = r.risks[0];
+    const trendUp = isNum(m.r3m) && m.r3m > 0 && isNum(m.r1y) && m.r1y > 0;
+    let today = '';
+    if (isNum(m.change1d) && m.change1d < -0.001) {
+      today = trendUp
+        ? ` It's down ${p1(-m.change1d).slice(1)} today${marketDownToday() ? ' along with most of the market' : ''}, but it's up ${p1(m.r3m).slice(1)} over 3 months and ${p1(m.r1y, 0).slice(1)} over the past year. One down day doesn't change the trend, and it makes the price a little cheaper.`
+        : ` It's down ${p1(-m.change1d).slice(1)} today.`;
+    } else if (isNum(m.change1d) && m.change1d > 0.001) {
+      today = ` It's up ${p1(m.change1d).slice(1)} today${isNum(m.r3m) ? `, and ${m.r3m >= 0 ? 'up' : 'down'} ${p1(m.r3m).slice(1)} over 3 months` : ''}.`;
+    }
+    if (key === 'top' || key === 'good') {
+      return `${key === 'top' ? 'One of my top picks right now.' : 'I think this is a good buy.'} ${why ? cap(why) + '.' : ''}${today}${risk ? ' Watch out: ' + risk + '.' : ''}`;
+    }
+    if (key === 'dip') {
+      return `Good company, but I'd wait before buying: ${risk || 'it has risen a lot recently'}.${r.dipLevel ? ` A better price would be below ${fmtPrice(a, r.dipLevel)} (its average over the last 50 days).` : ''}`;
+    }
+    if (key === 'results') {
+      const e = a.fund && a.fund.earnings;
+      return `I'd wait for its results${e ? ' on ' + earnLabel(e) : ''}. Prices often jump or drop sharply on results day, so it's safer to see them first.`;
+    }
+    if (key === 'avoid') {
+      const reason = r.verdict.reason || 'its trend and momentum are weak';
+      const extra = isNum(m.r1y) && m.r1y < 0 ? ` Over the past year it's down ${p1(-m.r1y, 0).slice(1)}.` : isNum(m.r3m) && m.r3m < 0 && !/month/.test(reason) ? ` It's down ${p1(-m.r3m).slice(1)} over 3 months.` : '';
+      return `I'd avoid it for now: ${reason}.${extra}`;
+    }
+    return `Not yet: ${r.verdict.reason || 'the signals are mixed'}. ${why ? 'In its favour: ' + why + '.' : ''}`.trim();
+  }
+
   function verdictText(r, a) {
     if (!r || !r.verdict) return '';
     let reason = r.verdict.reason || '';
@@ -631,10 +675,11 @@
           <div class="row wrap" style="gap:6px 8px"><b class="cv-sym">${esc(a.symbol)}</b><span class="muted small">${esc(a.name)}</span>
             <span class="badge BUY">${TIMING[r.timing][0]}</span>${uk ? '<span class="badge type" title="UK share: no currency risk, ISA-friendly">UK · ISA-friendly</span>' : ''}</div>
           ${describe(a.symbol) ? `<div class="tiny cv-desc">${esc(describe(a.symbol))}</div>` : ''}
-          <div class="small cv-why">${esc(cap(r.why.slice(0, 3).join('; ')))}.</div>
+          <div class="small cv-why"><b>What I think:</b> ${esc(opinionText(r, a))}</div>
+          ${perfRow(m)}
           <div class="tiny cv-risk">${r.risks.length ? 'Watch: ' + esc(r.risks.slice(0, 2).join('; ')) : 'No major warning signs in the data.'}${f.earnings ? ' · Results ' + esc(earnLabel(f.earnings)) : ''}</div>
         </div>
-        <div class="cv-right"><div class="px">${fmtPrice(a, m.price)}</div><div class="small">${pct(m.change1d)}</div>
+        <div class="cv-right"><div class="px">${fmtPrice(a, m.price)}</div>
           ${isNum(f.upside) ? `<div class="tiny muted">Target ${pct(f.upside, 0)}</div>` : ''}</div>
       </li>`;
     };
@@ -656,7 +701,7 @@
         ${v.results.length ? `<div><div class="small muted" style="margin-bottom:8px">Results due — wait and see</div><div class="chips">${v.results.map((r) => chip(r, r.a.fund && r.a.fund.earnings ? earnLabel(r.a.fund.earnings).replace(/\s*\(.*\)/, '') : '')).join('')}</div></div>` : ''}
         ${v.avoid.length ? `<div><div class="small muted" style="margin-bottom:8px">Avoid for now</div><ul class="cv-avoid">${v.avoid.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       </div>
-      <p class="tiny faint" style="margin:14px 0 0">How this works: the picks re-rank automatically every time prices, news or analyst data change, using the reasoning Claude applies — analyst upside, entry timing, financial health, earnings dates, headline tone, which sectors suit the current market, and no doubling up on near-identical holdings. The written note is refreshed three times each weekday (UK morning, before the US open and after the US close). It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
+      <p class="tiny faint" style="margin:14px 0 0">How this works: the picks re-rank automatically every time prices, news or analyst data change, using the reasoning Claude applies — analyst upside, entry timing, financial health, earnings dates, headline tone, which sectors suit the current market, and no doubling up on near-identical holdings. A good buy must be rising over the past 3 months and not falling sharply this month; a red number for today alone is normal day-to-day movement. The written note is refreshed three times each weekday (UK morning, before the US open and after the US close). It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
     </div>`;
   }
 
@@ -826,10 +871,11 @@
       <div class="g-top">
         <div style="min-width:0"><div class="row" style="gap:8px"><b class="g-sym">${esc(a.symbol)}</b><span class="g-name">${esc(a.name)}</span></div>
           <div class="tiny faint">${esc(typeLabel(a))} · ${esc(a.sector)}</div></div>
-        <div class="g-px"><div class="px">${fmtPrice(a, m.price)}</div><div class="small">${pct(m.change1d)}</div></div>
+        <div class="g-px"><div class="px">${fmtPrice(a, m.price)}</div></div>
       </div>
       <p class="g-desc">${esc(describe(a.symbol) || a.name)}</p>
-      ${r ? `<div class="g-verdict">${verdictBadge(r)}<span class="small">${esc(verdictText(r, a))}</span></div>` : ''}
+      ${perfRow(m)}
+      ${r ? `<div class="g-verdict">${verdictBadge(r)}</div><p class="g-think"><b>What I think:</b> ${esc(opinionText(r, a))}</p>` : ''}
     </div>`;
   }
 
@@ -1042,7 +1088,8 @@
     const inPicks = state.view.picks.includes(r) || state.view.uk === r;
     const label = inPicks ? 'One of my picks right now' : r.timing === 'dip' ? `Good company — I'd wait for a dip${r.dipLevel ? ' below ' + fmtPrice(a, r.dipLevel) : ''}` : r.timing === 'results' ? 'I\'d wait for its results first' : 'Not in my top picks right now';
     return `<div class="cv-take"><div class="tiny" style="font-weight:800;color:var(--accent)">✦ CLAUDE'S TAKE</div>
-      <div class="small"><b>${esc(label)}.</b> ${r.why.length ? esc((r.why.slice(0, 2).join('; ')).replace(/^./, (c) => c.toUpperCase())) + '.' : ''}${r.risks.length ? ' Watch: ' + esc(r.risks.slice(0, 2).join('; ')) + '.' : ''}</div></div>`;
+      <div style="margin:6px 0">${verdictBadge(r)}</div>
+      <div class="small">${esc(opinionText(r, a))}</div></div>`;
   }
 
   function stat(k, v) { return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
