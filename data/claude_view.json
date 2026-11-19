@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-19T13:54:09Z",
+  "updated": "2026-11-19T21:53:08Z",
   "author": "Claude",
-  "based_on_data": "2026-11-19T13:48:15Z",
-  "headline": "All eyes on Anthropic's Nasdaq debut. Walmart raises its outlook",
-  "summary": "Ahead of the US open, Anthropic is set to start trading on Nasdaq in what is expected to be the largest IPO on record, and chip stocks are being lifted by the excitement. Walmart raised its outlook despite soaring fuel costs, although early reports show its shares slipping after the results. Nerves have eased a little, with the VIX fear gauge down 9% to 22.4. In London the FTSE 100 is down 0.4%: consumer names like Unilever, Reckitt and JD Sports fell while miners bounced back. The backdrop is still Cautious, so the picks favour steady companies.",
+  "based_on_data": "2026-11-19T21:41:00Z",
+  "headline": "Stocks drop 2% for a sixth straight loss as fear jumps, even as Anthropic soars on debut",
+  "summary": "It was a rough day for shares. The S&P 500 fell 2.0%, its sixth straight decline, leaving it 2.3% below its 200-day average. The Nasdaq lost 2.3%, the Dow 2.2%, and the VIX fear gauge jumped 16% to 28.4. Chip stocks led the fall: AMD dropped 7.7% after a short-seller report about its China exposure, and Nvidia fell another 3.3%. Anthropic, in contrast, closed its first day of trading at $97.17, about 17% above its $83 IPO price. In nervous markets like this the picks lean further into steady, defensive companies.",
   "points": [
-    "SSE, the UK wind-power and electricity network company, joins the picks. Legal & General drops out after RBC cut its forecasts for L&G's pension deals.",
-    "London consumer stocks fell: JD Sports 3.9%, Reckitt 2.8% and Unilever 2.7%. Miners bounced, with Anglo American up 2.9%.",
-    "Gold is having a bad year and slipped another 0.6%, while oil edged up 0.6%.",
-    "Fed officials have signalled more rate rises, which keeps pressure on expensive growth stocks even as AI excitement returns.",
-    "Bitcoin is up 1.1% at about $63,700, but Bitcoin funds are seeing money flow out and every major cryptocurrency is still in a downtrend."
+    "Coca-Cola and Gilead join the picks. Coca-Cola has cooled off enough to no longer need a dip, while the healthcare fund and SSE drop out after falling today.",
+    "Walmart raised its outlook despite soaring fuel costs, but its shares still slipped 1%. Target edged up 0.9%.",
+    "Cybersecurity bucked the trend again: Palo Alto Networks rose 6.4% after beating earnings. Most other big names fell, including Visa (down 3.1%).",
+    "Gold fell another 2.9%, and the FTSE 100 lost 0.9%.",
+    "Bitcoin fell 2.4% to about $61,500, and every major cryptocurrency is still in a downtrend."
   ]
 }
