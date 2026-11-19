@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-18T18:33:00Z",
+  "updated": "2026-11-19T07:11:52Z",
   "author": "Claude",
-  "based_on_data": "2026-11-18T16:24:33Z",
-  "headline": "Nvidia's bounce fizzles and a Fed official floats a big rate rise, but shoppers' stocks shine",
-  "summary": "US shares are lower this afternoon. The Dow is down about 600 points (−1.3%) and the S&P 500 is 0.5% lower, slipping further below its 200-day average, after Nvidia's early earnings bounce faded and the stock fell 2%. Fed governor Waller said the central bank may need to 'shock people' with a half-point rate rise, which weighs on expensive stocks. The FTSE 100 fell 1.2%, dragged down by miners as gold dropped 3% and oil 3.5%. Retailers were the bright spot: Target rose 5% after its best sales growth in five years, and TJX jumped 10.5%.",
+  "based_on_data": "2026-11-18T23:06:49Z",
+  "headline": "Fed minutes point to more rate rises as the S&P 500 falls for a fifth day",
+  "summary": "Wednesday's US close was mixed but weak underneath. The Dow fell 1.1% and the S&P 500 slipped 0.2%, its fifth straight down day, leaving it just below its 200-day average, while the Nasdaq edged up 0.4%. Minutes from the Fed's last meeting showed officials expect more interest-rate rises and worry about AI's effect on inflation, which is a headwind for expensive stocks. Nvidia fell another 2.9%. Oil dropped 4.8% and gold 3.5%, dragging miners lower. The picks stay with steadier, quality names.",
   "points": [
-    "Target beat expectations and raised its outlook, and Lowe's also raised its forecast. Walmart reports tomorrow.",
-    "Miners fell sharply with metal prices: Newmont and Freeport-McMoRan both lost 7.7%, Anglo American 6.5% and Glencore 6.4%.",
-    "UnitedHealth fell 6.8%, a drag on healthcare, though the broader healthcare fund is holding up.",
-    "Cybersecurity bounced, with Palo Alto Networks up 6.5% and CrowdStrike up 6.1%, but tech is still the weakest sector overall.",
-    "Bitcoin fell 3.7% to about $62,500, and every major cryptocurrency is still in a downtrend."
+    "Cybersecurity was the bright spot: Palo Alto Networks jumped 9.9% after its results and a $4.5 billion AI deal, and CrowdStrike rose 7.9%.",
+    "Health insurers were hit hard: UnitedHealth fell 10.2% and CVS 5.2%, pulling the healthcare fund down 2.2% on the day.",
+    "Target rose 4% after its best sales growth in five years. Walmart reports today, a key read on US shoppers.",
+    "Anthropic priced its IPO at $83 a share, above the expected range, according to CNBC.",
+    "Bitcoin fell 3.9% to about $62,400, and every major cryptocurrency is still in a downtrend."
   ]
 }
