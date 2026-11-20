@@ -1,9 +1,10 @@
 name: Update market data
 
-# GitHub's built-in scheduler is "best effort" and often skips runs, so during
-# market hours this job keeps itself going: each run refreshes the data three
-# times (about every 15-20 minutes) and then starts the next run. The schedules
-# below are only a backup to (re)start the chain if it ever stops.
+# GitHub's built-in scheduler is "best effort" and often skips runs, so this job
+# keeps itself going around the clock: while markets are open each run refreshes
+# the data three times (about every 15 minutes), otherwise once an hour, and then
+# starts the next run. The schedules below are only a backup to (re)start the
+# chain if it ever stops.
 
 on:
   schedule:
@@ -64,14 +65,14 @@ jobs:
             fi
             if [ "$i" -lt 3 ] && market_open; then sleep 780; else break; fi
           done
+          # Outside market hours refresh about once an hour (crypto and Asia keep moving)
+          if ! market_open; then sleep 3000; fi
 
-      - name: Start the next run while markets are open
+      - name: Start the next run
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$(date -u +%u)" -le 5 ] && [ "$(date -u +%H%M)" -ge 0700 ] && [ "$(date -u +%H%M)" -le 2140 ]; then
-            gh workflow run update-market-data.yml --ref "${GITHUB_REF_NAME}" && echo "Next run started"
-          else
-            echo "Markets closed - the schedule will start the next run"
-          fi
+          # Keep the chain going around the clock so it never depends on GitHub's
+          # scheduler to restart it in the morning (that scheduler often skips runs)
+          gh workflow run update-market-data.yml --ref "${GITHUB_REF_NAME}" && echo "Next run started"
