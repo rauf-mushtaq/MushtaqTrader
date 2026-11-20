@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-19T21:53:08Z",
+  "updated": "2026-11-20T08:56:20Z",
   "author": "Claude",
-  "based_on_data": "2026-11-19T21:41:00Z",
-  "headline": "Stocks drop 2% for a sixth straight loss as fear jumps, even as Anthropic soars on debut",
-  "summary": "It was a rough day for shares. The S&P 500 fell 2.0%, its sixth straight decline, leaving it 2.3% below its 200-day average. The Nasdaq lost 2.3%, the Dow 2.2%, and the VIX fear gauge jumped 16% to 28.4. Chip stocks led the fall: AMD dropped 7.7% after a short-seller report about its China exposure, and Nvidia fell another 3.3%. Anthropic, in contrast, closed its first day of trading at $97.17, about 17% above its $83 IPO price. In nervous markets like this the picks lean further into steady, defensive companies.",
+  "based_on_data": "2026-11-20T08:55:24Z",
+  "headline": "AI sell-off spreads to Asia as the Nikkei sinks 5%, while London holds up better",
+  "summary": "Thursday's tech-led fall on Wall Street (S&P 500 down 2.0%, its sixth straight loss) spread to Asia overnight. Japan's Nikkei dropped 5.1%, and SoftBank had its worst day in over two years. This morning Europe is calmer: the FTSE 100 is down 0.3% and Germany's DAX 1.3%, while Nasdaq futures point lower again after Anthropic's debut failed to lift the mood. The VIX fear gauge is still high at 28.6. In London, investors are buying steady household names, helped by stronger UK retail sales, so the picks stay defensive.",
   "points": [
-    "Coca-Cola and Gilead join the picks. Coca-Cola has cooled off enough to no longer need a dip, while the healthcare fund and SSE drop out after falling today.",
-    "Walmart raised its outlook despite soaring fuel costs, but its shares still slipped 1%. Target edged up 0.9%.",
-    "Cybersecurity bucked the trend again: Palo Alto Networks rose 6.4% after beating earnings. Most other big names fell, including Visa (down 3.1%).",
-    "Gold fell another 2.9%, and the FTSE 100 lost 0.9%.",
-    "Bitcoin fell 2.4% to about $61,500, and every major cryptocurrency is still in a downtrend."
+    "Altria joins the picks. It's up 12% over 3 months but 7% below its high after a 2% dip, and it recently raised its 2026 profit outlook. Tesco leaves the top five because I cap picks at two per sector, but it's still rated a good buy.",
+    "Sainsbury's is the UK pick: up 1.1% this morning and 9% below its high, with its 3-month trend still positive. Tesco is up 1.0%.",
+    "London's risers are defensive: Reckitt (+1.6%), Haleon (+1.5%), BAT (+1.3%) and Unilever (+1.2%). Rolls-Royce (−2.3%), Barclays (−1.5%) and HSBC (−1.3%) lead the fallers.",
+    "Gold fell another 2.7% to about $3,584, and oil dropped 2.2% to $81.35.",
+    "Bitcoin is flat at about $61,800, and every major cryptocurrency is still in a downtrend."
   ]
 }
