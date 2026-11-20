@@ -396,6 +396,7 @@
   const NEG_WORDS = /\b(miss(es|ed)?|probe|investigation|lawsuit|sues?|breach|downgrades?|downgraded|cuts?|recall|fraud|struggles?|plunges?|slumps?|falls?|warns?|scandal|layoffs?|delay(s|ed)?|fine[sd]?)\b/i;
   const DEFENSIVE = new Set(['Consumer Staples', 'Healthcare', 'Utilities']);
   const CYCLICAL = new Set(['Technology', 'Consumer Discretionary', 'Communication', 'Crypto']);
+  const TAKEOVER_RE = /takeover|buyout|to be acquired|recommended (?:cash )?offer|offer period|scheme of arrangement|Form 8\.3/i;
   const SAME_BET = [['V', 'MA'], ['SPY', 'DIA'], ['GOOGL', 'META']];
 
   function newsTone(items) {
@@ -472,6 +473,16 @@
         risks.unshift(isNum(m.r1m) && m.r1m <= -0.05 ? `it's fallen ${fmtPct(-m.r1m, 0)} in the past month` : `it's down ${fmtPct(-m.r3m, 1)} over the past 3 months`);
         if (timing === 'now') timing = 'watch';
       }
+      // Takeover targets: once a bid is agreed the share price is pinned near the offer,
+      // so it looks ultra-calm to the model but has almost no upside left.
+      const pinned = a.cls === 'stock' && isNum(m.vol) && m.vol < 0.08;
+      const bid = (symNews[a.symbol] || []).some((n) => TAKEOVER_RE.test(n.title || ''));
+      if (pinned) {
+        c -= 15;
+        risks.unshift(bid ? 'a takeover offer is pending, so the price is pinned near the offer with little upside left'
+                          : `the price has barely moved (${fmtPct(m.vol, 0)} annual swings), which usually means a takeover offer is pending`);
+        timing = 'takeover';
+      }
       // A dip level only makes sense below today's price.
       const dipLevel = isNum(m.sma50) && m.sma50 < m.price * 0.99 ? m.sma50 : null;
       if (timing === 'dip' && !dipLevel) timing = 'watch';
@@ -488,7 +499,7 @@
       perSector[r.a.sector] = (perSector[r.a.sector] || 0) + 1;
       picks.push(r);
     }
-    const uk = rows.find((r) => r.a.cls === 'stock' && r.a.region === 'UK' && r.a.signal === 'BUY' && r.timing !== 'results');
+    const uk = rows.find((r) => r.a.cls === 'stock' && r.a.region === 'UK' && r.a.signal === 'BUY' && r.timing !== 'results' && r.timing !== 'takeover');
     const dips = rows.filter((r) => r.timing === 'dip' && r.a.signal === 'BUY').slice(0, 4);
     const results = rows.filter((r) => r.timing === 'results').slice(0, 3);
     const avoid = [];
@@ -502,6 +513,7 @@
       const a = r.a;
       const firstCon = r.risks[0] || lower(a.reasons.cons[0]) || '';
       if (picks.includes(r) || uk === r) r.verdict = { key: 'top', label: 'Top pick', reason: r.why[0] || '' };
+      else if (r.timing === 'takeover') r.verdict = { key: 'hold', label: 'Takeover pending', reason: r.risks[0] };
       else if (r.timing === 'results') r.verdict = { key: 'results', label: 'Wait for results', reason: r.risks.find((x) => /results/.test(x)) || '' };
       else if (a.signal === 'BUY' && r.timing === 'now') r.verdict = { key: 'good', label: 'Good buy', reason: r.why[0] || '' };
       else if (a.signal === 'BUY' && r.timing === 'dip') r.verdict = { key: 'dip', label: 'Buy on a dip', reason: firstCon };

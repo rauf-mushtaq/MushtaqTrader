@@ -124,6 +124,7 @@ main { max-width: 1320px; margin: 0 auto; padding: 24px 20px 8px; }
 .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .row { display: flex; align-items: center; gap: 8px; }
 .row.wrap { flex-wrap: wrap; }
+.chart-controls { flex-wrap: wrap; max-width: 100%; }
 .between { justify-content: space-between; }
 .spacer { flex: 1; }
 

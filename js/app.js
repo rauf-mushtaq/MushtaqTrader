@@ -490,6 +490,9 @@
     if (key === 'top' || key === 'good') {
       return `${key === 'top' ? 'One of my top picks right now.' : 'I think this is a good buy.'} ${why ? cap(why) + '.' : ''}${today}${risk ? ' Watch out: ' + risk + '.' : ''}`;
     }
+    if (r.timing === 'takeover') {
+      return `Not one to buy now: ${risk}. The share price usually stays close to the offer until the deal completes, so its calm, steady chart doesn't mean much here.`;
+    }
     if (key === 'dip') {
       return `Good company, but I'd wait before buying: ${risk || 'it has risen a lot recently'}.${r.dipLevel ? ` A better price would be below ${fmtPrice(a, r.dipLevel)} (its average over the last 50 days).` : ''}`;
     }
@@ -531,6 +534,8 @@
     if (a.score == null) return { title: 'Not scored', text: `${typeLabel(a)}s are shown for market context only.` };
     const m = a.metrics;
     const hot = isNum(m.rsi14) && m.rsi14 > 70;
+    const cv = state.view && state.view.bySymbol[a.symbol];
+    if (cv && cv.timing === 'takeover') return { title: 'Takeover pending', text: 'The price is held close to a takeover offer, so trend and risk scores look better than they really are. There is little upside left unless a higher bid arrives.' };
     if (a.signal === 'BUY' && hot) return { title: 'Strong, but stretched', text: `It ranks #${a.rankPos} of ${state.ranked.length}, but it has risen fast (RSI ${m.rsi14.toFixed(0)}). Buyers often wait for a pullback towards the 50-day average (${fmtPrice(a, m.sma50)}).` };
     if (a.signal === 'BUY') return { title: 'Data supports buying', text: `It ranks #${a.rankPos} of ${state.ranked.length} on trend, momentum and risk, and the entry timing looks reasonable. Check the news below for anything that could change the picture.` };
     if (a.signal === 'HOLD') return { title: 'No clear edge', text: `Mixed signals (rank #${a.rankPos} of ${state.ranked.length}). If you already own it there is no strong reason to sell; if not, higher-ranked assets look better right now.` };
@@ -658,7 +663,7 @@
       ${methodology()}`;
   }
 
-  const TIMING = { now: ['BUY NOW', 'BUY'], dip: ['BUY ON A DIP', 'HOLD'], results: ['WAIT FOR RESULTS', 'HOLD'], watch: ['WATCH', 'HOLD'] };
+  const TIMING = { now: ['BUY NOW', 'BUY'], dip: ['BUY ON A DIP', 'HOLD'], results: ['WAIT FOR RESULTS', 'HOLD'], watch: ['WATCH', 'HOLD'], takeover: ['TAKEOVER PENDING', 'HOLD'] };
   function claudeCard() {
     const v = state.view;
     if (!v || !v.picks.length) return '';
