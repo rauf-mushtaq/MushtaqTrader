@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-20T21:54:14Z",
+  "updated": "2026-11-23T08:53:24Z",
   "author": "Claude",
-  "based_on_data": "2026-11-20T21:52:42Z",
-  "headline": "S&P 500 and Dow fall into correction as the AI sell-off knocks 14% off Nvidia",
-  "summary": "This was the worst day of the sell-off so far. The S&P 500 fell 3.7%, its seventh straight loss, leaving it 11.6% below its high and down 8.6% this week. The Dow lost 1.9%, and the Nasdaq dropped 5.3%, wiping out its gains for 2026. Chip makers took the heaviest hit, and President Trump added pressure by threatening to stop US companies building AI data centres abroad. The VIX fear gauge jumped 26% to 35.9. Steady consumer and healthcare names held up, so the picks stay defensive: in markets this nervous I'd buy slowly in small amounts rather than all at once.",
+  "based_on_data": "2026-11-23T08:46:37Z",
+  "headline": "US futures bounce 2% after last week's rout as a shortened Thanksgiving week begins",
+  "summary": "After an 8.6% fall in the S&P 500 last week, markets are steadier this morning. S&P 500 futures are up about 2%, the FTSE 100 is up 0.4% and Germany's DAX 0.5%, and the VIX fear gauge has eased 13% to 31.2. Traders have also dropped bets on a big half-point Fed rate rise in December after the sell-off. One good morning doesn't end a correction, though: the S&P 500 is still 6% below its 200-day average, so the picks stay defensive. US markets are shut on Thursday for Thanksgiving, so trading may be thin this week.",
   "points": [
-    "Chip stocks crashed. Nvidia fell 14% to end its longest weekly losing streak since 2008, and Arm, Micron, AMD and Broadcom each lost 12–14%. Tech is the weakest sector by far.",
-    "Defensive names rose: General Mills was up 3.7%, UnitedHealth 2.8%, AT&T 2.1% and Colgate 1.9%. Consumer staples were the only sector up on average.",
-    "Johnson & Johnson and the US healthcare fund join the picks. AbbVie and Gilead move to 'good buy' because I cap picks at two per sector. I also fixed a flaw: easyJet looked ultra-calm only because its share price is pinned near a £5.7bn takeover offer, so it's now marked 'takeover pending' instead of being picked.",
-    "Gold fell another 4.3% to about $3,526, so it isn't acting as a safe place to hide. Oil edged up 0.6%.",
-    "Bitcoin dropped 4.8% to about $58,900, and every major cryptocurrency is still in a downtrend."
+    "The picks are unchanged from Friday: Visa, Coca-Cola, Tesco, Johnson & Johnson and the US healthcare fund (XLV). Altria, AbbVie and Gilead are still rated 'good buy'.",
+    "London's biggest fallers from Friday are leading the bounce: Rolls-Royce is up 1.7%, HSBC 1.5%, Glencore 1.5% and Anglo American 1.4%. Vodafone is down 2.5%.",
+    "Gold is up 2.7% to about $3,610 after last week's slide. Oil is down 1.4% to $82.80, even after Yemen's Houthis claimed attacks on a Saudi oil refinery.",
+    "Tech is still the weakest sector, and new US probes into the Nvidia chip-smuggling case keep chip stocks under a cloud.",
+    "Bitcoin is up 0.5% at about $61,500, but every major cryptocurrency is still in a downtrend."
   ]
 }
