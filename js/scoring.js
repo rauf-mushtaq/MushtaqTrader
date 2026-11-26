@@ -422,6 +422,15 @@
   // business having a bad patch), heavily sold (low RSI), analysts see upside,
   // healthy finances, no bad company-specific news, and signs of turning up.
   // Steep, long slides with bad news are flagged as falling knives instead.
+  // Household names: big, famous companies that have a long record of coming back
+  // after a fall. A heavy drop in one of these is treated as a buying chance.
+  const FAMOUS = new Set(['AAPL','MSFT','NVDA','GOOGL','META','AVGO','AMD','ORCL','CRM','ADBE','INTC','CSCO','QCOM','TSM',
+    'PLTR','MU','IBM','NOW','AMZN','TSLA','HD','MCD','NKE','SBUX','LOW','BKNG','CMG','WMT','COST','PG','KO','PEP','PM','TGT',
+    'JPM','BAC','V','MA','GS','MS','WFC','AXP','BRK-B','PYPL','C','COIN','LLY','UNH','JNJ','ABBV','MRK','PFE','NVO','CVS',
+    'XOM','CVX','GE','CAT','BA','HON','UNP','LMT','NFLX','DIS','CMCSA','T','VZ','UBER','ABNB','F','GM','LULU','SHOP','ASML','ARM',
+    'DELL','HOOD','RIVN','CCL','RCL','DAL','UAL','FDX','UPS','MRNA','FCX','TMO','MDT','ABT','AMGN','GILD','BMY',
+    'SHEL.L','BP.L','HSBA.L','AZN.L','ULVR.L','GSK.L','LLOY.L','BARC.L','VOD.L','RR.L','TSCO.L','GLEN.L','RIO.L','BATS.L','DGE.L','NG.L']);
+
   function dipView(ranked, regime, opts) {
     const symNews = opts.symbolNews || {};
     const mentions = opts.mentions || {};
@@ -439,7 +448,10 @@
         c += Math.min(depth, 0.45) * 60;
         why.push(`it's ${fmtPct(fromHigh, 0)} below its 52-week high${fell1m >= 0.05 ? ` and fell ${fmtPct(fell1m, 0)} this month` : ''}`);
       }
-      if (depth > 0.5) { c -= 12; risks.push(`down more than half from its high, so something may be badly wrong`); }
+      const famous = a.cls === 'stock' && FAMOUS.has(a.symbol);
+      const famousDip = famous && isDip && depth >= 0.15;
+      if (famousDip) { c += 12; why.unshift(`a household name that's ${fmtPct(depth, 0)} off its high, and big famous companies have a long record of bouncing back`); }
+      if (depth > 0.5 && !famous) { c -= 12; risks.push(`down more than half from its high, so something may be badly wrong`); }
       // heavily sold
       if (isNum(m.rsi14)) {
         if (m.rsi14 < 30) { c += 8; why.push(`heavily sold (RSI ${m.rsi14.toFixed(0)}), which often comes before a bounce`); }
@@ -449,7 +461,7 @@
       if (isNum(m.r1y)) {
         if (m.r1y > 0.10) { c += 8; why.push(`still up ${fmtPct(m.r1y, 0)} over the past year`); }
         else if (m.r1y > 0) c += 4;
-        else if (m.r1y < -0.30) { c -= 10; risks.push(`down ${fmtPct(-m.r1y, 0)} over a year, a long slide rather than a dip`); }
+        else if (m.r1y < -0.30) { c -= famous ? 3 : 10; risks.push(`down ${fmtPct(-m.r1y, 0)} over a year, a long slide rather than a dip`); }
         else if (m.r1y < -0.10) { c -= 4; risks.push(`down ${fmtPct(-m.r1y, 0)} over the past year`); }
       }
       // analysts and finances
@@ -484,15 +496,15 @@
       }
       // a buy-below level for good assets that haven't dropped yet
       const dipLevel = !isDip && isNum(m.yearHigh) ? m.yearHigh * 0.9 : null;
-      return { a, conviction: Math.round(clamp(c, 0, 110)), why, risks, timing, dipLevel, isDip, depth, style: 'dip' };
+      return { a, conviction: Math.round(clamp(c, 0, 110)), why, risks, timing, dipLevel, isDip, depth, famous, famousDip, style: 'dip' };
     }).sort((x, y) => y.conviction - x.conviction);
 
     const picks = [], perSector = {};
     const clash = (sym) => SAME_BET.some((pair) => pair.includes(sym) && picks.some((p) => pair.includes(p.a.symbol) && p.a.symbol !== sym));
     for (const r of rows) {
-      if (picks.length >= (opts.max || 5)) break;
-      if (r.timing !== 'now' || r.conviction < 60) continue;
-      if ((perSector[r.a.sector] || 0) >= 2 || clash(r.a.symbol)) continue;
+      if (picks.length >= (opts.max || 12)) break;
+      if (r.timing !== 'now' || r.conviction < (r.famousDip ? 52 : 60)) continue;
+      if ((perSector[r.a.sector] || 0) >= (r.famousDip && r.depth >= 0.25 ? 5 : 2) || clash(r.a.symbol)) continue;
       perSector[r.a.sector] = (perSector[r.a.sector] || 0) + 1;
       picks.push(r);
     }
@@ -500,7 +512,7 @@
     // Good assets that haven't dropped yet: the price to wait for.
     const dips = rows.filter((r) => r.timing === 'wait' && r.a.signal === 'BUY' && r.dipLevel).sort((x, y) => y.a.score - x.a.score).slice(0, 4);
     const results = rows.filter((r) => r.timing === 'results' && r.conviction >= 55).slice(0, 3);
-    const knives = rows.filter((r) => r.isDip && r.timing === 'now' && r.conviction < 45 && r.a.cls === 'stock')
+    const knives = rows.filter((r) => r.isDip && r.timing === 'now' && r.conviction < 45 && r.a.cls === 'stock' && !r.famousDip)
       .sort((x, y) => y.depth - x.depth).slice(0, 4);
     const avoid = [];
     if (knives.length) avoid.push(`Falling knives: ${knives.map((r) => r.a.symbol).join(', ')}. Down a lot, but with no sign it's over yet`);
@@ -513,7 +525,7 @@
       else if (picks.includes(r) || uk === r) r.verdict = { key: 'top', label: 'Top dip buy', reason: r.why[0] || '' };
       else if (r.timing === 'results' && r.conviction >= 55) r.verdict = { key: 'results', label: 'Wait for results', reason: r.risks.find((x) => /results/.test(x)) || '' };
       else if (r.isDip && r.conviction >= 66) r.verdict = { key: 'good', label: 'Good dip to buy', reason: r.why[0] || '' };
-      else if (r.isDip && r.conviction < 45) r.verdict = { key: 'avoid', label: 'Falling knife', reason: firstRisk || 'down a lot with nothing yet suggesting a recovery' };
+      else if (r.isDip && r.conviction < 45 && !r.famousDip) r.verdict = { key: 'avoid', label: 'Falling knife', reason: firstRisk || 'down a lot with nothing yet suggesting a recovery' };
       else if (r.isDip) r.verdict = { key: 'hold', label: 'Risky dip', reason: firstRisk || 'mixed signals' };
       else if (r.a.signal === 'BUY') r.verdict = { key: 'dip', label: 'Wait for a dip', reason: `only ${fmtPct(r.depth, 0)} below its high` };
       else r.verdict = { key: 'hold', label: 'Not yet', reason: `not down much (${fmtPct(r.depth, 0)} below its high) and the signals are mixed` };
