@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-26T08:53:25Z",
+  "updated": "2026-11-26T13:53:33Z",
   "author": "Claude",
-  "based_on_data": "2026-11-26T08:52:28Z",
-  "headline": "Global stocks rally despite US tariffs; famous dips still lead the picks",
-  "summary": "Global stocks rallied as investors shrugged off US tariffs and AI jitters, though US markets are shut today for Thanksgiving. The market backdrop still reads Cautious. The dip picks are led by TSMC, AMD, Dell, Freeport-McMoRan, Glencore, Netflix and UnitedHealth, with Nvidia, Intel, Micron, ASML and Arm also well below their highs. Glencore and Rio Tinto are bouncing today (up 3.7% and 2.9%) after Wednesday's mining sell-off, while Micron slipped 4.5%. Dips can keep falling, so smaller buys spread the risk. Not financial advice.",
+  "based_on_data": "2026-11-26T13:46:19Z",
+  "headline": "Nvidia chip-shipment freeze weighs on AI stocks while global shares rally",
+  "summary": "Global stocks rallied as investors shrugged off US tariffs and AI jitters and went to 'fish for bargains', but a headline about a Nvidia shipment freeze and US chip curbs put AI stocks under pressure. Nvidia is down 3.9% today, Micron 4.5%, ASML 2.5% and TSMC 2%. US markets are shut for Thanksgiving, so these moves are on thin trading. The backdrop still reads Cautious. The dip picks are led by TSMC, AMD, Freeport-McMoRan, Glencore, Netflix and UnitedHealth, with Nvidia (39% below its high), Intel, Dell and Arm also deeply marked down. Chip headlines can keep pushing these lower before they recover, so smaller buys spread the risk. Not financial advice.",
   "points": [
-    "Global stocks rallied as investors shrugged off US tariffs and AI jitters.",
-    "Dip picks: TSMC (30% below its high), AMD (38%), Dell (50%), Netflix (46%), UnitedHealth (25%).",
-    "Miners are bouncing: Glencore up 3.7% and Rio Tinto up 2.9% today.",
-    "Waiting for a dip: Coca-Cola below $90.50, Visa below $398, AbbVie below $272.68.",
-    "Falling knife flagged: Reckitt (RKT.L); crypto is still falling across the board."
+    "Nvidia shipment freeze and US chip curbs put AI stocks under pressure: Nvidia -3.9%, Micron -4.5%, ASML -2.5%.",
+    "Global stocks rallied as investors shrugged off US tariffs; US tariff-hike threats pile pressure on partners to sign trade deals.",
+    "Miners are bouncing: Glencore up 3.8% today after Wednesday's sell-off.",
+    "Crypto: bitcoin little changed with DeFi tokens leading a bounce; bitcoin ETFs are bleeding cash.",
+    "Falling knives flagged: Experian (EXPN.L) and Reckitt (RKT.L). Waiting for a dip: Coca-Cola, Visa, AbbVie."
   ]
 }
