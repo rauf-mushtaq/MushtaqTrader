@@ -409,8 +409,121 @@
     return { pos, neg, net: pos - neg };
   }
 
+  // Two buying styles. 'dip' (the default) looks for good assets that have fallen a
+  // lot and could bounce back; 'trend' buys assets that are already rising steadily.
   function claudeView(ranked, regime, opts) {
     opts = opts || {};
+    return opts.style === 'trend' ? trendView(ranked, regime, opts) : dipView(ranked, regime, opts);
+  }
+
+  // ---------- Buy the dip ----------
+  // A dip = at least 10% below its 52-week high, or down 8%+ over the past month.
+  // Among those, prefer ones likely to recover: strong over the past year (a good
+  // business having a bad patch), heavily sold (low RSI), analysts see upside,
+  // healthy finances, no bad company-specific news, and signs of turning up.
+  // Steep, long slides with bad news are flagged as falling knives instead.
+  function dipView(ranked, regime, opts) {
+    const symNews = opts.symbolNews || {};
+    const mentions = opts.mentions || {};
+    const rows = ranked.map((a) => {
+      const m = a.metrics, f = a.fund || {};
+      const why = [], risks = [];
+      const fromHigh = isNum(m.fromHigh) ? -m.fromHigh : 0;   // 0.25 = 25% below its high
+      const fell1m = isNum(m.r1m) ? -m.r1m : 0;
+      const isDip = fromHigh >= 0.10 || fell1m >= 0.08;
+      let c = 40 + (a.score - 50) * 0.15;
+      let timing = isDip ? 'now' : 'wait';
+      // how big a discount
+      const depth = Math.max(fromHigh, fell1m);
+      if (isDip) {
+        c += Math.min(depth, 0.45) * 60;
+        why.push(`it's ${fmtPct(fromHigh, 0)} below its 52-week high${fell1m >= 0.05 ? ` and fell ${fmtPct(fell1m, 0)} this month` : ''}`);
+      }
+      if (depth > 0.5) { c -= 12; risks.push(`down more than half from its high, so something may be badly wrong`); }
+      // heavily sold
+      if (isNum(m.rsi14)) {
+        if (m.rsi14 < 30) { c += 8; why.push(`heavily sold (RSI ${m.rsi14.toFixed(0)}), which often comes before a bounce`); }
+        else if (m.rsi14 < 40) { c += 4; why.push(`oversold (RSI ${m.rsi14.toFixed(0)})`); }
+      }
+      // longer-term strength: a good business having a bad patch vs a long slide
+      if (isNum(m.r1y)) {
+        if (m.r1y > 0.10) { c += 8; why.push(`still up ${fmtPct(m.r1y, 0)} over the past year`); }
+        else if (m.r1y > 0) c += 4;
+        else if (m.r1y < -0.30) { c -= 10; risks.push(`down ${fmtPct(-m.r1y, 0)} over a year, a long slide rather than a dip`); }
+        else if (m.r1y < -0.10) { c -= 4; risks.push(`down ${fmtPct(-m.r1y, 0)} over the past year`); }
+      }
+      // analysts and finances
+      if (isNum(f.upside)) {
+        if (f.upside >= 0.20) { c += 8; why.push(`analysts see ${fmtPct(f.upside, 0)} upside`); }
+        else if (f.upside >= 0.10) { c += 5; why.push(`analysts see ${fmtPct(f.upside, 0)} upside`); }
+        else if (f.upside < 0) { c -= 5; risks.push(`already above analysts' target`); }
+      }
+      const g = f.data && f.data.grades;
+      if (g && /sell/i.test(g.consensus)) { c -= 5; risks.push(`most analysts say ${g.consensus}`); }
+      const h = f.data && f.data.health;
+      if (h && h.rating) {
+        if (h.rating[0] === 'A') { c += 4; why.push(`strong finances (${h.rating})`); }
+        else if (/^[CDF]/.test(h.rating)) { c -= 6; risks.push(`weaker finances (${h.rating})`); }
+      }
+      // news behind the fall
+      const tone = newsTone((symNews[a.symbol] || []).concat(mentions[a.symbol] || []));
+      if (tone.net <= -2) { c -= 6; risks.push('bad news behind the fall'); }
+      else if (tone.net >= 2) { c += 3; why.push('recent headlines are positive'); }
+      // turning up
+      if (isDip && isNum(m.change1d) && m.change1d >= 0.01) { c += 3; why.push(`starting to bounce (up ${fmtPct(m.change1d, 1)} today)`); }
+      // kind of asset
+      if (a.cls === 'etf') { c += 4; why.push('a whole basket of companies, so less risky than one share'); }
+      if (a.cls === 'crypto') { c -= 8; risks.push('crypto can keep falling much further than shares'); }
+      if (isNum(m.vol) && m.vol > 0.6) { c -= 4; risks.push(`very big swings (${fmtPct(m.vol, 0)} a year)`); }
+      // results soon: prices can gap either way
+      if (f.earnings && f.earnings.days <= 7) { c -= 3; risks.push(`results due ${f.earnings.days <= 1 ? 'within a day' : 'in ' + f.earnings.days + ' days'}`); if (isDip) timing = 'results'; }
+      // takeover targets are pinned to the offer price
+      if (a.cls === 'stock' && isNum(m.vol) && m.vol < 0.08) {
+        timing = 'takeover';
+        risks.unshift('a takeover offer looks to be pending, so the price is pinned near the offer with little upside left');
+      }
+      // a buy-below level for good assets that haven't dropped yet
+      const dipLevel = !isDip && isNum(m.yearHigh) ? m.yearHigh * 0.9 : null;
+      return { a, conviction: Math.round(clamp(c, 0, 110)), why, risks, timing, dipLevel, isDip, depth, style: 'dip' };
+    }).sort((x, y) => y.conviction - x.conviction);
+
+    const picks = [], perSector = {};
+    const clash = (sym) => SAME_BET.some((pair) => pair.includes(sym) && picks.some((p) => pair.includes(p.a.symbol) && p.a.symbol !== sym));
+    for (const r of rows) {
+      if (picks.length >= (opts.max || 5)) break;
+      if (r.timing !== 'now' || r.conviction < 60) continue;
+      if ((perSector[r.a.sector] || 0) >= 2 || clash(r.a.symbol)) continue;
+      perSector[r.a.sector] = (perSector[r.a.sector] || 0) + 1;
+      picks.push(r);
+    }
+    const uk = rows.find((r) => r.a.cls === 'stock' && r.a.region === 'UK' && r.timing === 'now' && r.conviction >= 55);
+    // Good assets that haven't dropped yet: the price to wait for.
+    const dips = rows.filter((r) => r.timing === 'wait' && r.a.signal === 'BUY' && r.dipLevel).sort((x, y) => y.a.score - x.a.score).slice(0, 4);
+    const results = rows.filter((r) => r.timing === 'results' && r.conviction >= 55).slice(0, 3);
+    const knives = rows.filter((r) => r.isDip && r.timing === 'now' && r.conviction < 45 && r.a.cls === 'stock')
+      .sort((x, y) => y.depth - x.depth).slice(0, 4);
+    const avoid = [];
+    if (knives.length) avoid.push(`Falling knives: ${knives.map((r) => r.a.symbol).join(', ')}. Down a lot, but with no sign it's over yet`);
+    const cryptos = ranked.filter((a) => a.cls === 'crypto');
+    if (cryptos.length && cryptos.every((a) => a.signal === 'AVOID')) avoid.push('Crypto: every coin is still falling, and crypto dips can run much deeper than shares');
+
+    rows.forEach((r) => {
+      const firstRisk = r.risks[0] || '';
+      if (r.timing === 'takeover') r.verdict = { key: 'hold', label: 'Takeover pending', reason: firstRisk };
+      else if (picks.includes(r) || uk === r) r.verdict = { key: 'top', label: 'Top dip buy', reason: r.why[0] || '' };
+      else if (r.timing === 'results' && r.conviction >= 55) r.verdict = { key: 'results', label: 'Wait for results', reason: r.risks.find((x) => /results/.test(x)) || '' };
+      else if (r.isDip && r.conviction >= 66) r.verdict = { key: 'good', label: 'Good dip to buy', reason: r.why[0] || '' };
+      else if (r.isDip && r.conviction < 45) r.verdict = { key: 'avoid', label: 'Falling knife', reason: firstRisk || 'down a lot with nothing yet suggesting a recovery' };
+      else if (r.isDip) r.verdict = { key: 'hold', label: 'Risky dip', reason: firstRisk || 'mixed signals' };
+      else if (r.a.signal === 'BUY') r.verdict = { key: 'dip', label: 'Wait for a dip', reason: `only ${fmtPct(r.depth, 0)} below its high` };
+      else r.verdict = { key: 'hold', label: 'Not yet', reason: `not down much (${fmtPct(r.depth, 0)} below its high) and the signals are mixed` };
+    });
+    const bySymbol = Object.fromEntries(rows.map((r) => [r.a.symbol, r]));
+    return { style: 'dip', picks, uk: uk && !picks.includes(uk) ? uk : null, dips, results, avoid, strongSectors: [], bySymbol };
+  }
+
+  // ---------- Follow the trend ----------
+  function trendView(ranked, regime, opts) {
     const symNews = opts.symbolNews || {};
     const mentions = opts.mentions || {};       // symbol -> market headlines mentioning it
     const cautious = regime && regime.label === 'Cautious';
@@ -521,7 +634,7 @@
       else r.verdict = { key: 'hold', label: 'Not yet', reason: firstCon || `mixed signals (score ${a.score}/100), not strong enough to buy yet` };
     });
     const bySymbol = Object.fromEntries(rows.map((r) => [r.a.symbol, r]));
-    return { picks, uk: uk && !picks.includes(uk) ? uk : null, dips, results, avoid, strongSectors, bySymbol };
+    return { style: 'trend', picks, uk: uk && !picks.includes(uk) ? uk : null, dips, results, avoid, strongSectors, bySymbol };
   }
 
   const api = {

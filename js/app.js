@@ -29,6 +29,7 @@
     newsTopic: 'all',
     mktOpen: new Set(),
     mktVerdict: 'all',
+    style: (() => { try { return localStorage.getItem('mushtaqtrader.style') === 'trend' ? 'trend' : 'dip'; } catch (e) { return 'dip'; } })(),
     search: '',
     tf: '6M',
     chartMode: 'candle',
@@ -263,7 +264,7 @@
     state.ranked = res.ranked;
     const mentions = {};
     state.news.forEach((n) => n.mentions.forEach((sym) => { (mentions[sym] = mentions[sym] || []).push(n); }));
-    state.view = Scoring.claudeView(res.ranked, res.regime, { symbolNews: (state.data.news || {}).symbols || {}, mentions });
+    state.view = Scoring.claudeView(res.ranked, res.regime, { symbolNews: (state.data.news || {}).symbols || {}, mentions, style: state.style });
     if (!state.selected && res.ranked.length) state.selected = res.ranked[0].symbol;
   }
 
@@ -474,6 +475,7 @@
   // What Claude thinks, in plain words, for any asset.
   function opinionText(r, a) {
     if (!r || !r.verdict) return '';
+    if (r.style === 'dip') return dipOpinion(r, a);
     const m = a.metrics, key = r.verdict.key;
     const cap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
     const why = r.why.slice(0, 2).join(', and ');
@@ -508,6 +510,28 @@
     return `Not yet: ${r.verdict.reason || 'the signals are mixed'}. ${why ? 'In its favour: ' + why + '.' : ''}`.trim();
   }
 
+  // "Buy the dip" wording: how far it has fallen, why it could recover, and what could go wrong.
+  function dipOpinion(r, a) {
+    const m = a.metrics, key = r.verdict.key;
+    const cap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
+    const why = r.why.filter((w) => !/below its 52-week high/.test(w)).slice(0, 2).join(', and ');
+    const risk = r.risks[0];
+    const down = isNum(m.fromHigh) ? `It's ${p1(-m.fromHigh, 0).slice(1)} below its 52-week high` : 'It has fallen';
+    const month = isNum(m.r1m) && m.r1m <= -0.05 ? ` and down ${p1(-m.r1m, 0).slice(1)} this month` : '';
+    if (r.timing === 'takeover') return `Not one to buy now: ${risk}.`;
+    if (key === 'top' || key === 'good') {
+      return `${key === 'top' ? 'One of my top dip buys.' : 'A good dip to buy.'} ${down}${month}. ${why ? cap(why) + '.' : ''}${risk ? ' Watch out: ' + risk + '.' : ''} Dips can go lower before they recover, so buying in a few smaller amounts spreads the risk.`;
+    }
+    if (key === 'results') {
+      const e = a.fund && a.fund.earnings;
+      return `${down}${month}, but I'd wait for its results${e ? ' on ' + earnLabel(e) : ''}. Prices often jump or drop sharply on results day.`;
+    }
+    if (key === 'avoid') return `${down}${month}, but it looks like a falling knife: ${r.verdict.reason}. I'd wait until it stops falling.`;
+    if (key === 'dip') return `Good company, but it hasn't dropped much: ${r.verdict.reason}.${r.dipLevel ? ` I'd look again if it falls below ${fmtPrice(a, r.dipLevel)} (10% under its high).` : ''}`;
+    if (r.isDip) return `${down}${month}, but it's a risky dip: ${r.verdict.reason}.${why ? ' In its favour: ' + why + '.' : ''}`;
+    return `Not yet: ${r.verdict.reason}.`;
+  }
+
   function verdictText(r, a) {
     if (!r || !r.verdict) return '';
     let reason = r.verdict.reason || '';
@@ -536,6 +560,7 @@
     const hot = isNum(m.rsi14) && m.rsi14 > 70;
     const cv = state.view && state.view.bySymbol[a.symbol];
     if (cv && cv.timing === 'takeover') return { title: 'Takeover pending', text: 'The price is held close to a takeover offer, so trend and risk scores look better than they really are. There is little upside left unless a higher bid arrives.' };
+    if (cv && cv.style === 'dip') return { title: cv.verdict.label, text: dipOpinion(cv, a) };
     if (a.signal === 'BUY' && hot) return { title: 'Strong, but stretched', text: `It ranks #${a.rankPos} of ${state.ranked.length}, but it has risen fast (RSI ${m.rsi14.toFixed(0)}). Buyers often wait for a pullback towards the 50-day average (${fmtPrice(a, m.sma50)}).` };
     if (a.signal === 'BUY') return { title: 'Data supports buying', text: `It ranks #${a.rankPos} of ${state.ranked.length} on trend, momentum and risk, and the entry timing looks reasonable. Check the news below for anything that could change the picture.` };
     if (a.signal === 'HOLD') return { title: 'No clear edge', text: `Mixed signals (rank #${a.rankPos} of ${state.ranked.length}). If you already own it there is no strong reason to sell; if not, higher-ranked assets look better right now.` };
@@ -666,7 +691,7 @@
   const TIMING = { now: ['BUY NOW', 'BUY'], dip: ['BUY ON A DIP', 'HOLD'], results: ['WAIT FOR RESULTS', 'HOLD'], watch: ['WATCH', 'HOLD'], takeover: ['TAKEOVER PENDING', 'HOLD'] };
   function claudeCard() {
     const v = state.view;
-    if (!v || !v.picks.length) return '';
+    if (!v) return '';
     const note = state.note;
     const noteAge = note && note.updated ? (Date.now() - Date.parse(note.updated)) / 86400000 : null;
     const dataAt = Date.parse(state.data.generated_at);
@@ -678,7 +703,7 @@
         <div class="cv-rank">${i + 1}</div>
         <div class="cv-main">
           <div class="row wrap" style="gap:6px 8px"><b class="cv-sym">${esc(a.symbol)}</b><span class="muted small">${esc(a.name)}</span>
-            <span class="badge BUY">${TIMING[r.timing][0]}</span>${uk ? '<span class="badge type" title="UK share: no currency risk, ISA-friendly">UK · ISA-friendly</span>' : ''}</div>
+            <span class="badge BUY">${v.style === 'dip' ? 'BUY THE DIP' : TIMING[r.timing][0]}</span>${uk ? '<span class="badge type" title="UK share: no currency risk, ISA-friendly">UK · ISA-friendly</span>' : ''}</div>
           ${describe(a.symbol) ? `<div class="tiny cv-desc">${esc(describe(a.symbol))}</div>` : ''}
           <div class="small cv-why"><b>What I think:</b> ${esc(opinionText(r, a))}</div>
           ${perfRow(m)}
@@ -694,19 +719,26 @@
         <div class="cv-title"><span class="cv-logo">✦</span> Claude's view</div>
         <span class="tiny faint">Picks recalculated ${ago(dataAt)} from the latest prices, news and analyst data</span>
       </div>
+      <div class="row wrap cv-style" style="gap:8px;margin:2px 0 12px">
+        <span class="small muted">How I pick:</span>
+        <div class="seg">${[['dip', 'Buy the dip'], ['trend', 'Follow the trend']].map(([k, l]) => `<button class="${v.style === k ? 'active' : ''}" data-style="${k}">${l}</button>`).join('')}</div>
+      </div>
       ${note && note.headline ? `<h2 class="cv-head">${esc(note.headline)}</h2>` : ''}
       <p class="cv-summary">${esc(note && note.summary ? note.summary : state.regime.summary)}</p>
       ${note && Array.isArray(note.points) && note.points.length ? `<ul class="cv-points">${note.points.slice(0, 5).map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
       ${note && note.updated ? `<div class="tiny faint" style="margin:-4px 0 12px">Market note written ${fmtDate(Date.parse(note.updated) / 1000, true)}${noteAge > 4 ? ' · <span style="color:var(--hold)">older note — picks below are still current</span>' : ''}</div>` : ''}
-      <div class="card-title" style="margin-top:6px">My picks right now</div>
-      <ol class="cv-picks">${v.picks.map(row).join('')}</ol>
+      <div class="card-title" style="margin-top:6px">${v.style === 'dip' ? 'Best dips to buy right now' : 'My picks right now'}</div>
+      ${v.picks.length ? `<ol class="cv-picks">${v.picks.map(row).join('')}</ol>` : `<p class="small muted">${v.style === 'dip' ? 'No strong dips right now — nothing good has fallen far enough. Check back after the next sell-off.' : 'Nothing meets my bar right now.'}</p>`}
       ${v.uk ? `<div class="card-title" style="margin-top:14px">Best UK option</div><ol class="cv-picks">${row(v.uk, v.picks.length)}</ol>` : ''}
       <div class="grid cols-3 cv-more">
-        ${v.dips.length ? `<div><div class="small muted" style="margin-bottom:8px">Good companies — wait for a dip</div><div class="chips">${v.dips.map((r) => chip(r, r.dipLevel ? 'below ' + fmtPrice(r.a, r.dipLevel) : 'stretched')).join('')}</div></div>` : ''}
+        ${v.dips.length ? `<div><div class="small muted" style="margin-bottom:8px">${v.style === 'dip' ? 'Good companies that haven’t dropped yet — buy if they fall to' : 'Good companies — wait for a dip'}</div><div class="chips">${v.dips.map((r) => chip(r, r.dipLevel ? 'below ' + fmtPrice(r.a, r.dipLevel) : 'stretched')).join('')}</div></div>` : ''}
         ${v.results.length ? `<div><div class="small muted" style="margin-bottom:8px">Results due — wait and see</div><div class="chips">${v.results.map((r) => chip(r, r.a.fund && r.a.fund.earnings ? earnLabel(r.a.fund.earnings).replace(/\s*\(.*\)/, '') : '')).join('')}</div></div>` : ''}
         ${v.avoid.length ? `<div><div class="small muted" style="margin-bottom:8px">Avoid for now</div><ul class="cv-avoid">${v.avoid.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       </div>
-      <p class="tiny faint" style="margin:14px 0 0">How this works: the picks re-rank automatically every time prices, news or analyst data change, using the reasoning Claude applies — analyst upside, entry timing, financial health, earnings dates, headline tone, which sectors suit the current market, and no doubling up on near-identical holdings. A good buy must be rising over the past 3 months and not falling sharply this month; a red number for today alone is normal day-to-day movement. The written note is refreshed three times each weekday (UK morning, before the US open and after the US close). It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
+      <p class="tiny faint" style="margin:14px 0 0">${v.style === 'dip'
+        ? 'How this works (Buy the dip): I look for assets at least 10% below their 52-week high or down 8%+ this month, then favour the ones most likely to recover — still up over the past year, heavily sold, analysts see upside, healthy finances, no bad company news behind the fall, and starting to bounce. Assets in a long slide or with bad news are flagged as falling knives. Dips can keep falling before they recover, so buying in a few smaller amounts spreads the risk.'
+        : 'How this works (Follow the trend): I pick assets that are already rising steadily — analyst upside, calm entry timing, financial health, earnings dates, headline tone and sectors that suit the current market. A good buy must be rising over the past 3 months and not falling sharply this month.'}
+        Picks re-rank automatically every time prices, news or analyst data change. The written note is refreshed three times each weekday. It's a research shortlist, not financial advice; prices can fall as well as rise.</p>
     </div>`;
   }
 
@@ -861,7 +893,9 @@
         <input class="input" id="mkt-search" placeholder="Search a company, symbol, sector or what it does…" value="${esc(state.search)}" style="flex:1;min-width:200px">
       </div>
       <div class="chips scroll-x" style="margin-bottom:8px">
-        ${[['all', 'Every verdict'], ['buy', 'Top picks & good buys'], ['dip', 'Buy on a dip'], ['results', 'Wait for results'], ['hold', 'Not yet'], ['avoid', 'Avoid']].map(([k, l]) => `<button class="fchip ${state.mktVerdict === k ? 'active' : ''}" data-mverdict="${k}">${l}</button>`).join('')}
+        ${(state.style === 'dip'
+          ? [['all', 'Every verdict'], ['buy', 'Dips to buy'], ['dip', 'Wait for a dip'], ['results', 'Wait for results'], ['hold', 'Risky / not yet'], ['avoid', 'Falling knives']]
+          : [['all', 'Every verdict'], ['buy', 'Top picks & good buys'], ['dip', 'Buy on a dip'], ['results', 'Wait for results'], ['hold', 'Not yet'], ['avoid', 'Avoid']]).map(([k, l]) => `<button class="fchip ${state.mktVerdict === k ? 'active' : ''}" data-mverdict="${k}">${l}</button>`).join('')}
       </div>
       <div class="chips scroll-x">
         ${[['all', 'All']].concat(MARKET_GROUPS.map(([k, l]) => [k, l])).map(([k, l]) => `<button class="fchip ${state.mktFilter === k ? 'active' : ''}" data-mkt="${k}">${l}</button>`).join('')}
@@ -1425,6 +1459,11 @@
     if (d.mkt) { state.mktFilter = d.mkt; render(); return; }
     if (d.mopen) { state.mktOpen.add(d.mopen); render(); return; }
     if (d.mverdict) { state.mktVerdict = d.mverdict; render(); return; }
+    if (d.style) {
+      state.style = d.style === 'trend' ? 'trend' : 'dip';
+      try { localStorage.setItem('mushtaqtrader.style', state.style); } catch (err) { /* ignore */ }
+      rescore(); render(); return;
+    }
     if (d.ntopic) { state.newsTopic = d.ntopic; render(); return; }
     if (d.tf) { state.tf = d.tf; if (INTRADAY_TF.has(d.tf)) loadIntraday(); render(); return; }
     if (d.mode) { state.chartMode = d.mode; render(); return; }
