@@ -504,7 +504,7 @@
     for (const r of rows) {
       if (picks.length >= (opts.max || 12)) break;
       if (r.timing !== 'now' || r.conviction < (r.famousDip ? 52 : 60)) continue;
-      if ((perSector[r.a.sector] || 0) >= (r.famousDip && r.depth >= 0.25 ? 5 : 2) || clash(r.a.symbol)) continue;
+      if ((perSector[r.a.sector] || 0) >= (r.famousDip && r.depth >= 0.25 ? 99 : 2) || clash(r.a.symbol)) continue;
       perSector[r.a.sector] = (perSector[r.a.sector] || 0) + 1;
       picks.push(r);
     }
