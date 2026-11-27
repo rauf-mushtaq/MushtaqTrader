@@ -1,14 +1,14 @@
 {
-  "updated": "2026-11-27T13:53:37Z",
+  "updated": "2026-11-27T21:52:54Z",
   "author": "Claude",
-  "based_on_data": "2026-11-27T13:46:10Z",
-  "headline": "Dow futures rally 600 points for the best week since April 2025; S&P 500 still in a correction",
-  "summary": "Dow futures rallied about 600 points, putting the benchmark on course for its best week since April 2025, though the S&P 500 is still described as being in a correction. Nvidia's whiplash is testing the market-signal approach of Kevin Warsh, and budget airline Norse Atlantic filed for bankruptcy in Europe. The backdrop still reads Cautious. The dip picks are led by AMD, TSMC, Freeport-McMoRan, Micron, Cisco, UnitedHealth and Dell, with Intel, ASML, Arm, Netflix and Rio Tinto also well below their highs. Rio Tinto is up 3.2% today while Micron and ASML are still lower. Dips can keep falling, so smaller buys spread the risk. Not financial advice.",
+  "based_on_data": "2026-11-27T21:51:03Z",
+  "headline": "Dow jumps nearly 600 points to close out its best week since 2022; chip dips bounce hard",
+  "summary": "The Dow rallied nearly 600 points to close out its best week since 2022, with the S&P 500 ending the day about 1.6% higher. Chip stocks led the rebound: Micron rose 7.6%, Dell 6.7%, Arm 6.2%, Intel 5.4% and AMD 4.6%, though a CNBC piece notes Jensen Huang's return did little to ease AI jitters. The backdrop still reads Cautious. The dip picks are led by Cisco, ASML, Intel, AMD, TSMC, Dell and Micron, with UnitedHealth, Freeport-McMoRan, Rio Tinto, Nvidia and Arm also well below their highs. Because several have bounced this week, buying in smaller amounts spreads the risk if the dips continue. Not financial advice.",
   "points": [
-    "Dow futures rallied 600 points as the benchmark heads for its best week since April 2025.",
-    "The S&P 500 is in a correction; the CNBC piece notes bear markets and recessions don't always follow.",
-    "Nvidia whiplash tests Kevin Warsh's push to read market signals; premarket movers include SpaceX, Altria, Vertex Pharmaceuticals and Nvidia.",
-    "Norse Atlantic filed for bankruptcy in Europe after failing to secure funding; SAP is reportedly weighing at least 10,000 job cuts.",
-    "Crypto: a bitcoin 'death cross' is coming; every coin is still falling. Experian and Reckitt are flagged as falling knives."
+    "Dow rallied nearly 600 points to close out its best week since 2022.",
+    "Chip rebound: Micron +7.6%, Dell +6.7%, Arm +6.2%, Intel +5.4%, AMD +4.6%, TSMC +3.2%; Nvidia +0.8%.",
+    "OpenAI countersued Apple for stealing trade secrets; hackers breached the US Air Force's Cloud One platform.",
+    "Norse Atlantic filed for bankruptcy in Europe; SpaceX shares jumped over 4%.",
+    "Crypto: every coin is still falling. Intuit and Reckitt are flagged as falling knives; Coca-Cola, Marriott and AbbVie are on the wait-for-a-dip list."
   ]
 }
